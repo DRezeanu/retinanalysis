@@ -69,6 +69,17 @@ class ProtocolChunk(SortingChunk):
 
         
 
+
+
+
+
+
+
+
+
+
+
+# Analysis Class in Progress
 class LetterAnalysis:
 
     def __init__(self, exp_name: str, ks_version: str = 'kilosort2.5'):
