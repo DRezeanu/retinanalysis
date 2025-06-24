@@ -1,7 +1,7 @@
 import schema
 import numpy as np
-import utilities.dr_utils as dr
-import utilities.vr_utils as vr
+import utils.vision_utils as vu
+import utils.datajoint_utils as dju
 import datajoint as dj
 import os
 import pandas as pd
@@ -33,8 +33,10 @@ class NoiseChunk(SortingChunk):
         self.protocol_name = protocol.fetch('name')[0]
         self.protocol_id = protocol.fetch('protocol_id')[0]
 
-        # Get vision data 
-        self.vcd = dr.get_vcd(self.exp_name, self.chunk_name, self.ks_version)
+        self.get_noise_params()
+        self.get_vision_data()
+
+    def get_noise_params(self):
 
         # Get X and Y checks used to calculate STA
         self.staXChecks = int(self.vcd.runtimemovie_params.width)
@@ -62,7 +64,11 @@ class NoiseChunk(SortingChunk):
         self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
         self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
 
+    def get_vision_data(self):
+        self.vcd = vu.get_vcd(self.exp_name, self.chunk_name, self.ks_version)
         self.cell_ids = self.vcd.get_cell_ids()
+
+        self.get_ells()
     
     def get_ells(self):
         self.ell_params = dict()
@@ -75,13 +81,14 @@ class NoiseChunk(SortingChunk):
                                    'std_y' : sta_fit.std_y,
                                    'rot' : sta_fit.rot}
             
-        return self.ell_params
 
 
 class ProtocolChunk(SortingChunk):
 
-    def __init__(self, exp_name, ks_version:str = 'kilosort2.5'):
+    def __init__(self, exp_name, protocol_name, ks_version:str = 'kilosort2.5'):
         super().__init__(exp_name, ks_version)
+
+        self.protocol_name = protocol_name
 
 
         
@@ -120,7 +127,7 @@ class LetterAnalysis:
         self.protocol_id = protocol_id.fetch('protocol_id')[0]
         
         # Check if this protocol shows up more than once in this experiment
-        experiment_summary = vr.mea_exp_summary(exp_name)
+        experiment_summary = dju.mea_exp_summary(exp_name)
         exp_protocol_search = experiment_summary[(experiment_summary['protocol_name']==self.protocol_name)]
         protocol_options = exp_protocol_search.to_string(columns = ['protocol_name', 'minutes_since_start'], header=False, index = False)
 
@@ -136,7 +143,7 @@ class LetterAnalysis:
             self.protocol_instance: int = 0
 
         # Fetch the appropriate protocol datafile path
-        self.protocol_data_file = dr.get_data_path(exp_name = self.exp_name,
+        self.protocol_data_file = vu.get_data_path(exp_name = self.exp_name,
                                             target_protocol = self.protocol_name, protocol_index = self.protocol_instance)
 
         self.protocol_data_file = os.path.basename(self.protocol_data_file)
@@ -209,7 +216,7 @@ class LetterAnalysis:
         
         protocol_classification_file = os.path.join('assets', 'classification_files', str(self.exp_name), f'movingLetters_{self.Noise.chunk_name}_autoClassification.txt')
          
-        self.match_dict = dr.auto_classification(self.exp_name, self.Noise.chunk_name, self.protocol_name,
+        self.match_dict = vu.auto_classification(self.exp_name, self.Noise.chunk_name, self.protocol_name,
                         self.cluster_matching_file, match_index = self.protocol_instance, output_filename = protocol_classification_file)
 
         return self.match_dict

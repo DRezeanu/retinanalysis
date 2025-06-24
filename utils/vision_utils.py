@@ -1,97 +1,15 @@
+from utils.settings import mea_config
 import os
-import schema
-from utilities import sk_pop
-import datajoint as dj
-from utilities import vr_utils as dju
-from utilities.sk_utils import NAS_ANALYSIS_DIR, NAS_DATA_DIR
-import visionloader as vl
 import numpy as np
-from utilities import vr_celltype_io as ctio
-import platform
-from typing import Optional
+import utils.datajoint_utils as dju
+import visionloader as vl
 
-def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
-    dj.config["database.host"] = f"{host_address}"
-    dj.config["database.user"] = f"{user}"
-    dj.config["database.password"] = f"{password}"
-    dj.conn()
-
-
-def initialize_database(username: str = 'drezeanu', data_dir: Optional[str] = None, 
-                        meta_dir: Optional[str] = None, tags_dir: Optional[str] = None):
-    
-    db = dj.VirtualModule('schema.py', 'schema')
-
-    if data_dir is None:
-        if platform.system() == 'Darwin':
-            if os.path.exists('/Volumes/data-1/'):
-                data_dir = os.path.abspath('/Volumes/data-1/data/h5')
-            elif os.path.exists('/Volumes/ExternalM2/mea_ssd/'):
-                data_dir = os.path.abspath('/Volumes/ExternalM2/mea_ssd/data/h5')
-            else:
-                raise Exception("No data path found. Is NAS or SSD connected?")
-        else:
-            if os.path.exists('Z:/data'):
-                data_dir = os.path.abspath('Z:/data/h5')
-            elif os.path.exists('E:/mea_ssd'):
-                data_dir = os.path.abspath('E:/mea_ssd/data/h5')
-            else:
-                raise Exception("No data path found. Is NAS or SSD connected?")
-    else:
-        data_dir = os.path.abspath(data_dir)
-    
-    print(f"Data Dir: {data_dir}")
-    
-    if meta_dir is None:
-        if platform.system() == 'Darwin':
-            if os.path.exists('/Volumes/data-1/'):
-                meta_dir = os.path.abspath('/Volumes/data-1/datajoint_testbed/mea/meta')
-            elif os.path.exists('/Volumes/ExternalM2/mea_ssd/'):
-                meta_dir = os.path.abspath('/Volumes/ExternalM2/mea_ssd/datajoint_testbed/mea/meta')
-            else:
-                raise Exception("No meta path found. Is NAS or SSD connected?")
-        else:
-            if os.path.exists('Z:/datajoint_testbed/'):
-                meta_dir = os.path.abspath('Z:/datajoint_testbed/mea/meta')
-            elif os.path.exists('E:/mea_ssd'):
-                meta_dir = os.path.abspath('E:/mea_ssd/datajoint_testbed/mea/meta')
-            else:
-                raise Exception("No meta path found. Is NAS or SSD connected?")
-    else:       
-        meta_dir = os.path.abspath(meta_dir)
-    
-    print(f"Meta Dir: {meta_dir}")
-    
-    if tags_dir is None:
-        if platform.system() == 'Darwin':
-            if os.path.exists('/Volumes/data-1/'):
-                tags_dir = os.path.abspath('/Volumes/data-1/datajoint_testbed/mea/tags')
-            elif os.path.exists('/Volumes/ExternalM2/mea_ssd'):
-                tags_dir = os.path.abspath('/Volumes/ExternalM2/mea_ssd/datajoint_testbed/mea/tags')
-            else:
-                raise Exception("No tags path found. Is NAS or SSD connected?")
-        else:
-            if os.path.exists('Z:/datajoint_testbed'):
-                tags_dir = os.path.abspath('Z:/datajoint_testbed/mea/tags')
-            elif os.path.exists('E:/mea_ssd'):
-                tags_dir = os.path.abspath('E:/mea_ssd/datajoint_testbed/mea/tags')
-            else:
-                raise Exception("No tags path found. Is NAS or SSD connected?")
-    else:
-        tags_dir = os.path.abspath(tags_dir)
-
-    print(f"Tags Dir: {tags_dir}")
-
-    sk_pop.append_data(data_dir, meta_dir, tags_dir, username, db)
-        
-def update_database(exp_name: str, username: str = 'drezeanu', data_dir = None, meta_dir = None, tags_dir = None):
-    
-    (schema.Experiment() & {'exp_name' : exp_name}).delete(safemode=False)
-    
-    djconnect()
-
-    initialize_database(username)
-
+NAS_DATA_DIR = mea_config['data']
+NAS_ANALYSIS_DIR = mea_config['analysis']
+META_DIR = mea_config['meta']
+TAGS_DIR = mea_config['tags']
+H5_DIR = mea_config['h5']
+USER = mea_config['user']
 
 def get_classification_file_path(classification_file_name: str, exp_name: str, chunk_name: str, 
                                  nas_analysis_dir: str = NAS_ANALYSIS_DIR, ks_version: str = 'kilosort2.5'):
@@ -105,19 +23,6 @@ def get_classification_file_path(classification_file_name: str, exp_name: str, c
 def get_analysis_path(exp_name: str, chunk_name: str, nas_analysis_dir: str = NAS_ANALYSIS_DIR) -> str:
     """
     Constructs the full path to the analysis directory for a specific sorting chunk.
-
-    This function takes the base NAS analysis directory, the experiment name, and
-    the chunk name as input to create the complete path.
-
-    Args:
-        nas_analysis_dir (str): The base directory where all experiment analysis
-            data is stored on the NAS.
-        exp_name (str): The name of the experiment (e.g. 20250307C).
-        chunk_name (str): The name of the specific sorting chunk (e.g. chunk1)
-
-    Returns:
-        str: The full path to the analysis directory for the specified experiment
-             and sorting chunk.
     """
 
     analysis_path = os.path.join(nas_analysis_dir, exp_name, chunk_name)
@@ -128,30 +33,6 @@ def get_analysis_path(exp_name: str, chunk_name: str, nas_analysis_dir: str = NA
 def get_data_path(exp_name: str, target_protocol: str, protocol_index: int = 0, nas_data_dir: str = NAS_DATA_DIR) -> str:
     """
     Constructs the full path to the data directory for a specific experiment protocol.
-
-    This function retrieves the data directory path for a given experiment, target
-    protocol name, and optional protocol index. It utilizes functions from a
-    (presumably) custom module 'dju' to search for the protocol and retrieve
-    experiment summary information.
-
-    Args:
-        exp_name (str): The name of the experiment for which to retrieve the data path.
-        target_protocol (str): The name of the experimental protocol. This is used to
-            identify the relevant entry in the experiment summary.
-        protocol_index (int, optional): The index of the specific protocol instance
-            to retrieve if multiple instances of the same `target_protocol` exist
-            within the experiment. Defaults to 0 (the first instance).
-        nas_data_dir (str): The base directory where sorted experimental data is stored
-            on the NAS.
-
-    Returns:
-        str: The full path to the data directory associated with the specified
-             experiment, protocol, and protocol instance.
-
-    Note:
-        This function relies on the 'djutils' module which provides
-        functionality for searching protocols (`djutils.search_protocol`)
-        and retrieving experiment summaries (`djutils.mea_exp_summary`).
     """
 
     target_protocol_options: np.ndarray = dju.search_protocol(target_protocol)
@@ -176,40 +57,6 @@ def get_vcd(exp_name: str, data_name: str, ks_version: str = 'kilosort2.5',
             nas_analysis_dir: str = NAS_ANALYSIS_DIR, nas_data_dir: str = NAS_DATA_DIR) -> vl.VisionCellDataTable:
     """
     Retrieves a VisionCellDataTable (VCD) object using the visionloader module.
-
-    This function abstracts the process of loading vision data, either from analysis
-    results (identified by chunk name) or raw data (identified by protocol name),
-    using the visionloader.load_vision_data function. It constructs the necessary data path
-    and passes the appropriate arguments to visionloader.load_vision_data.
-
-    Args:
-        exp_name (str): The name of the experiment.
-        data_name (str):  Identifies the data to load.
-            If it contains 'chunk', it's treated as an analysis chunk name.
-            Otherwise, it's treated as a protocol name.
-        ks_version (str): The version of the Kilosort sorting to use.
-        data_index (int, optional):  Used to select a specific instance of the
-            data when multiple instances of the same protocol appear in the
-            same experiment. Defaults to 0.
-        ei (bool, optional):  Include electrical image information.
-            Passed directly to vl.load_vision_data. Defaults to True.
-        sta (bool, optional): Include spike-triggered average information.
-            Passed directly to vl.load_vision_data. Defaults to False.
-        params (bool, optional): Include stimulus parameters.
-            Passed directly to vl.load_vision_data. Defaults to False.
-        neurons (bool, optional): Include neuron information.
-            Passed directly to vl.load_vision_data. Defaults to False.
-        noise (bool, optional): Include noise data.
-            Passed directly to vl.load_vision_data. Defaults to False.
-
-    Returns:
-        vl.VisionCellDataTable: A VCD object containing the loaded vision data.
-
-    Note:
-        -   This function assumes the existence of helper functions `get_analysis_path`
-            and `get_data_path` from this same repository for constructing file paths.
-        -   It also assumes the existence of the `vl.load_vision_data` function from
-            the `vl` module, which is used to load the data.
     """
     
     if 'chunk' in data_name:
@@ -243,8 +90,7 @@ def find_matches(exp_name: str, ref_data: str, match_data: str, corr_cutoff: flo
                  ks_version: str = 'kilosort2.5', ref_index: int = 0,  match_index: int = 0,
                  use_ei: bool = True, use_sta: bool = False, use_params: bool = False,
                  use_neurons: bool = False, use_noise = False, use_isi = False, nas_analysis_dir: str = NAS_ANALYSIS_DIR,
-                 nas_data_dir: str = NAS_DATA_DIR,
-                 cell_type: Optional[str] = None, classification_file: str = "dragos_autoClassification.txt"):
+                 nas_data_dir: str = NAS_DATA_DIR, classification_file: str = "dragos_autoClassification.txt"):
     """
     Finds matching cells between two sorting chunks (reference and match) based on electrical images (EIs)
     and optionally other features.
@@ -253,41 +99,8 @@ def find_matches(exp_name: str, ref_data: str, match_data: str, corr_cutoff: flo
     from two different sources: a reference dataset and a dataset to find matches in.
     It calculates the cross-correlation between EIs to identify potential matches and
     applies additional criteria (if specified) to filter out bad matches.
-
-    Args:
-        exp_name (str): The name of the experiment.
-        ref_data (str):  Identifies the reference data to load.  Can be a chunk name
-            or a protocol name.
-        match_data (str): Identifies the data to find matches in. Can be a chunk name
-            or a protocol name.
-        ks_version (str): The version of the Kilosort used.
-        ref_index (int, optional):  Used to select a specific instance of the
-            reference data, particularly when loading by protocol. Defaults to 0.
-        match_index (int, optional): Used to select a specific instance of the
-            match data, particularly when loading by protocol. Defaults to 0.
-        use_ei (bool, optional): Use electrical images (EIs) for matching. Defaults to True.
-        use_sta (bool, optional): Use spike-triggered averages (STAs) for matching. Defaults to False.
-        use_params (bool, optional): Use stimulus parameters for matching. Defaults to False.
-        use_neurons (bool, optional): Use neuron information for matching. Defaults to False.
-        use_noise (bool, optional): Include noise data when loading. Defaults to False.
-        use_isi (bool, optional): Use interspike interval (ISI) correlation for matching. Defaults to False.
-        cell_type (str, optional): Identify cell type (e.g. OnP) that you want to match. Defaults to None.
-        classification_file (str, optional): Path to reference classification file. Defaults to None.
-
-    Returns:
-        dict: A dictionary where keys are cell IDs from the reference data, and values are the
-            corresponding matching cell IDs from the match data.  Note that only cells with
-            a "good" match are included in the dictionary.
-        float: a floating point number that indicates the percent good matches
-        float: a floating point number that indicates the percent "bad" matches that did not
-            make it into the dictionary
-
-    Note:
-        -   Requires the `get_vcd` function to load the VCD objects.
-        -   Matching is primarily based on the cross-correlation of EIs.
-        -   Additional criteria (STA, ISI correlation) can be used to improve matching accuracy.
-        -   "Bad" matches (low EI correlation, high STA/ISI correlation) are printed to standard error.
     """
+
     print("\nLoading reference data...")
     ref_vcd = get_vcd(exp_name, ref_data, ks_version, ref_index,
                     use_ei, use_sta, use_params,
@@ -300,16 +113,8 @@ def find_matches(exp_name: str, ref_data: str, match_data: str, corr_cutoff: flo
                         neurons = use_neurons, noise = use_noise,
                         nas_analysis_dir = nas_analysis_dir, nas_data_dir = nas_data_dir)
 
-    if cell_type is not None:
 
-        classification_file_path = get_classification_file_path(classification_file, exp_name, ref_data,
-                                                                nas_analysis_dir, ks_version)
-        
-        ref_types = ctio.CellTypes(classification_file_path)
-
-        ref_ids = ref_types.get_ids_of_type(cell_type)
-    else:
-        ref_ids = ref_vcd.get_cell_ids()
+    ref_ids = ref_vcd.get_cell_ids()
 
     test_ids = test_vcd.get_cell_ids()
 
@@ -380,7 +185,11 @@ def auto_classification(exp_name: str, ref_data: str, match_data: str, classific
                             use_neurons: bool = False, use_noise: bool = False, use_isi: bool = False,
                             output_filename: str = 'dragos_autoClassification.txt', nas_analysis_dir: str = NAS_ANALYSIS_DIR,
                             nas_data_dir: str = NAS_DATA_DIR):
-
+    """
+    Finds matching cells between two sorting chunks (reference and match) based on electrical images (EIs)
+    and creates a classification file using a given noise classification chunk.
+    """
+        
     match_dict, ref_ids, test_ids = find_matches(exp_name, ref_data, match_data, corr_cutoff, ks_version,
                               ref_index, match_index, use_ei, use_sta, use_params,
                               use_neurons, use_noise, use_isi, nas_analysis_dir, nas_data_dir)

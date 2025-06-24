@@ -2,8 +2,8 @@ import datajoint as dj
 import json
 import os
 import datetime
-from utilities import sk_utils
 from tqdm import tqdm
+from utils.settings import mea_config
 
 Experiment: dj.Manual = None
 Animal: dj.Manual = None
@@ -22,14 +22,121 @@ SortedCell: dj.Manual = None
 CellTypeFile: dj.Manual = None
 SortedCellType: dj.Manual = None
 
-NAS_DATA_DIR = sk_utils.NAS_DATA_DIR
-NAS_ANALYSIS_DIR = sk_utils.NAS_ANALYSIS_DIR
-
-fields = sk_utils.fields
-table_dict: dict = None
+NAS_DATA_DIR = mea_config['data'] 
+NAS_ANALYSIS_DIR = mea_config['analysis']
 
 db: dj.VirtualModule = None
-user: str = None
+user = mea_config['user']
+
+fields = {
+    'experiment': [
+        ('h5_uuid', 'uuid'),
+        ('label', 'label'),
+        ('properties','properties'),
+        ('attributes', 'attributes'),
+        ('start_time', 'start_time'),
+        ('experimenter', 'experimenter'),
+        ('institution', 'institution'),
+        ('lab', 'lab'),
+        ('project', 'project'),
+        ('rig', 'rig'),
+        ('rig_type', 'rig_type')
+    ],
+    'animal': [
+        ('h5_uuid', 'uuid'),
+        ('label', 'label'),
+        ('properties','properties'),
+        ('attributes', 'attributes'),
+        ('start_time', 'start_time'),
+        ('props_id', 'id'),
+        ('description', 'description'),
+        ('sex', 'sex'),
+        ('age', 'age'),
+        ('weight', 'weight'),
+        ('dark_adaptation', 'darkAdaptation'),
+        ('species', 'species')
+    ],
+    'preparation': [
+        ('h5_uuid', 'uuid'),
+        ('label', 'label'),
+        ('properties','properties'),
+        ('attributes', 'attributes'),
+        ('start_time', 'start_time'),
+        ('bath_solution', 'bathSolution'),
+        ('preparation_type', 'preparationType'),
+        ('region', 'region'),
+        ('array_pitch', 'arrayPitch')
+    ],
+    'cell': [
+        ('h5_uuid', 'uuid'),
+        ('label', 'label'),
+        ('properties','properties'),
+        ('attributes', 'attributes'),
+        ('start_time', 'start_time'),
+        ('type', 'type'),
+    ],
+    'epoch_group': [
+        ('h5_uuid', 'uuid'),
+        ('label', 'label'),
+        ('properties','properties'),
+        ('attributes', 'attributes'),
+        ('start_time', 'start_time'),
+        ('end_time', 'end_time'),
+    ],
+    'epoch_block': [
+        ('h5_uuid', 'uuid'),
+        ('label', 'label'),
+        ('properties','properties'),
+        ('attributes', 'attributes'),
+        ('start_time', 'start_time'),
+        ('end_time', 'end_time'),
+        ('parameters', 'parameters'),
+        ('array_pitch', 'arrayPitch')
+    ],
+    'epoch': [
+        ('h5_uuid', 'uuid'),
+        ('label', 'label'),
+        ('properties','properties'),
+        ('attributes', 'attributes'),
+        ('start_time', 'start_time'),
+        ('end_time', 'end_time'),
+        ('parameters', 'parameters'),
+    ],
+    'response': [
+        ('h5_uuid', 'uuid'),
+        ('label', 'label'),
+        ('sample_rate', 'sampleRate'),
+        ('sample_rate_units', 'sampleRateUnits'),
+        ('offset_hours', 'inputTimeDotNetDateTimeOffsetOffsetHours'),
+        ('offset_ticks', 'inputTimeDotNetDateTimeOffsetTicks'),
+    ],
+}
+
+def table_dict(Experiment: dj.Manual, Animal: dj.Manual, Preparation: dj.Manual,
+               Cell: dj.Manual, EpochGroup: dj.Manual,
+               EpochBlock: dj.Manual, Epoch: dj.Manual, 
+               Response: dj.Manual, Stimulus: dj.Manual,
+               Tags: dj.Manual) -> dict:
+    return {
+        'experiment': Experiment,
+        'animal': Animal,
+        'preparation': Preparation,
+        'cell': Cell,
+        'epoch_group': EpochGroup,
+        'epoch_block': EpochBlock,
+        'epoch': Epoch,
+        'response': Response,
+        'stimulus': Stimulus,
+        'tags': Tags
+    }
+
+table_arr = ['experiment', 'animal', 'preparation', 'cell', 'epoch_group', 'epoch_block', 'epoch', 'response', 'stimulus']
+
+def child_table(table_name: str) -> str:
+    return None if table_name == 'response' else table_arr[table_arr.index(table_name) + 1]
+
+def parent_table(table_name: str) -> str:
+    return None if table_name == 'experiment' else table_arr[table_arr.index(table_name) - 1]
 
 def fill_tables():
     if not db:
@@ -56,7 +163,7 @@ def fill_tables():
     CellTypeFile = db.CellTypeFile
     SortedCellType = db.SortedCellType
 
-    table_dict = sk_utils.table_dict(Experiment, Animal, Preparation, Cell, EpochGroup, 
+    table_dict = table_dict(Experiment, Animal, Preparation, Cell, EpochGroup, 
                                   EpochBlock, Epoch, Response, Stimulus, Tags)
 
 def max_id(table: dj.Manual) -> int:
@@ -196,6 +303,7 @@ def append_protocol(protocol_name: str) -> int:
 
 # expects: tags_dict = {h5_uuid: {tags: [(user, tag), ...]}}
 # if user specified, only append tags from other users. if null, append all tags
+
 def append_tags(h5_uuid: str, experiment_id: int, table_name: str, table_id: int, user_skip: str, tags_dict: dict):
     if tags_dict and h5_uuid in tags_dict.keys() and 'tags' in tags_dict[h5_uuid].keys():
         for user, tag in tags_dict[h5_uuid]['tags']:
