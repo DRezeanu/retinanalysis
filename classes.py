@@ -6,7 +6,7 @@ import datajoint as dj
 import os
 import pandas as pd
 import json
-import scipy
+import scipy.io as scipy
 
 class SortingChunk:
 
@@ -58,7 +58,23 @@ class NoiseChunk(SortingChunk):
         self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
         self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
 
-        self.cell_ids = self.vcd.get_cell_ids() 
+        self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
+        self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
+
+        self.cell_ids = self.vcd.get_cell_ids()
+    
+    def get_ells(self):
+        self.ell_params = dict()
+
+        for id in self.cell_ids:
+            sta_fit = self.vcd.get_stafit_for_cell(id)
+            self.ell_params[id] = {'center_x' : sta_fit.center_x + self.deltaXChecks, 
+                                   'center_y' : sta_fit.center_y + self.deltaYChecks,
+                                   'std_x' : sta_fit.std_x,
+                                   'std_y' : sta_fit.std_y,
+                                   'rot' : sta_fit.rot}
+            
+        return self.ell_params
 
 
 class ProtocolChunk(SortingChunk):
@@ -250,7 +266,7 @@ class LetterAnalysis:
 
         images_per_epoch = epoch_block_params['imagesPerEpoch']
         num_epochs = epoch_block_params['numberOfAverages']
-        mat_file = epoch_block_params['mat_file']
+        mat_file = epoch_block_params['matFile']
         magnification_factor = epoch_params['magnificationFactor']
 
         # issues with old code
@@ -285,19 +301,19 @@ class LetterAnalysis:
         epochs = np.arange(1,num_epochs+1)
         image_files = [os.path.basename(mat_file) for i in range(num_epochs)]
 
-        locations_OFF_filename = os.path.splitext(mat_file)[0] + '_OFF_locations.mat'
-        locations_ON_filename = os.path.splitext(mat_file)[0] + '_ON_locations.mat'
+        locations_OFF_filename = os.path.join('assets', 'resources', os.path.splitext(mat_file)[0] + '_OFF_locations.mat')
+        locations_ON_filename = os.path.join('assets', 'resources', os.path.splitext(mat_file)[0] + '_ON_locations.mat')
         locations_OFF = scipy.loadmat(locations_OFF_filename)
         locations_ON = scipy.loadmat(locations_ON_filename)
         locations_OFF = locations_OFF['locations_OFF'].squeeze() 
         locations_ON = locations_ON['locations_ON'].squeeze()
 
-        # for idx in range(len(locations_OFF)):
-        #     locations_OFF[idx] = np.flip(locations_OFF[idx]) * 1/pixels_per_stixel
-        #     locations_ON[idx] = np.flip(locations_ON[idx]) * 1/pixels_per_stixel
+        for idx in range(len(locations_OFF)):
+            locations_OFF[idx] = np.flip(locations_OFF[idx]) * 1/self.Noise.pixels_per_stixel
+            locations_ON[idx] = np.flip(locations_ON[idx]) * 1/self.Noise.pixels_per_stixel
 
-        # locations_OFF = np.array(locations_OFF, dtype=object)
-        # locations_ON = np.array(locations_ON, dtype=object)
+        locations_OFF = np.array(locations_OFF, dtype=object)
+        locations_ON = np.array(locations_ON, dtype=object)
 
         stim_params = {'epoch' : epochs, 'image_file': image_files}
 
@@ -311,4 +327,6 @@ class LetterAnalysis:
             
         stim_df['frame_times'] = list(frame_times)
         stim_df.set_index('epoch',inplace=True)
+
+        return stim_df
 
