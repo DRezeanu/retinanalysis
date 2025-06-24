@@ -5,33 +5,43 @@ import utils.datajoint_utils as dju
 import datajoint as dj
 import os
 import pandas as pd
-import json
-import scipy.io as scipy
 
 
 class StimData:
-
-    def __init__(self, exp_name, ks_version: str = 'kilosort2.5'):
+    def __init__(self, exp_name, datafile_name, chunk_name, protocol_name, 
+                 ss_version: str = 'kilosort2.5'):
         self.exp_name = exp_name
-        self.ks_version = ks_version
+        self.datafile_name = datafile_name
+        self.chunk_name = chunk_name
+        self.protocol_name = protocol_name
+        self.ss_version = ss_version
         exp_id = schema.Experiment() & {'exp_name' : self.exp_name}
-        self.exp_id = exp_id.fetch('id')[0]
+        self.exp_id = exp_id.fetch1('id')
+
+    def __repr__(self):
+        str_self = f"StimData with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  datafile_name: {self.datafile_name}\n"
+        str_self += f"  chunk_name: {self.chunk_name}\n"
+        str_self += f"  protocol_name: {self.protocol_name}\n"
+        str_self += f"  ss_version: {self.ss_version}\n"
+        return str_self
 
 class NoiseStimData(StimData):
+    def __init__(self, exp_name: str, datafile_name: str, chunk_name: str, 
+                 protocol_name: str, ss_version: str = 'kilosort2.5'):
+        super().__init__(exp_name, datafile_name, chunk_name, protocol_name, ss_version)
 
-    def __init__(self, exp_name: str, chunk_name: str, ks_version: str = 'kilosort2.5'):
-        super().__init__(exp_name, ks_version)
-        
         self.chunk_name = chunk_name
         
         # Get chunk ID
         chunk_id = schema.SortingChunk() & {'experiment_id': self.exp_id, 'chunk_name' : self.chunk_name}
-        self.chunk_id = chunk_id.fetch('id')[0]
+        self.chunk_id = chunk_id.fetch1('id')
 
         # Get protocol name and ID
         protocol = schema.Protocol() & 'name LIKE "%.SpatialNoise"'
-        self.protocol_name = protocol.fetch('name')[0]
-        self.protocol_id = protocol.fetch('protocol_id')[0]
+        self.protocol_name = protocol.fetch1('name')
+        self.protocol_id = protocol.fetch1('protocol_id')
 
         self.get_noise_params()
 
