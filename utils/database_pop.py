@@ -599,3 +599,38 @@ def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_p
         append_experiment(meta, data, tags, meta_dict, user, tags_dict)
         records_added += 1
     return records_added
+
+def reload_celltypefiles():
+    # TODO: currently takes 8 min for me.
+    # Could be optimized as collecting all text files takes <1min - VR. 
+    global db
+    db = dj.VirtualModule('schema.py', 'schema')
+    fill_tables()
+    
+    CellTypeFile.delete(safemode=False)
+    
+    df_sc = SortingChunk().fetch(format='frame')
+    ls_text_files = []
+    print(f'Found {len(df_sc)} sorting chunks in database.')
+    print('Adding CellTypeFile entries for each chunk...')
+    for chunk_id in tqdm(df_sc.index):
+        experiment_id = df_sc.at[chunk_id, 'experiment_id']
+        exp_name = (Experiment()& f"id={experiment_id}").fetch1('exp_name')
+        chunk_name = df_sc.at[chunk_id, 'chunk_name']
+
+        chunk_path = os.path.join(NAS_DATA_DIR, exp_name, chunk_name)
+        for file in os.listdir(chunk_path):
+            algorithm = os.listdir(chunk_path)[0]
+            algorithm_dir = os.path.join(chunk_path, algorithm)
+            append_sorting_files(chunk_id, algorithm, algorithm_dir)
+            p1 = os.path.split(algorithm_dir)
+            p2 = os.path.split(p1[0])
+            p3 = os.path.split(p2[0])
+            analysis_dir = os.path.join(NAS_ANALYSIS_DIR, p3[1], p2[1], p1[1])
+            if not os.path.exists(analysis_dir):
+                continue
+            for file in os.listdir(analysis_dir):
+                if file.endswith('.txt'):
+                    ls_text_files.append(os.path.join(analysis_dir, file))
+    print(f'Found {len(ls_text_files)} text files in analysis directories.')
+    print(f'Added {len(CellTypeFile())} entries in CellTypeFile.')
