@@ -1,1 +1,3 @@
 databases
+*__pycache__
+*.ini
