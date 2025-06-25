@@ -8,8 +8,7 @@ import pandas as pd
 
 
 class Stim:
-    def __init__(self, exp_name, datafile_name,
-                 ss_version: str = 'kilosort2.5'):
+    def __init__(self, exp_name, datafile_name):
         self.exp_name = exp_name
         self.datafile_name = datafile_name
         
@@ -19,7 +18,6 @@ class Stim:
         
         self.chunk_name = chunk_name
         self.protocol_name = protocol_name
-        self.ss_version = ss_version
         
         exp_id = df['experiment_id'].values[0]
         self.exp_id = exp_id
@@ -39,12 +37,12 @@ class Stim:
         str_self += f"  chunk_name: {self.chunk_name}\n"
         str_self += f"  protocol_name: {self.protocol_name}\n"
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
-        str_self += f"  ss_version: {self.ss_version}\n"
         return str_self
 
 class NoiseStim(Stim):
     def __init__(self, exp_name: str, datafile_name: str, ss_version: str = 'kilosort2.5'):
-        super().__init__(exp_name, datafile_name, ss_version=ss_version)
+        super().__init__(exp_name, datafile_name)
+        self.ss_version = ss_version
 
         # Get chunk ID
         chunk_id = schema.SortingChunk() & {'experiment_id': self.exp_id, 'chunk_name' : self.chunk_name}
