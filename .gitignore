@@ -1,6 +1,6 @@
 databases
 *__pycache__
 *.ini
-assets/images
-assets/resources
-testbed
+assets/images/
+assets/resources/
+testbed/
