@@ -24,7 +24,8 @@ class NoiseResponse(Response):
         for cell_id in ls_cells:
             rf_params = self.vcd.get_stafit_for_cell(cell_id)
             center_x = rf_params.center_x + self.stim.deltaXChecks
-            center_y = rf_params.center_y + self.stim.deltaYChecks
+            center_y = self.stim.numYChecks - rf_params.center_y
+            center_y += self.stim.deltaYChecks
             d_params = {
                 'xy': (center_x, center_y),
                 'width': rf_params.std_x,
