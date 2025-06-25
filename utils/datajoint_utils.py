@@ -18,6 +18,9 @@ def populate_ndf_column(df):
     df['NDF'] = np.nan
     for bid in df['block_id'].values:
         ep_q = schema.Epoch() & f'parent_id={bid}'
+        if len(ep_q) == 0:
+            print(f'No epochs found for block {bid}')
+            continue
         ep_id = ep_q.fetch('id')[0]
         params = (schema.Epoch() & f'id={ep_id}').fetch('parameters')[0]
         if 'NDF' in params.keys():
