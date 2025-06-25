@@ -41,7 +41,7 @@ def get_data_path(exp_name: str, target_protocol: str, protocol_index: int = 0, 
     except:
         pass
 
-    experiment_summary = dju.mea_exp_summary(exp_name)
+    experiment_summary = dju.get_mea_exp_summary(exp_name)
 
     protocol_df = experiment_summary[(experiment_summary['protocol_name'] == target_protocol)].iloc[protocol_index]
 
@@ -285,7 +285,7 @@ def create_dictionary_from_file(file_path, delimiter=' '):
 
 def find_nearest_noise(exp_name: str, target_protocol: str, protocol_index: int = 0) -> str:
     
-    experiment_summary = dju.mea_exp_summary(exp_name)
+    experiment_summary = dju.get_mea_exp_summary(exp_name)
     noise_protocol = dju.search_protocol('.SpatialNoise')[0]
     target_protocol_name = dju.search_protocol(target_protocol)[0]
     
