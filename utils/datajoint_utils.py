@@ -176,7 +176,7 @@ def get_typing_files_for_protocol(exp_name, datafile_name, noise_protocol_name, 
     df_exp = get_mea_exp_summary(exp_name)
     noise_chunk_names, noise_chunk_distances = get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose)
     ls_no_cell_typing = []
-    d_typing_files = {'datafile_names': [], 'ss_version': [], 'typing_file_name': [], 'typing_file_path': []}
+    d_typing_files = {'datafile_name': [], 'datafile_names': [], 'ss_version': [], 'typing_file_name': [], 'typing_file_path': []}
     b_found = False
     selected_noise_chunk = None
     ideal_noise_chunk = noise_chunk_names[0]
@@ -184,7 +184,7 @@ def get_typing_files_for_protocol(exp_name, datafile_name, noise_protocol_name, 
         noise_chunk = noise_chunk_names[0]
         df_chunk = df_exp[(df_exp['chunk_name']==noise_chunk) & (df_exp['protocol_name']==noise_protocol_name)]
         noise_chunk_id = df_chunk['chunk_id'].values[0]
-        datafile_names = list(df_chunk['datafile_name'].values)
+        noise_datafile_names = list(df_chunk['datafile_name'].values)
         df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).fetch(format='frame')
         n_typing_files = df_ct.shape[0]
         print(f'Found {n_typing_files} cell typing file(s) for {noise_chunk}')
@@ -198,7 +198,8 @@ def get_typing_files_for_protocol(exp_name, datafile_name, noise_protocol_name, 
                 typing_file_name = df_ct.at[idx, 'file_name']
                 typing_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, noise_chunk, ss_version, typing_file_name)
                 
-                d_typing_files['datafile_names'].append(datafile_names)
+                d_typing_files['datafile_name'].append(noise_datafile_names[0])
+                d_typing_files['datafile_names'].append(noise_datafile_names)
                 d_typing_files['ss_version'].append(ss_version)
                 d_typing_files['typing_file_name'].append(typing_file_name)
                 d_typing_files['typing_file_path'].append(typing_file_path)
@@ -224,7 +225,7 @@ def get_typing_files_for_protocol(exp_name, datafile_name, noise_protocol_name, 
     df_typing_files['exp_name'] = exp_name
     df_typing_files['chunk_name'] = selected_noise_chunk
     df_typing_files['protocol_name'] = noise_protocol_name
-    ls_order = ['exp_name', 'datafile_names', 'chunk_name', 'protocol_name',
+    ls_order = ['exp_name', 'datafile_name', 'datafile_names', 'chunk_name', 'protocol_name',
                 'ss_version', 'typing_file_name', 'typing_file_path']
     df_typing_files = df_typing_files[ls_order]
     return df_typing_files

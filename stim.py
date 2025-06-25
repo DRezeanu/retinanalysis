@@ -8,15 +8,23 @@ import pandas as pd
 
 
 class Stim:
-    def __init__(self, exp_name, datafile_name, chunk_name, protocol_name, 
+    def __init__(self, exp_name, datafile_name,
                  ss_version: str = 'kilosort2.5'):
         self.exp_name = exp_name
         self.datafile_name = datafile_name
+        
+        df = dju.get_mea_exp_summary(exp_name)
+        chunk_name = df[df['datafile_name'] == datafile_name]['chunk_name'].values[0]
+        protocol_name = df[df['datafile_name'] == datafile_name]['protocol_name'].values[0]
+        
         self.chunk_name = chunk_name
         self.protocol_name = protocol_name
         self.ss_version = ss_version
-        exp_id = schema.Experiment() & {'exp_name' : self.exp_name}
-        self.exp_id = exp_id.fetch1('id')
+        
+        exp_id = df['experiment_id'].values[0]
+        self.exp_id = exp_id
+
+        self.df_summary = df
 
         # We switched from FastNoise to SpatialNoise after 20230926
         if int(exp_name[:8]) < 20230926:
@@ -25,7 +33,7 @@ class Stim:
             self.noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
 
     def __repr__(self):
-        str_self = f"StimData with properties:\n"
+        str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
         str_self += f"  chunk_name: {self.chunk_name}\n"
@@ -35,26 +43,21 @@ class Stim:
         return str_self
 
 class NoiseStim(Stim):
-    def __init__(self, exp_name: str, datafile_name: str, chunk_name: str, 
-                 protocol_name: str, ss_version: str = 'kilosort2.5'):
-        super().__init__(exp_name, datafile_name, chunk_name, protocol_name, ss_version)
+    def __init__(self, exp_name: str, datafile_name: str, ss_version: str = 'kilosort2.5'):
+        super().__init__(exp_name, datafile_name, ss_version=ss_version)
 
-        self.chunk_name = chunk_name
-        
         # Get chunk ID
         chunk_id = schema.SortingChunk() & {'experiment_id': self.exp_id, 'chunk_name' : self.chunk_name}
         self.chunk_id = chunk_id.fetch1('id')
 
-        # Get protocol name and ID
-        protocol = schema.Protocol() & 'name LIKE "%.SpatialNoise"'
-        self.protocol_name = protocol.fetch1('name')
+        # Get protocol ID
+        protocol = schema.Protocol() & {'name' : self.noise_protocol_name}
         self.protocol_id = protocol.fetch1('protocol_id')
-
         self.get_noise_params()
 
     def get_noise_params(self):
 
-        vcd = vu.get_vcd(self.exp_name, self.chunk_name, self.ks_version,
+        vcd = vu.get_vcd(self.exp_name, self.chunk_name, self.ss_version,
                          ei = False, params = False)
         self.staXChecks = int(vcd.runtimemovie_params.width)
         self.staYChecks = int(vcd.runtimemovie_params.height)
@@ -81,3 +84,13 @@ class NoiseStim(Stim):
         self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
         self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
     
+    def __repr__(self):
+        str_self = super().__repr__()
+        str_self += f"  staXChecks: {self.staXChecks}\n"
+        str_self += f"  staYChecks: {self.staYChecks}\n"
+        str_self += f"  numXChecks: {self.numXChecks}\n"
+        str_self += f"  numYChecks: {self.numYChecks}\n"
+        str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
+        str_self += f"  canvas_size: {self.canvas_size}\n"
+        str_self += f"  data_files: {self.data_files}\n"
+        return str_self
