@@ -13,10 +13,10 @@ class StimBlock:
         self.datafile_name = datafile_name
         
         df = dju.get_mea_exp_summary(exp_name)
-        self.d_summary = df[df['datafile_name'] == datafile_name].iloc[0].to_dict()
+        self.d_block_summary = df[df['datafile_name'] == datafile_name].iloc[0].to_dict()
 
         df_e = dju.get_mea_epoch_data_from_exp(exp_name, datafile_name, ls_params=ls_params)
-        self.df_e = df_e
+        self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
         # We switched from FastNoise to SpatialNoise after 20230926
@@ -29,11 +29,11 @@ class StimBlock:
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
-        str_self += f"  chunk_name: {self.d_summary['chunk_name']}\n"
-        str_self += f"  protocol_name: {self.d_summary['protocol_name']}\n"
+        str_self += f"  chunk_name: {self.d_block_summary['chunk_name']}\n"
+        str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
-        str_self += f"  df_e for {self.df_e.shape[0]} epochs\n"
+        str_self += f"  df_e for {self.df_epochs.shape[0]} epochs\n"
         return str_self
 
 # class NoiseStim(Stim):
