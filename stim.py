@@ -5,7 +5,7 @@ import utils.datajoint_utils as dju
 import datajoint as dj
 import os
 import pandas as pd
-
+from typing import List
 
 class StimBlock:
     def __init__(self, exp_name, datafile_name, ls_params: list=None):
@@ -33,8 +33,46 @@ class StimBlock:
         str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
-        str_self += f"  df_e for {self.df_epochs.shape[0]} epochs\n"
+        str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
+
+class StimGroup:
+    def __init__(self, ls_blocks: List[StimBlock]):
+        # Check that all StimBlocks have same exp_name, protocol_name, and chunk_name
+        if not all(block.exp_name == ls_blocks[0].exp_name for block in ls_blocks):
+            raise ValueError("All StimBlocks must have the same exp_name")
+        if not all(block.d_block_summary['protocol_name'] == ls_blocks[0].d_block_summary['protocol_name'] for block in ls_blocks):
+            raise ValueError("All StimBlocks must have the same protocol_name")
+        if not all(block.d_block_summary['chunk_name'] == ls_blocks[0].d_block_summary['chunk_name'] for block in ls_blocks):
+            raise ValueError("All StimBlocks must have the same chunk_name")
+
+        datafile_names = [block.datafile_name for block in ls_blocks]
+        if len(set(datafile_names)) != len(datafile_names):
+            raise ValueError(f"StimBlocks must have unique datafile_names, but found: {datafile_names}")
+        
+        self.ls_blocks = ls_blocks
+        self.exp_name = ls_blocks[0].exp_name
+        self.parameter_names = ls_blocks[0].parameter_names
+        self.datafile_names = datafile_names
+        self.df_epochs = pd.concat([block.df_epochs for block in ls_blocks], ignore_index=True)
+        self.df_epochs.index = self.df_epochs.index.rename('epoch_index')
+    
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  protocol_name: {self.ls_blocks[0].d_block_summary['protocol_name']}\n"
+        str_self += f"  chunk_name: {self.ls_blocks[0].d_block_summary['chunk_name']}\n"
+        str_self += f"  datafile_names: {self.datafile_names}\n"
+        str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
+        str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        return str_self
+
+def make_stim_group(ls_exp_names, ls_datafile_names, ls_params: list=None):
+    ls_blocks = []
+    for exp_name, datafile_name in zip(ls_exp_names, ls_datafile_names):
+        block = StimBlock(exp_name, datafile_name, ls_params=ls_params)
+        ls_blocks.append(block)
+    return StimGroup(ls_blocks)
 
 # class NoiseStim(Stim):
 #     def __init__(self, exp_name: str, datafile_name: str, ss_version: str = 'kilosort2.5'):
