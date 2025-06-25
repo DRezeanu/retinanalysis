@@ -3,11 +3,14 @@ import platform
 import os
 
 def load_config(config_path):
+    root_directory = os.path.abspath('../')
+    config_path = os.path.join(root_directory, config_path)
     if os.path.exists(config_path):
+        config_path = os.path.abspath(config_path)
         configfile = ConfigParser()
         configfile.read(config_path)
     else:
-        FileNotFoundError("No config file found. Use reset_config() and create_config() to make one.")
+        raise FileNotFoundError("No config file found. Use reset_config() and create_config() to make one.")
 
     if platform.system() == 'Darwin':
         NAS_config = configfile['DEFAULT']

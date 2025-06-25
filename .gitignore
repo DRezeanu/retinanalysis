@@ -3,4 +3,4 @@ databases
 *.ini
 assets/images
 assets/resources
-dr_testbed.ipynb
+testbed
