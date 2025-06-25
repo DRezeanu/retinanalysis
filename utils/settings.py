@@ -30,7 +30,7 @@ def load_config(config_path):
             tags_dir = SSD_config['tags']
             user = SSD_config['user']
         else:
-            FileNotFoundError("No NAS or SSD paths found, check that one of them is connected")
+            raise FileNotFoundError("No NAS or SSD paths found, check that one of them is connected")
 
     else:
         NAS_config = configfile['WINDOWS_NAS']
@@ -50,7 +50,7 @@ def load_config(config_path):
             tags_dir = SSD_config['tags']
             user = SSD_config['user']
         else:
-            FileNotFoundError("No NAS or SSD paths found, check that one of them is connected")
+            raise FileNotFoundError("No NAS or SSD paths found, check that one of them is connected")
     
     mea_config = {'data' : data_dir, 'analysis': analysis_dir,
                 'h5': h5_dir, 'meta': meta_dir, 'tags': tags_dir,
