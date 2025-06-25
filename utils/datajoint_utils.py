@@ -230,3 +230,59 @@ def get_typing_files_for_protocol(exp_name, datafile_name, noise_protocol_name, 
                 'ss_version', 'typing_file_name', 'typing_file_path', 'typing_file_id']
     df_typing_files = df_typing_files[ls_order]
     return df_typing_files
+
+def find_varying_epoch_parameters(df):
+    # df should have epoch data for a SINGLE EpochBlock.
+    # Thus assuming that all epoch parameter dictionaries have the same keys.
+    # The epoch_parameters column has dictionaries of {parameter_name: value}
+    # We want to find which parameters vary across epochs in the dataframe
+    varying_params = set()
+    idx = df.index[0]
+    param_names = df.at[idx, 'epoch_parameters'].keys()
+    for key in param_names:
+        # Get all values across all epochs
+        values = df['epoch_parameters'].apply(lambda x: x.get(key)).values
+        # Check if all None
+        if all(value is None for value in values):
+            continue
+        if len(np.unique(values)) > 1:
+            varying_params.add(key)
+    return list(varying_params)
+
+def add_parameters_col(df, ls_params, src_col: str='epoch_parameters'):
+    # Add a column to the dataframe that contains the values of the specified parameters
+    # src_col should have dictionaries of {parameter_name: value}
+    for param in ls_params:
+        df[param] = df[src_col].apply(lambda x: x.get(param))
+    return df
+
+
+def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: list=None):
+    # Filter Experiment by exp_name, EpochBlock by datafile_name, then join down to Epoch
+    ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
+    eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
+    eb_q = eg_q * schema.EpochBlock.proj('protocol_id', 'data_dir', group_id='parent_id', block_id='id')
+    data_dir = os.path.join(exp_name, datafile_name)
+    eb_q = eb_q & f'data_dir="{data_dir}"'
+    p_q = eb_q * schema.Protocol.proj(protocol_name='name')
+    e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
+    df = e_q.fetch(format='frame')
+    df = df.reset_index()
+
+    df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
+
+    varying_params = find_varying_epoch_parameters(df)
+    # Add ls_params to varying_params if provided
+    if ls_params is not None:
+        varying_params = list(set(varying_params).union(set(ls_params)))
+    df = add_parameters_col(df, varying_params, 'epoch_parameters')
+    ls_order =  varying_params + \
+        ['exp_name', 'datafile_name', 'group_label', 'protocol_name',
+        'epoch_parameters', 'data_dir', 'experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
+    df = df[ls_order]
+    
+    # Name index 'epoch_index'
+    df.index = df.index.rename('epoch_index')
+
+    return df
