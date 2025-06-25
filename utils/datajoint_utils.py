@@ -1,6 +1,10 @@
 import schema
 import numpy as np
 import datajoint as dj
+import os
+import pandas as pd
+from utils.settings import mea_config
+NAS_ANALYSIS_DIR = mea_config['analysis']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
     dj.config["database.host"] = f"{host_address}"
@@ -57,10 +61,12 @@ def get_mea_exp_summary(exp_name: str):
     df['duration_minutes'] = df['duration_minutes'].round(2)
 
     df = populate_ndf_column(df)
+    df['exp_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-2])
+    df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
 
     # Order columns
-    ls_order = ['data_dir', 'group_label', 'NDF','chunk_name', 'protocol_name',
-    'duration_minutes', 'minutes_since_start', 'start_time', 'end_time',
+    ls_order = ['exp_name', 'datafile_name', 'group_label', 'NDF','chunk_name', 'protocol_name',
+    'duration_minutes', 'minutes_since_start', 'start_time', 'end_time', 'data_dir', 
     'experiment_id', 'group_id', 'block_id', 'chunk_id', 'protocol_id']
     df = df[ls_order]
 
@@ -112,8 +118,8 @@ def get_datasets_from_protocol_names(ls_protocol_names):
 
     df = populate_ndf_column(df)
 
-    df['datafile_name'] = df['data_dir'].apply(lambda x: x.split('/')[-1])
-    
+    df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
+
     # order columns
     ls_order = ['exp_name', 'datafile_name',
                 'NDF', 'chunk_name',
@@ -126,3 +132,96 @@ def get_datasets_from_protocol_names(ls_protocol_names):
     print(f'Found {n_experiments} experiments, {n_blocks} epoch blocks.')
 
     return df
+
+
+def get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose=False):
+    prot_row = df_exp[df_exp['datafile_name']==datafile_name]
+    prot_start_time = prot_row['start_time'].values[0]
+    prot_end_time = prot_row['end_time'].values[0]
+
+    noise_chunk_names = df_exp[df_exp['protocol_name']==noise_protocol_name]['chunk_name'].unique()
+    noise_chunk_distances = []
+    for chunk_name in noise_chunk_names:
+        # if chunk_name == prot_chunk_name:
+            # noise_chunk_distances.append((chunk_name, 0.0))
+            # continue
+        noise_rows = df_exp[(df_exp['chunk_name']==chunk_name) & (df_exp['protocol_name']==noise_protocol_name)]
+        noise_start_time = noise_rows['start_time'].values[0]
+        noise_end_time = noise_rows['end_time'].values[-1]
+        if noise_start_time < prot_start_time:
+            distance = prot_start_time - noise_end_time
+        else:
+            distance = noise_start_time - prot_end_time
+        # Convert to minutes
+        distance = distance / np.timedelta64(1, 'm')
+        noise_chunk_distances.append(distance)
+    noise_chunk_names = noise_chunk_names[np.argsort(noise_chunk_distances)]
+    if verbose:
+        print(f'Found {len(noise_chunk_names)} noise chunks for protocol "{noise_protocol_name}"')
+        print('Noise chunks sorted by distance:')
+        for chunk_name, distance in zip(noise_chunk_names, noise_chunk_distances):
+            print(f'  {chunk_name}: {distance:.2f} minutes')
+    
+    return noise_chunk_names, noise_chunk_distances
+
+
+def get_typing_files_for_protocol(exp_name, datafile_name, noise_protocol_name, verbose=False):
+    # Return df with columns:
+    # exp_name, datafile_names, chunk_name, protocol_name, ss_version, typing_file_name, typing_file_path
+    # Each row corresponds to a typing file for the nearest noise chunk.
+
+    df_exp = get_mea_exp_summary(exp_name)
+    noise_chunk_names, noise_chunk_distances = get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose)
+    ls_no_cell_typing = []
+    d_typing_files = {'datafile_names': [], 'ss_version': [], 'typing_file_name': [], 'typing_file_path': []}
+    b_found = False
+    selected_noise_chunk = None
+    ideal_noise_chunk = noise_chunk_names[0]
+    for noise_chunk in noise_chunk_names:
+        noise_chunk = noise_chunk_names[0]
+        df_chunk = df_exp[(df_exp['chunk_name']==noise_chunk) & (df_exp['protocol_name']==noise_protocol_name)]
+        noise_chunk_id = df_chunk['chunk_id'].values[0]
+        datafile_names = list(df_chunk['datafile_name'].values)
+        df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).fetch(format='frame')
+        n_typing_files = df_ct.shape[0]
+        print(f'Found {n_typing_files} cell typing file(s) for {noise_chunk}')
+        if n_typing_files == 0:
+            ls_no_cell_typing.append(noise_chunk)
+
+        if not b_found:
+            for idx in df_ct.index:
+                idx = df_ct.index[0]
+                ss_version = df_ct.at[idx, 'algorithm']
+                typing_file_name = df_ct.at[idx, 'file_name']
+                typing_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, noise_chunk, ss_version, typing_file_name)
+                
+                d_typing_files['datafile_names'].append(datafile_names)
+                d_typing_files['ss_version'].append(ss_version)
+                d_typing_files['typing_file_name'].append(typing_file_name)
+                d_typing_files['typing_file_path'].append(typing_file_path)
+            selected_noise_chunk = noise_chunk
+            b_found = True
+
+    # If no cell typing files found, return noise chunk names.
+    if not b_found:
+        print(f'No cell typing files found for any noise chunk for protocol "{noise_protocol_name}" in experiment "{exp_name}"')
+        print(f'You should type the closest noise chunk:')
+        for chunk_name, distance in zip(noise_chunk_names, noise_chunk_distances):
+            print(f'  {chunk_name}: {distance:.2f} minutes')
+        return noise_chunk_names
+    
+    # If selected noise chunk is not ideal, print warning.
+    if selected_noise_chunk != ideal_noise_chunk:
+        print(f'WARNING: Selected noise chunk "{selected_noise_chunk}" is not the ideal noise chunk "{ideal_noise_chunk}".')
+        print('Consider typing the ideal noise chunk:')
+        for chunk_name, distance in zip(noise_chunk_names, noise_chunk_distances):
+            print(f'  {chunk_name}: {distance:.2f} minutes')
+
+    df_typing_files = pd.DataFrame(d_typing_files)
+    df_typing_files['exp_name'] = exp_name
+    df_typing_files['chunk_name'] = selected_noise_chunk
+    df_typing_files['protocol_name'] = noise_protocol_name
+    ls_order = ['exp_name', 'datafile_names', 'chunk_name', 'protocol_name',
+                'ss_version', 'typing_file_name', 'typing_file_path']
+    df_typing_files = df_typing_files[ls_order]
+    return df_typing_files
