@@ -1,0 +1,140 @@
+import schema
+import visionloader as vl
+import os
+from utils.settings import NAS_ANALYSIS_DIR
+import pandas as pd
+
+
+class AnalysisChunk:
+
+    def __init__(self, exp_name, chunk_name, ss_version: str = 'kilosort2.5'):
+        self.exp_name = exp_name
+        self.chunk_name = chunk_name
+        self.ss_version = ss_version
+        
+        # Pull Experiment ID
+        exp_id = schema.Experiment() & {'exp_name': self.exp_name}
+        self.exp_id = exp_id.fetch('id')[0]
+
+        # Pull chunk id
+        chunk_id = schema.SortingChunk() & {'experiment_id' : self.exp_id, 'chunk_name' : self.chunk_name}
+        self.chunk_id = chunk_id.fetch('id')[0]
+
+        # Pull appropriate noise protocol for cell typing
+        if int(exp_name[:8]) < 20230926:
+            self.noise_protocol_name = 'manookinlab.protocols.FastNoise'
+        else:
+            self.noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
+
+        # Pull protocol id
+        protocol_id = schema.Protocol() & {'name' : self.noise_protocol_name}
+        self.protocol_id = protocol_id.fetch('protocol_id')[0]
+
+        self.get_vcd()
+        self.get_noise_params()
+        self.cell_ids = self.vcd.get_cell_ids()
+        self.get_rf_params()
+        self.get_df()
+
+
+    def get_vcd(self):
+
+        data_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version)
+
+        self.vcd = vl.load_vision_data(data_path, self.ss_version, include_ei = True,
+                                  include_noise = False, include_sta = False,
+                                  include_params = True, include_runtimemovie_params = True,
+                                  include_neurons = False)
+    
+    def get_noise_params(self):
+            self.staXChecks = int(self.vcd.runtimemovie_params.width)
+            self.staYChecks = int(self.vcd.runtimemovie_params.height)
+
+            # Pull epoch block and epoch to get num X and num Y checks used in noise
+            epoch_blocks = schema.EpochBlock() & {'experiment_id' : self.exp_id, 'chunk_id' : self.chunk_id, 'protocol_id' : self.protocol_id}
+            epoch_block_ids = [epoch_blocks.fetch('id')[idx] for idx in range(len(epoch_blocks))]
+            epochs = [schema.Epoch() & {'experiment_id' : self.exp_id, 'parent_id' : block_id} for block_id in epoch_block_ids]
+
+            self.numXChecks = [epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs]
+            self.numYChecks = [epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs]
+
+            assert all(element == self.numXChecks[0] for element in self.numXChecks), "Not all epoch blocks used same number of X checks"
+            assert all(element == self.numYChecks[0] for element in self.numYChecks), "Not all epoch blocks used same number of Y checks"
+
+            self.numXChecks = self.numXChecks[0]
+            self.numYChecks = self.numYChecks[0]
+
+            self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
+            self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
+            
+            self.microns_per_pixel = epochs[0].fetch('parameters')[0]['micronsPerPixel']
+            self.canvas_size = epochs[0].fetch('parameters')[0]['canvasSize']
+
+            # Pull noise data file names
+            noise_data_dirs = epoch_blocks.fetch('data_dir')
+            self.data_files = [os.path.basename(path) for path in noise_data_dirs]
+
+            sorting_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id}
+            self.sorting_files = [file_name for file_name in sorting_files.fetch('file_name')] 
+
+            self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
+            self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
+
+    def get_rf_params(self):
+         self.rf_params = dict()
+         for id in self.cell_ids:
+              rf = self.vcd.get_stafit_for_cell(id)
+              self.rf_params[id] = {'center_x' : rf.center_x,
+                                    'center_y' : rf.center_y,
+                                    'std_x' : rf.std_x,
+                                    'std_y' : rf.std_y,
+                                    'rot' : rf.rot}
+              
+    def get_df(self):
+        center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
+        center_y = [self.rf_params[id]['center_y'] for id in self.cell_ids]
+        std_x = [self.rf_params[id]['std_x'] for id in self.cell_ids]
+        std_y = [self.rf_params[id]['std_y'] for id in self.cell_ids]
+        rot = [self.rf_params[id]['rot'] for id in self.cell_ids]
+
+        df_dict = {'cell_id': self.cell_ids, 'center_x' : center_x,
+                   'center_y': center_y, 'std_x' : std_x,
+                   'std_y' : std_y, 'rot' : rot} 
+
+
+        root = os.path.abspath('../')
+        cell_types_list = pd.read_csv(os.path.join(root, 'assets/cell_types.csv'))
+        cell_types = [val for val in cell_types_list]
+
+        for sorting_file in self.sorting_files:
+            print(f"Using sorting file: {sorting_file}")
+            file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, sorting_file)
+            result_dict = dict()
+            
+            with open(file_path, 'r') as file:
+                for line in file:
+                    # Split each line into key and value using the specified delimiter
+                    key, value = map(str.strip, line.split(' ', 1))
+                                
+                    # Add key-value pair to the dictionary
+                    result_dict[int(key)] = value
+
+            for cell in self.cell_ids:
+                if cell in result_dict.keys():
+
+                    for type in cell_types:
+                        if type in result_dict[cell]:
+                            result_dict[cell] = type
+                            break
+                else:
+                    result_dict[cell] = 'Unmatched'
+                
+                if 'All' in result_dict[cell]:
+                    result_dict[cell] = 'Unmatched'
+                
+            
+            
+            classification = [result_dict[cell] for cell in self.cell_ids]
+            df_dict[sorting_file] = classification
+        
+        self.df = pd.DataFrame(df_dict)

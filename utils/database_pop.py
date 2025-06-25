@@ -112,7 +112,7 @@ fields = {
     ],
 }
 
-def table_dict(Experiment: dj.Manual, Animal: dj.Manual, Preparation: dj.Manual,
+def make_table_dict(Experiment: dj.Manual, Animal: dj.Manual, Preparation: dj.Manual,
                Cell: dj.Manual, EpochGroup: dj.Manual,
                EpochBlock: dj.Manual, Epoch: dj.Manual, 
                Response: dj.Manual, Stimulus: dj.Manual,
@@ -163,7 +163,7 @@ def fill_tables():
     CellTypeFile = db.CellTypeFile
     SortedCellType = db.SortedCellType
 
-    table_dict = table_dict(Experiment, Animal, Preparation, Cell, EpochGroup, 
+    table_dict = make_table_dict(Experiment, Animal, Preparation, Cell, EpochGroup, 
                                   EpochBlock, Epoch, Response, Stimulus, Tags)
 
 def max_id(table: dj.Manual) -> int:
@@ -198,7 +198,6 @@ def append_sorting_files(chunk_id: int, algorithm: str, sorting_dir: str):
     analysis_dir = os.path.join(NAS_ANALYSIS_DIR, p3[1], p2[1], p1[1])
     # check if real path
     if not os.path.exists(analysis_dir):
-        # no analysis yet for this chunk
         return
     for file in os.listdir(analysis_dir):
         if file.endswith('.txt'):
