@@ -7,7 +7,7 @@ import os
 import pandas as pd
 
 
-class StimData:
+class Stim:
     def __init__(self, exp_name, datafile_name, chunk_name, protocol_name, 
                  ss_version: str = 'kilosort2.5'):
         self.exp_name = exp_name
@@ -18,16 +18,23 @@ class StimData:
         exp_id = schema.Experiment() & {'exp_name' : self.exp_name}
         self.exp_id = exp_id.fetch1('id')
 
+        # We switched from FastNoise to SpatialNoise after 20230926
+        if int(exp_name[:8]) < 20230926:
+            self.noise_protocol_name = 'manookinlab.protocols.FastNoise'
+        else:
+            self.noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
+
     def __repr__(self):
         str_self = f"StimData with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
         str_self += f"  chunk_name: {self.chunk_name}\n"
         str_self += f"  protocol_name: {self.protocol_name}\n"
+        str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  ss_version: {self.ss_version}\n"
         return str_self
 
-class NoiseStimData(StimData):
+class NoiseStim(Stim):
     def __init__(self, exp_name: str, datafile_name: str, chunk_name: str, 
                  protocol_name: str, ss_version: str = 'kilosort2.5'):
         super().__init__(exp_name, datafile_name, chunk_name, protocol_name, ss_version)
