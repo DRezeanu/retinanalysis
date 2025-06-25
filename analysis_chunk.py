@@ -84,8 +84,8 @@ class AnalysisChunk:
          self.rf_params = dict()
          for id in self.cell_ids:
               rf = self.vcd.get_stafit_for_cell(id)
-              self.rf_params[id] = {'center_x' : rf.center_x,
-                                    'center_y' : rf.center_y,
+              self.rf_params[id] = {'center_x' : rf.center_x + self.deltaXChecks,
+                                    'center_y' : (self.staYChecks - rf.center_y) + self.deltaYChecks,
                                     'std_x' : rf.std_x,
                                     'std_y' : rf.std_y,
                                     'rot' : rf.rot}
