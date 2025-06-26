@@ -22,8 +22,7 @@ class ResponseBlock:
 
         self.vcd = vl.load_vision_data(
             data_path, self.datafile_name, 
-            # TODO set include_ei to True after testing
-            include_ei = False, include_neurons = True
+            include_ei = True, include_neurons = True
             )
 
     def get_spike_times(self):
