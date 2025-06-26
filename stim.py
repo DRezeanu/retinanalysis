@@ -67,63 +67,9 @@ class StimGroup:
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
 
-def make_stim_group(ls_exp_names, ls_datafile_names, ls_params: list=None):
+def make_stim_group(exp_name, ls_datafile_names, ls_params: list=None):
     ls_blocks = []
-    for exp_name, datafile_name in zip(ls_exp_names, ls_datafile_names):
+    for datafile_name in ls_datafile_names:
         block = StimBlock(exp_name, datafile_name, ls_params=ls_params)
         ls_blocks.append(block)
     return StimGroup(ls_blocks)
-
-# class NoiseStim(Stim):
-#     def __init__(self, exp_name: str, datafile_name: str, ss_version: str = 'kilosort2.5'):
-#         super().__init__(exp_name, datafile_name)
-#         self.ss_version = ss_version
-
-#         # Get chunk ID
-#         chunk_id = schema.SortingChunk() & {'experiment_id': self.exp_id, 'chunk_name' : self.chunk_name}
-#         self.chunk_id = chunk_id.fetch1('id')
-
-#         # Get protocol ID
-#         protocol = schema.Protocol() & {'name' : self.noise_protocol_name}
-#         self.protocol_id = protocol.fetch1('protocol_id')
-#         self.get_noise_params()
-
-#     def get_noise_params(self):
-
-#         vcd = vu.get_vcd(self.exp_name, self.chunk_name, self.ss_version,
-#                          ei = False, params = False)
-#         self.staXChecks = int(vcd.runtimemovie_params.width)
-#         self.staYChecks = int(vcd.runtimemovie_params.height)
-
-#         # Pull epoch block and epoch to get num X and num Y checks used in noise
-#         epoch_block = schema.EpochBlock() & {'experiment_id' : self.exp_id, 'chunk_id' : self.chunk_id, 'protocol_id' : self.protocol_id}
-#         epoch_block_id = epoch_block.fetch('id')[0]
-#         epoch = schema.Epoch() & {'experiment_id' : self.exp_id, 'parent_id' : epoch_block_id}
-
-#         self.numXChecks = epoch.fetch('parameters')[0]['numXChecks']
-#         self.numYChecks = epoch.fetch('parameters')[0]['numYChecks']
-        
-#         self.microns_per_pixel = epoch.fetch('parameters')[0]['micronsPerPixel']
-#         self.canvas_size = epoch.fetch('parameters')[0]['canvasSize']
-
-#         # Pull noise data file names
-#         noise_data_dirs = epoch_block.fetch('data_dir')
-#         self.data_files = [os.path.basename(path) for path in noise_data_dirs]
-
-#         self.sorting_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id}
-#         self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
-#         self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
-
-#         self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
-#         self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
-    
-#     def __repr__(self):
-#         str_self = super().__repr__()
-#         str_self += f"  staXChecks: {self.staXChecks}\n"
-#         str_self += f"  staYChecks: {self.staYChecks}\n"
-#         str_self += f"  numXChecks: {self.numXChecks}\n"
-#         str_self += f"  numYChecks: {self.numYChecks}\n"
-#         str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
-#         str_self += f"  canvas_size: {self.canvas_size}\n"
-#         str_self += f"  data_files: {self.data_files}\n"
-#         return str_self
