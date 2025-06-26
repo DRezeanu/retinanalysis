@@ -286,3 +286,36 @@ def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: li
     df.index = df.index.rename('epoch_index')
 
     return df
+
+def get_mea_epochblock_timing(exp_name: str, datafile_name: str):
+    ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
+    eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
+    eb_q = schema.EpochBlock.proj(
+        'protocol_id', 'data_dir', group_properties='properties',
+        group_id='parent_id', block_id='id'
+        )
+    eb_q = eg_q * eb_q
+    data_dir = os.path.join(exp_name, datafile_name)
+    eb_q = eb_q & f'data_dir="{data_dir}"'
+    df = eb_q.fetch(format='frame').reset_index()
+    if len(df) > 1:
+        raise ValueError(f'Expected only one EpochBlock for {exp_name} {datafile_name}, but found {len(df)}')
+    if len(df) == 0:
+        raise ValueError(f'No EpochBlock found for {exp_name} {datafile_name}')
+    d_data = df.loc[0].to_dict()
+    epoch_starts = d_data['group_properties']['epochStarts']
+    epoch_ends = d_data['group_properties']['epochEnds']
+    n_samples = d_data['group_properties']['n_samples']
+    frame_times_ms = d_data['group_properties']['frameTimesMs']
+
+    d_timing = {
+        'exp_name': exp_name,
+        'datafile_name': datafile_name,
+        'epoch_starts': epoch_starts,
+        'epoch_ends': epoch_ends,
+        'n_samples': n_samples,
+        'frame_times_ms': frame_times_ms
+    }
+
+    return d_timing

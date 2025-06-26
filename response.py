@@ -1,54 +1,67 @@
-from stim import Stim, NoiseStim
-import utils.vision_utils as vu
-from matplotlib.patches import Ellipse
-import matplotlib.pyplot as plt
+import visionloader as vl
+import utils.datajoint_utils as dju
+from utils.settings import NAS_DATA_DIR
+import os
+import numpy as np
+import pandas as pd
 
-class Response:
-    def __init__(self, stim: Stim, ss_version: str = 'kilosort2.5'):
-        self.stim = stim
+SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
+
+class ResponseBlock:
+    def __init__(self, exp_name, datafile_name, ss_version: str = 'kilosort2.5'):
+        self.exp_name = exp_name
+        self.datafile_name = datafile_name
         self.ss_version = ss_version
+        self.get_vcd()
+        self.cell_ids = self.vcd.get_cell_ids()
+        self.get_spike_times()
 
-class NoiseResponse(Response):
-    def __init__(self, stim: NoiseStim, typing_file_name: str):
-        super().__init__(stim, stim.ss_version)
-        self.stim = stim
-        vcd = vu.get_vcd(self.stim.exp_name, self.stim.chunk_name, self.ss_version,
-                         ei = False, params = True, neurons = False)
-        self.vcd = vcd
-        self.typing_file_name = typing_file_name
 
-    def get_rf_params(self, ls_cells: list=None):
-        if ls_cells is None:
-            ls_cells = self.vcd.get_cell_ids()
-        all_rf_params = []
-        for cell_id in ls_cells:
-            rf_params = self.vcd.get_stafit_for_cell(cell_id)
-            center_x = rf_params.center_x + self.stim.deltaXChecks
-            center_y = self.stim.numYChecks - rf_params.center_y
-            center_y += self.stim.deltaYChecks
-            d_params = {
-                'xy': (center_x, center_y),
-                'width': rf_params.std_x,
-                'height': rf_params.std_y,
-                'angle': rf_params.rot,
-            }
-            all_rf_params.append(d_params)
-        return all_rf_params
-    
-    def plot_rf_ells(self, ls_cells: list=None):
-        all_rf_params = self.get_rf_params(ls_cells)
-        all_rf_ells = [Ellipse(**params) for params in all_rf_params]
-        f, ax = plt.subplots(figsize=(5, 5))
-        alpha = 0.5
-        ell_color = 'black'
-        lw = 1.5
-        for idx_ell, ell in enumerate(all_rf_ells):
-            ax.add_artist(ell)
-            ell.set_clip_box(ax.bbox)
-            ell.set_alpha(alpha)
-            ell.set_edgecolor(ell_color)
-            ell.set_facecolor('none')
-            ell.set_linewidth(lw)
-        ax.set_xlim(right=self.stim.staXChecks)
-        ax.set_ylim(top=self.stim.staYChecks)
-        
+    def get_vcd(self):
+        data_path = os.path.join(NAS_DATA_DIR, self.exp_name, self.datafile_name, self.ss_version)
+
+        self.vcd = vl.load_vision_data(
+            data_path, self.datafile_name, 
+            # TODO set include_ei to True after testing
+            include_ei = False, include_neurons = True
+            )
+
+    def get_spike_times(self):
+        d_timing = dju.get_mea_epochblock_timing(self.exp_name, self.datafile_name)
+        d_spike_times = {'cell_id': [], 'spike_times': []}
+        epoch_starts = d_timing['epoch_starts']
+        epoch_ends = d_timing['epoch_ends']
+        n_samples = d_timing['n_samples']
+        frame_times_ms = d_timing['frame_times_ms']
+
+        self.n_epochs = len(epoch_starts)
+        for cell_id in self.cell_ids:
+            all_spike_times = np.zeros(self.n_epochs, dtype=object)
+            # STs in samples
+            cell_sts = self.vcd.get_spike_times_for_cell(cell_id)
+            for i in range(self.n_epochs):
+                # Set epoch start as zero
+                e_sts = cell_sts - epoch_starts[i]
+                n_epoch_samples = epoch_ends[i] - epoch_starts[i]
+
+                # Filter spike times to be within the epoch
+                e_sts = e_sts[(e_sts >= 0) & (e_sts <= n_epoch_samples)]
+
+                # From samples to ms
+                e_sts = e_sts / SAMPLE_RATE * 1000
+
+                all_spike_times[i] = e_sts
+            d_spike_times['cell_id'].append(cell_id)
+            d_spike_times['spike_times'].append(all_spike_times)
+        self.df_spike_times = pd.DataFrame(d_spike_times)
+        self.df_spike_times.set_index('cell_id', inplace=True)
+
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  datafile_name: {self.datafile_name}\n"
+        str_self += f"  ss_version: {self.ss_version}\n"
+        str_self += f"  n_epochs: {self.n_epochs}\n"
+        str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
+        str_self += f"  df_spike_times with shape: {self.df_spike_times.shape}\n"
+        return str_self
