@@ -28,28 +28,59 @@ class StimBlock:
         self.nearest_noise_chunk = self.get_nearest_noise()
     
     def get_nearest_noise(self):
+        # pull relevant information from datajoint
         experiment_summary = dju.get_mea_exp_summary(self.exp_name)
+        exp_id = schema.Experiment() & {'exp_name' : self.exp_name}
+        exp_id = exp_id.fetch('id')[0]
+
+        # Pull noise runs and target protocol run from experiment summary df
         noise_runs = experiment_summary.query('protocol_name == @self.noise_protocol_name and chunk_name.str.contains("chunk")')
         target_run = experiment_summary.query('protocol_name == @self.d_block_summary["protocol_name"] and datafile_name == @self.datafile_name')
 
-        target_run_start = target_run['minutes_since_start']-target_run['duration_minutes']
+        # Identify start and stop points for target and noise runs
         target_run_stop = target_run['minutes_since_start']
-
-        noise_run_start = noise_runs['minutes_since_start']-noise_runs['duration_minutes']
+        target_run_start = target_run_stop-target_run['duration_minutes']
+        
         noise_run_stop = noise_runs['minutes_since_start']
-
+        noise_run_start = noise_run_stop-noise_runs['duration_minutes']
+        
+        # Calculate distance from noise start to target stop, and noise stop to target start
         protocolstop_to_noisestart = abs(noise_run_start.values - target_run_stop.values)
         protocolstart_to_noisestop = abs(noise_run_stop.values - target_run_start.values)
 
+        # Find the minimum distance between target protocol and each chunk
         minimum_distance = np.minimum(protocolstart_to_noisestop, protocolstop_to_noisestart)
+        
+        # iterate through minimum distances until we find the nearest chunk with a sorting file
+        for i in range(len(minimum_distance)):
 
-        nearest_noise_chunk = noise_runs[(protocolstart_to_noisestop == min(minimum_distance))]
-        if nearest_noise_chunk.empty:
-            nearest_noise_chunk = noise_runs[(protocolstop_to_noisestart == min(minimum_distance))]
+            # Use min val to pull the nearest noise chunk
+            min_val = min(minimum_distance)
+            nearest_noise_chunk = noise_runs[(protocolstart_to_noisestop == min_val)]
+            if nearest_noise_chunk.empty:
+                nearest_noise_chunk = noise_runs[(protocolstop_to_noisestart == min(minimum_distance))]
 
-        nearest_noise_chunk = nearest_noise_chunk.reset_index(drop = True)
+            nearest_noise_chunk = nearest_noise_chunk.reset_index(drop = True).loc[0, 'chunk_name']
 
-        return nearest_noise_chunk.loc[0,'chunk_name']
+            # Check if this chunk has a typing file
+            noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
+            noise_chunk_id = noise_chunk_id.fetch('id')[0]
+
+            typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
+
+            # If there's no typing file, remove the minimum value and try again
+            if len(typing_files) == 0:
+                min_index = np.argmin(minimum_distance)
+                minimum_distance = np.delete(minimum_distance, min_index)
+            # If there is a typing file, break the for loop there
+            else:
+                break
+        
+        # Check if we looped through all the values. If so, no sorting files found
+        if minimum_distance.size == 0:
+            print("Warning, none of the noise chunks in this experiment have typing files\n")
+
+        return nearest_noise_chunk
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
