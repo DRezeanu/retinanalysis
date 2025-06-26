@@ -22,12 +22,12 @@ class AnalysisChunk:
 
         # Pull appropriate noise protocol for cell typing
         if int(exp_name[:8]) < 20230926:
-            self.noise_protocol_name = 'manookinlab.protocols.FastNoise'
+            self.noise_protocol = 'manookinlab.protocols.FastNoise'
         else:
-            self.noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
+            self.noise_protocol = 'manookinlab.protocols.SpatialNoise'
 
         # Pull protocol id
-        protocol_id = schema.Protocol() & {'name' : self.noise_protocol_name}
+        protocol_id = schema.Protocol() & {'name' : self.noise_protocol}
         self.protocol_id = protocol_id.fetch('protocol_id')[0]
 
         self.get_vcd()
@@ -137,4 +137,23 @@ class AnalysisChunk:
             classification = [result_dict[cell] for cell in self.cell_ids]
             df_dict[sorting_file] = classification
         
-        self.df = pd.DataFrame(df_dict)
+        self.cell_params_df = pd.DataFrame(df_dict)
+
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  chunk_name: {self.chunk_name}\n"
+        str_self += f"  ss_version: {self.ss_version}\n"
+        str_self += f"  noise_protocol: {self.noise_protocol}\n"
+        str_self += f"  data_files: {self.data_files}\n"
+        str_self += f"  sorting_files: {self.sorting_files}\n"
+        str_self += f"  numXChecks: {self.numXChecks}\n"
+        str_self += f"  numYChecks: {self.numYChecks}\n"
+        str_self += f"  staXChecks: {self.staXChecks}\n"
+        str_self += f"  staYChecks: {self.staYChecks}\n"
+        str_self += f"  canvas_size: {self.canvas_size}\n"
+        str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
+        str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
+        str_self += f"  cell_params_df of shape: {self.cell_params_df.shape}"
+        return str_self
+
