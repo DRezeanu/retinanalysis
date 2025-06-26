@@ -25,6 +25,32 @@ class StimBlock:
         else:
             self.noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
 
+        self.nearest_noise_chunk = self.get_nearest_noise()
+    
+    def get_nearest_noise(self):
+        experiment_summary = dju.get_mea_exp_summary(self.exp_name)
+        noise_runs = experiment_summary.query('protocol_name == @self.noise_protocol_name and chunk_name.str.contains("chunk")')
+        target_run = experiment_summary.query('protocol_name == @self.d_block_summary["protocol_name"] and datafile_name == @self.datafile_name')
+
+        target_run_start = target_run['minutes_since_start']-target_run['duration_minutes']
+        target_run_stop = target_run['minutes_since_start']
+
+        noise_run_start = noise_runs['minutes_since_start']-noise_runs['duration_minutes']
+        noise_run_stop = noise_runs['minutes_since_start']
+
+        protocolstop_to_noisestart = abs(noise_run_start.values - target_run_stop.values)
+        protocolstart_to_noisestop = abs(noise_run_stop.values - target_run_start.values)
+
+        minimum_distance = np.minimum(protocolstart_to_noisestop, protocolstop_to_noisestart)
+
+        nearest_noise_chunk = noise_runs[(protocolstart_to_noisestop == min(minimum_distance))]
+        if nearest_noise_chunk.empty:
+            nearest_noise_chunk = noise_runs[(protocolstop_to_noisestart == min(minimum_distance))]
+
+        nearest_noise_chunk = nearest_noise_chunk.reset_index(drop = True)
+
+        return nearest_noise_chunk.loc[0,'chunk_name']
+
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
@@ -32,6 +58,7 @@ class StimBlock:
         str_self += f"  chunk_name: {self.d_block_summary['chunk_name']}\n"
         str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
+        str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self

@@ -107,7 +107,6 @@ class AnalysisChunk:
         cell_types = [val for val in cell_types_list]
 
         for sorting_file in self.sorting_files:
-            print(f"Using sorting file: {sorting_file}")
             file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, sorting_file)
             result_dict = dict()
             

@@ -75,7 +75,6 @@ def get_mea_exp_summary(exp_name: str):
 
     return df
 
-
 def search_protocol(str_search: str):
     str_search = str_search.lower()
     protocols = schema.Protocol().fetch('name')
@@ -85,7 +84,7 @@ def search_protocol(str_search: str):
         if str_search in p.lower():
             matches.append(p)
     matches = np.array(matches)
-    print(f'Found {len(matches)} protocols matching "{str_search}":')
+    print(f'\nFound {len(matches)} protocols matching "{str_search}":')
     print(matches)
     return matches
 
@@ -132,7 +131,7 @@ def get_datasets_from_protocol_names(ls_protocol_names):
 
     n_experiments = df['exp_name'].nunique()
     n_blocks = len(df)
-    print(f'Found {n_experiments} experiments, {n_blocks} epoch blocks.')
+    print(f'\nFound {n_experiments} experiments, {n_blocks} epoch blocks.\n')
 
     return df
 
