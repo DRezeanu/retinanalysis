@@ -51,8 +51,8 @@ class StimBlock:
         # Find the minimum distance between target protocol and each chunk
         minimum_distance = np.minimum(protocolstart_to_noisestop, protocolstop_to_noisestart)
         
-        # iterate through minimum distances until we find the nearest chunk with a sorting file
-        for i in range(len(minimum_distance)):
+        # Iterate through minimum distances until we find the nearest chunk with a sorting file
+        for distance in minimum_distance:
 
             # Use min val to pull the nearest noise chunk
             min_val = min(minimum_distance)
