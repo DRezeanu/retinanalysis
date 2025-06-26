@@ -74,8 +74,8 @@ class AnalysisChunk:
             noise_data_dirs = epoch_blocks.fetch('data_dir')
             self.data_files = [os.path.basename(path) for path in noise_data_dirs]
 
-            sorting_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id}
-            self.sorting_files = [file_name for file_name in sorting_files.fetch('file_name')] 
+            typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id}
+            self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
 
             self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
             self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
@@ -104,10 +104,10 @@ class AnalysisChunk:
 
         root = os.path.abspath('../')
         cell_types_list = pd.read_csv(os.path.join(root, 'assets/cell_types.csv'))
-        cell_types = [val for val in cell_types_list]
+        cell_types = cell_types_list['cell_types'].values
 
-        for sorting_file in self.sorting_files:
-            file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, sorting_file)
+        for idx, typing_file in enumerate(self.typing_files):
+            file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
             result_dict = dict()
             
             with open(file_path, 'r') as file:
@@ -134,7 +134,7 @@ class AnalysisChunk:
             
             
             classification = [result_dict[cell] for cell in self.cell_ids]
-            df_dict[sorting_file] = classification
+            df_dict[f'typing_file_{idx}'] = classification
         
         self.cell_params_df = pd.DataFrame(df_dict)
 
@@ -145,7 +145,7 @@ class AnalysisChunk:
         str_self += f"  ss_version: {self.ss_version}\n"
         str_self += f"  noise_protocol: {self.noise_protocol}\n"
         str_self += f"  data_files: {self.data_files}\n"
-        str_self += f"  sorting_files: {self.sorting_files}\n"
+        str_self += f"  typing_files: {self.typing_files}\n"
         str_self += f"  numXChecks: {self.numXChecks}\n"
         str_self += f"  numYChecks: {self.numYChecks}\n"
         str_self += f"  staXChecks: {self.staXChecks}\n"
@@ -153,6 +153,7 @@ class AnalysisChunk:
         str_self += f"  canvas_size: {self.canvas_size}\n"
         str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
-        str_self += f"  cell_params_df of shape: {self.cell_params_df.shape}"
+        str_self += f"  rf_params with fiels: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
+        str_self += f"  cell_params_df of shape: {self.cell_params_df.shape}\n"
         return str_self
 
