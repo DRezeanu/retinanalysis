@@ -5,28 +5,6 @@ from analysis_chunk import AnalysisChunk
 import visionloader as vl
 import utils.vision_utils as vu
 
-# Do we want a separate plotting class? Would it take a pipeline object as well?
-
-# class MEAPlotter:
-
-#     def __init__(self, stim_block: StimBlock, response_block: ResponseBlock, analysis_chunk: AnalysisChunk):
-#         self.stim_block = stim_block
-#         self.response_block = response_block
-#         self.analysis_chunk = analysis_chunk
-
-#     def get_ells(self):
-#         pass
-
-#     def plot_ells(self):
-#         pass
-
-#     def plot_psth(self):
-#         pass
-
-#     def plot_spike_count(self):
-#         pass
-
-
 
 class MEAPipeline:
 

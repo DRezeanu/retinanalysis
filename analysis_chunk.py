@@ -148,6 +148,10 @@ class AnalysisChunk:
         if len(self.typing_files) == 0:
             raise FileNotFoundError("No typing files available for this analysis chunk")
 
+        # If no input typing file is specified, use typing_file_0
+        if input_typing_file is None:
+            input_typing_file = self.typing_files[0] 
+
         # Flag if input typing file is not actually part of the current analysis chunk
         if input_typing_file not in self.typing_files:
             raise FileNotFoundError("Input typing file not found in current chunk")         
@@ -156,9 +160,7 @@ class AnalysisChunk:
         if ss_version is None:
             ss_version = self.ss_version
         
-        # If no input typing file is specified, use typing_file_0
-        if input_typing_file is None:
-            input_typing_file = self.typing_files[0] 
+        print(f"Cluster matching {self.chunk_name} with {target_chunk}\n")
         
         # Cluster Match
         target_vcd = self.get_vcd(target_chunk, ss_version)
@@ -197,19 +199,35 @@ class AnalysisChunk:
             else:
                 bad_match_count += 1
         
-        percent_good = match_count/len(self.cell_ids)
-        percent_bad = bad_match_count/len(self.cell_ids)
-
-        print(f"\nRef clusters matched: {match_count}")
-        print(f"Ref clusters unmatched: {bad_match_count}")
-        print(f"{np.round(percent_good*100, 2)}% matched, {np.round(percent_bad*100, 2)}% unmatched.")
-        
         match_dict = dict(sorted(match_dict.items()))
         
-        # TO DO: create classification file and drop it in the destination path
-        # Should we also output a dictionary or dataframe?
+        # Create classification file and drop it in the destination path
         input_file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, input_typing_file)
         destination_file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, target_chunk, ss_version, output_typing_file)
+
+        matched_count = 0
+        unmatched_count = 0
+        input_classification_dict = vu.create_dictionary_from_file(input_file_path, delimiter = ' ')
+
+        with open(destination_file_path, mode='w') as output_file:
+            for key in match_dict.keys():
+                matched_count += 1
+                print(match_dict[key], input_classification_dict[key], file = output_file)
+
+        partial_output = vu.create_dictionary_from_file(destination_file_path, delimiter = ' ')
+
+        with open(destination_file_path, mode = 'a') as output_file:
+            for id in target_ids:
+                if id in partial_output:
+                    pass
+                else:
+                    print(id, 'All/unmatched', file = output_file)
+                    unmatched_count += 1
+
+        print(f"\nTarget clusters matched: {matched_count}\nTarget clusters unmatched: {unmatched_count}\n")
+        print(f"Classification file {output_typing_file} created at: {destination_file_path}")
+
+        return match_dict
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
