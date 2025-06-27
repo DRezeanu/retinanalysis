@@ -3,8 +3,6 @@ import platform
 import os
 
 def load_config(config_path):
-    root_directory = os.path.abspath('../')
-    config_path = os.path.join(root_directory, config_path)
     if os.path.exists(config_path):
         config_path = os.path.abspath(config_path)
         configfile = ConfigParser()
@@ -82,7 +80,10 @@ def create_config(config_path, config_name,
         with open(config_path, "w") as configfile:
             config.write(configfile)
 
-mea_config = load_config('utils/config.ini')
+
+config_directory = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(config_directory, 'config.ini')
+mea_config = load_config(config_path)
 
 NAS_DATA_DIR = mea_config['data'] 
 NAS_ANALYSIS_DIR = mea_config['analysis']
