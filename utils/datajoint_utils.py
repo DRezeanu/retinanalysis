@@ -89,12 +89,15 @@ def search_protocol(str_search: str):
     return matches
 
 def get_datasets_from_protocol_names(ls_protocol_names):
+    if type(ls_protocol_names) is str:
+        ls_protocol_names = [ls_protocol_names]
 
-    all_protocols = []
-    all_protocols  += [search_protocol(all_protocols) for protocol in ls_protocol_names]
+    found_protocols = []
+    for protocol in ls_protocol_names:
+        found_protocols  += list(search_protocol(protocol))
 
     # Query protocol table
-    p_q = schema.Protocol() & [f'name="{protocol}"' for protocol in all_protocols]
+    p_q = schema.Protocol() & [f'name="{protocol}"' for protocol in found_protocols]
     p_ids = p_q.fetch('protocol_id')
     p_q = p_q.proj('protocol_id', protocol_name='name')
 
