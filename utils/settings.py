@@ -56,9 +56,6 @@ def load_config(config_path):
 
     return mea_config
 
-def reset_config(config_path):
-    os.remove(config_path)
-    print("Config file successfully deleted")
 
 def create_config(config_path, config_name,
                       data_dir, analysis_dir, 
@@ -79,6 +76,11 @@ def create_config(config_path, config_name,
     else:
         with open(config_path, "w") as configfile:
             config.write(configfile)
+
+
+def reset_config(config_path):
+    os.remove(config_path)
+    print("Config file successfully deleted")
 
 
 config_directory = os.path.dirname(os.path.abspath(__file__))
