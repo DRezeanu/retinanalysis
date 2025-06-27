@@ -226,46 +226,46 @@ def auto_classification(exp_name: str, ref_data: str, match_data: str, classific
 
     return match_dict_sorted
 
-def ei_corr(ref_vcd: vl.VisionCellDataTable, test_vcd: vl.VisionCellDataTable) -> np.ndarray:
-    
-    # Pull reference eis
-    ref_ids = ref_vcd.get_cell_ids()
-    ref_eis = [ref_vcd.get_ei_for_cell(cell).ei for cell in ref_ids]
+def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable, method: str = 'full') -> np.ndarray:
 
-    # Set any EI value where the ei is less than 1.5* its standard deviation to 0
-    for idx, ei in enumerate(ref_eis):
-        ref_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
+        # Pull reference eis
+        ref_ids = ref_vcd.get_cell_ids()
+        ref_eis = [ref_vcd.get_ei_for_cell(cell).ei for cell in ref_ids]
 
-    # Flatten 512 x 201 array into a vector
-    ref_eis_flat = [ei.flatten() for ei in ref_eis]
-    ref_eis = np.array(ref_eis_flat)
+        # Set any EI value where the ei is less than 1.5* its standard deviation to 0
+        for idx, ei in enumerate(ref_eis):
+            ref_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
 
-    # Pull test eis
-    test_ids = test_vcd.get_cell_ids()
-    test_eis = [test_vcd.get_ei_for_cell(cell).ei for cell in test_ids]
+        # Flatten 512 x 201 array into a vector
+        ref_eis_flat = [ei.flatten() for ei in ref_eis]
+        ref_eis = np.array(ref_eis_flat)
 
-    # Set the EI value where the EI is less than 1.5* its standard deviation to 0
-    for idx, ei in enumerate(test_eis):
-        test_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
+        # Pull test eis
+        test_ids = target_vcd.get_cell_ids()
+        test_eis = [target_vcd.get_ei_for_cell(cell).ei for cell in test_ids]
 
-    # Flatten all the eis and turn them into numpy array
-    test_eis_flat = [ei.flatten() for ei in test_eis]
-    test_eis = np.array(test_eis_flat)
+        # Set the EI value where the EI is less than 1.5* its standard deviation to 0
+        for idx, ei in enumerate(test_eis):
+            test_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
 
-    num_pts = ref_eis.shape[1]
+        # Flatten all the eis and turn them into numpy array
+        test_eis_flat = [ei.flatten() for ei in test_eis]
+        test_eis = np.array(test_eis_flat)
 
-    # Calculate covariance and correlation
-    c = test_eis @ ref_eis.T / num_pts
-    d = np.mean(test_eis, axis = 1)[:,None] * np.mean(ref_eis, axis = 1)[:,None].T
-    covs = c - d
+        num_pts = ref_eis.shape[1]
 
-    std_calc = np.std(test_eis, axis = 1)[:,None] * np.std(ref_eis, axis = 1)[:, None].T
-    corr = covs / std_calc
+        # Calculate covariance and correlation
+        c = test_eis @ ref_eis.T / num_pts
+        d = np.mean(test_eis, axis = 1)[:,None] * np.mean(ref_eis, axis = 1)[:,None].T
+        covs = c - d
 
-    # Set nan values and infinite values to 0
-    np.nan_to_num(corr, copy=False, nan = 0, posinf = 0, neginf = 0)
+        std_calc = np.std(test_eis, axis = 1)[:,None] * np.std(ref_eis, axis = 1)[:, None].T
+        corr = covs / std_calc
 
-    return corr.T
+        # Set nan values and infinite values to 0
+        np.nan_to_num(corr, copy=False, nan = 0, posinf = 0, neginf = 0)
+
+        return corr.T
 
 
 def create_dictionary_from_file(file_path, delimiter=' '):
