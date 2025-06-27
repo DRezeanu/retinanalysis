@@ -141,6 +141,7 @@ class AnalysisChunk:
         
         self.cell_params_df = pd.DataFrame(df_dict)
 
+    # TO DO: Move classification transfer to MEAPipeline class
     def classification_transfer(self, target_chunk: str, corr_cutoff: float = 0.8, ss_version: str = None, 
                                 input_typing_file: str = None, output_typing_file: str = 'RA_autoClassification.txt'):
         
