@@ -1,9 +1,8 @@
-import schema
+import retinanalysis.schema as schema
 import numpy as np
-import src.retinanalysis.vision_utils as vu
-import src.retinanalysis.datajoint_utils as dju
+import retinanalysis.vision_utils as vu
+import retinanalysis.datajoint_utils as dju
 import datajoint as dj
-import os
 import pandas as pd
 from typing import List
 

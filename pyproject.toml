@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "retinanalysis"
-dynamic = ["version"]
-description = ''
+version = "0.1"
+description = 'An analysis pipeline package for MEA data, created for the Rieke/Manookin lab'
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = "MIT"
 keywords = []
 authors = [
@@ -16,7 +16,6 @@ authors = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -30,6 +29,3 @@ dependencies = []
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
 Issues = "https://github.com/DRezeanu/retinanalysis/issues"
 Source = "https://github.com/DRezeanu/retinanalysis"
-
-[tool.hatch.version]
-path = "src/retinanalysis/__about__.py"

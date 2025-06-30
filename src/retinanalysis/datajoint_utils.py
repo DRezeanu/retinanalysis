@@ -1,9 +1,9 @@
-import schema
+import retinanalysis.schema as schema
 import numpy as np
 import datajoint as dj
 import os
 import pandas as pd
-from src.retinanalysis.settings import mea_config
+from retinanalysis.settings import mea_config
 NAS_ANALYSIS_DIR = mea_config['analysis']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):

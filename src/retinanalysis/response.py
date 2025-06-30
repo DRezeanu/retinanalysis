@@ -1,6 +1,6 @@
 import visionloader as vl
-import utils.datajoint_utils as dju
-from utils.settings import NAS_DATA_DIR
+import retinanalysis.datajoint_utils as dju
+from retinanalysis.settings import NAS_DATA_DIR
 import os
 import numpy as np
 import pandas as pd

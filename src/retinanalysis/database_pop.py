@@ -3,7 +3,7 @@ import json
 import os
 import datetime
 from tqdm import tqdm
-from src.retinanalysis.settings import mea_config
+from retinanalysis.settings import mea_config
 
 Experiment: dj.Manual = None
 Animal: dj.Manual = None
