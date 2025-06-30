@@ -3,5 +3,3 @@ databases
 *.ini
 assets/images/
 assets/resources/
-testbed/
-utils/__pycache___/
