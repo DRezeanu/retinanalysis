@@ -1,10 +1,10 @@
-import schema
+import retinanalysis.schema as schema
 import visionloader as vl
 import os
-from utils.settings import NAS_ANALYSIS_DIR
+from retinanalysis.settings import NAS_ANALYSIS_DIR
 import pandas as pd
 import numpy as np
-import utils.vision_utils as vu
+import retinanalysis.vision_utils as vu
 
 class AnalysisChunk:
 
@@ -41,7 +41,6 @@ class AnalysisChunk:
     def get_vcd(self, chunk_name, ss_version):
 
         data_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, chunk_name, ss_version)
-
         vcd = vl.load_vision_data(data_path, ss_version, include_ei = True,
                                   include_noise = False, include_sta = False,
                                   include_params = True, include_runtimemovie_params = True,

@@ -1,7 +1,7 @@
-from utils.settings import mea_config
+from retinanalysis.settings import mea_config
 import os
 import numpy as np
-import utils.datajoint_utils as dju
+import retinanalysis.datajoint_utils as dju
 import visionloader as vl
 
 NAS_DATA_DIR = mea_config['data']
