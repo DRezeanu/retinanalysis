@@ -6,5 +6,5 @@ from .response import *
 from .analysis_chunk import *
 from .vision_utils import *
 from .mea_pipeline import *
-from .schema import *
+import retinanalysis.schema as schema
 from .database_pop import *

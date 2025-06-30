@@ -41,7 +41,6 @@ class AnalysisChunk:
     def get_vcd(self, chunk_name, ss_version):
 
         data_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, chunk_name, ss_version)
-        print(data_path)
         vcd = vl.load_vision_data(data_path, ss_version, include_ei = True,
                                   include_noise = False, include_sta = False,
                                   include_params = True, include_runtimemovie_params = True,
