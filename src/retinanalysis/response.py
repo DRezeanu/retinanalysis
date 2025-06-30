@@ -1,5 +1,7 @@
 import visionloader as vl
 import retinanalysis.datajoint_utils as dju
+import retinanalysis.vision_utils as vu
+import retinanalysis.schema as schema
 from retinanalysis.settings import NAS_DATA_DIR
 import os
 import numpy as np
@@ -12,18 +14,10 @@ class ResponseBlock:
         self.exp_name = exp_name
         self.datafile_name = datafile_name
         self.ss_version = ss_version
-        self.get_vcd()
+        self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
+        self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_spike_times()
-
-
-    def get_vcd(self):
-        data_path = os.path.join(NAS_DATA_DIR, self.exp_name, self.datafile_name, self.ss_version)
-
-        self.vcd = vl.load_vision_data(
-            data_path, self.datafile_name, 
-            include_ei = True, include_neurons = True
-            )
 
     def get_spike_times(self):
         d_timing = dju.get_mea_epochblock_timing(self.exp_name, self.datafile_name)
@@ -59,6 +53,7 @@ class ResponseBlock:
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
+        str_self += f"  protocol_name: {self.protocol_name}\n"
         str_self += f"  ss_version: {self.ss_version}\n"
         str_self += f"  n_epochs: {self.n_epochs}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"

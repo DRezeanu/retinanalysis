@@ -31,23 +31,12 @@ class AnalysisChunk:
         protocol_id = schema.Protocol() & {'name' : self.noise_protocol}
         self.protocol_id = protocol_id.fetch('protocol_id')[0]
 
-        self.vcd = self.get_vcd(self.chunk_name, self.ss_version)
+        self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version)
         self.get_noise_params()
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_rf_params()
         self.get_df()
 
-
-    def get_vcd(self, chunk_name, ss_version):
-
-        data_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, chunk_name, ss_version)
-        vcd = vl.load_vision_data(data_path, ss_version, include_ei = True,
-                                  include_noise = False, include_sta = False,
-                                  include_params = True, include_runtimemovie_params = True,
-                                  include_neurons = True)
-        
-        return vcd
-    
     def get_noise_params(self):
             self.staXChecks = int(self.vcd.runtimemovie_params.width)
             self.staYChecks = int(self.vcd.runtimemovie_params.height)
@@ -139,95 +128,6 @@ class AnalysisChunk:
             df_dict[f'typing_file_{idx}'] = classification
         
         self.cell_params_df = pd.DataFrame(df_dict)
-
-    # TO DO: Move classification transfer to MEAPipeline class
-    def classification_transfer(self, target_chunk: str, corr_cutoff: float = 0.8, ss_version: str = None, 
-                                input_typing_file: str = None, output_typing_file: str = 'RA_autoClassification.txt'):
-        
-        # Flag if there are no typing files available for this analysis chunk
-        if len(self.typing_files) == 0:
-            raise FileNotFoundError("No typing files available for this analysis chunk")
-
-        # If no input typing file is specified, use typing_file_0
-        if input_typing_file is None:
-            input_typing_file = self.typing_files[0] 
-
-        # Flag if input typing file is not actually part of the current analysis chunk
-        if input_typing_file not in self.typing_files:
-            raise FileNotFoundError("Input typing file not found in current chunk")         
-
-        # If no spike sorting version is given, use same ss_version as analysis chunk
-        if ss_version is None:
-            ss_version = self.ss_version
-        
-        print(f"Cluster matching {self.chunk_name} with {target_chunk}\n")
-        
-        # Cluster Match
-        target_vcd = self.get_vcd(target_chunk, ss_version)
-        target_ids = target_vcd.get_cell_ids()
-
-        match_dict = dict()
-        match_count = 0
-        bad_match_count = 0
-
-        corr_arr = vu.ei_corr(self.vcd, target_vcd, method = 'full')
-
-        for idx, ref_cell in enumerate(self.cell_ids):
-            sorted_corr = np.sort(corr_arr[idx,:])
-            sorted_corr = np.flip(sorted_corr)
-
-            max_corr = sorted_corr[0]
-            next_max_corr = sorted_corr[1]
-            max_ind = np.argmax(corr_arr[idx,:])
-            max_rev_ind = np.argmax(corr_arr[:,max_ind])
-
-            if max_corr > corr_cutoff:
-                ref_isi = self.vcd.get_acf_numpairs_for_cell(ref_cell)
-                match_isi = target_vcd.get_acf_numpairs_for_cell(target_ids[max_ind])
-                np.nan_to_num(ref_isi, copy=False, nan=0, neginf=0, posinf=0)
-                np.nan_to_num(match_isi, copy = False, nan=0, neginf=0, posinf=0)
-                isi_corr = np.corrcoef(ref_isi, match_isi)[0,1]
-
-                # TO DO add correlation check for green and red time course as well
-                if next_max_corr > (max_corr*0.90) or isi_corr < 0.3:
-                    bad_match_count += 1
-                elif self.cell_ids[max_rev_ind] != ref_cell:
-                    bad_match_count += 1
-                else:
-                    match_dict[ref_cell] = target_ids[max_ind]
-                    match_count += 1    
-            else:
-                bad_match_count += 1
-        
-        match_dict = dict(sorted(match_dict.items()))
-        
-        # Create classification file and drop it in the destination path
-        input_file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, input_typing_file)
-        destination_file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, target_chunk, ss_version, output_typing_file)
-
-        matched_count = 0
-        unmatched_count = 0
-        input_classification_dict = vu.create_dictionary_from_file(input_file_path, delimiter = ' ')
-
-        with open(destination_file_path, mode='w') as output_file:
-            for key in match_dict.keys():
-                matched_count += 1
-                print(match_dict[key], input_classification_dict[key], file = output_file)
-
-        partial_output = vu.create_dictionary_from_file(destination_file_path, delimiter = ' ')
-
-        with open(destination_file_path, mode = 'a') as output_file:
-            for id in target_ids:
-                if id in partial_output:
-                    pass
-                else:
-                    print(id, 'All/unmatched', file = output_file)
-                    unmatched_count += 1
-
-        print(f"\nTarget clusters matched: {matched_count}\nTarget clusters unmatched: {unmatched_count}\n")
-        print(f"Classification file {output_typing_file} created at: {destination_file_path}")
-
-        return match_dict
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"

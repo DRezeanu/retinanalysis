@@ -10,7 +10,8 @@ class StimBlock:
     def __init__(self, exp_name, datafile_name, ls_params: list=None):
         self.exp_name = exp_name
         self.datafile_name = datafile_name
-        
+        self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
+
         df = dju.get_mea_exp_summary(exp_name)
         self.d_block_summary = df[df['datafile_name'] == datafile_name].iloc[0].to_dict()
 
