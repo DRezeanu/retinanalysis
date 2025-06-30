@@ -1,9 +1,9 @@
 import numpy as np
-from response import ResponseBlock
-from stim import StimBlock
-from analysis_chunk import AnalysisChunk
+from src.retinanalysis.response import ResponseBlock
+from src.retinanalysis.stim import StimBlock
+from src.retinanalysis.analysis_chunk import AnalysisChunk
 import visionloader as vl
-import utils.vision_utils as vu
+import src.retinanalysis.vision_utils as vu
 
 
 class MEAPipeline:

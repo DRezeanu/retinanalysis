@@ -1,7 +1,7 @@
 import schema
 import numpy as np
-import utils.vision_utils as vu
-import utils.datajoint_utils as dju
+import src.retinanalysis.vision_utils as vu
+import src.retinanalysis.datajoint_utils as dju
 import datajoint as dj
 import os
 import pandas as pd

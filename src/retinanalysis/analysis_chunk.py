@@ -1,10 +1,10 @@
 import schema
 import visionloader as vl
 import os
-from utils.settings import NAS_ANALYSIS_DIR
+from src.retinanalysis.settings import NAS_ANALYSIS_DIR
 import pandas as pd
 import numpy as np
-import utils.vision_utils as vu
+import src.retinanalysis.vision_utils as vu
 
 class AnalysisChunk:
 
