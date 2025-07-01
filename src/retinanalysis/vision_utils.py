@@ -13,8 +13,8 @@ H5_DIR = mea_config['h5']
 USER = mea_config['user']
 
 def get_analysis_vcd(exp_name, chunk_name, ss_version):
-
         data_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, chunk_name, ss_version)
+        print(f'Loading VCD from {data_path} ...')
         vcd = vl.load_vision_data(data_path, ss_version, include_ei = True,
                                   include_noise = False, include_sta = False,
                                   include_params = True, include_runtimemovie_params = True,
@@ -24,7 +24,7 @@ def get_analysis_vcd(exp_name, chunk_name, ss_version):
 
 def get_protocol_vcd(exp_name, datafile_name, ss_version):
         data_path = os.path.join(NAS_DATA_DIR, exp_name, datafile_name, ss_version)
-
+        print(f'Loading VCD from {data_path} ...')
         vcd = vl.load_vision_data(
             data_path, datafile_name, 
             include_ei = True, include_neurons = True
