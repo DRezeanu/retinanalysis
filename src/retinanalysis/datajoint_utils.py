@@ -4,6 +4,7 @@ import datajoint as dj
 import os
 import pandas as pd
 from retinanalysis.settings import mea_config
+import json
 NAS_ANALYSIS_DIR = mea_config['analysis']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
@@ -268,13 +269,24 @@ def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: li
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
     eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
     eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
-    eb_q = eg_q * schema.EpochBlock.proj('protocol_id', 'data_dir', group_id='parent_id', block_id='id')
+    
+    eb_q = schema.EpochBlock.proj(
+        'protocol_id', 'data_dir', group_id='parent_id', block_id='id'
+        )
+    eb_q = eg_q * eb_q
     data_dir = os.path.join(exp_name, datafile_name)
     eb_q = eb_q & f'data_dir="{data_dir}"'
+    
     p_q = eb_q * schema.Protocol.proj(protocol_name='name')
-    e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
+    
+    e_q = p_q * schema.Epoch.proj(
+        epoch_parameters='parameters', block_id='parent_id', epoch_id='id',
+        frame_times_ms="properties->>'$.frameTimesMs'"
+        )
     df = e_q.fetch(format='frame')
     df = df.reset_index()
+    # Make frame_times_ms list using json.loads
+    df['frame_times_ms'] = df['frame_times_ms'].apply(lambda x: json.loads(x))
 
     df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
 
@@ -284,7 +296,7 @@ def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: li
         varying_params = list(set(varying_params).union(set(ls_params)))
     df = add_parameters_col(df, varying_params, 'epoch_parameters')
     ls_order =  varying_params + \
-        ['exp_name', 'datafile_name', 'group_label', 'protocol_name',
+        ['exp_name', 'datafile_name', 'group_label', 'protocol_name', 'frame_times_ms',
         'epoch_parameters', 'data_dir', 'experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
     df = df[ls_order]
     

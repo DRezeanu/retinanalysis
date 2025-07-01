@@ -599,19 +599,40 @@ def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_p
         records_added += 1
     return records_added
 
-def reload_celltypefiles():
-    # TODO: currently takes 8 min for me.
-    # Could be optimized as collecting all text files takes <1min - VR. 
+
+def reload_celltypefiles(experiment_names: list=None):
+    # Deletes and repopulates CellTypeFile table. 
+    # Optimized so takes ~40s for my NAS connection. 
+    # TODO: This doesn't update the SortedCellType table, 
+    # which is likely desirable but might take longer.
     global db
     db = dj.VirtualModule('schema.py', 'schema')
     fill_tables()
+
+    # Query for any input experiments
+    ctf_q = CellTypeFile()
+    sc_q = SortingChunk()
+    if experiment_names is not None:
+        e_q = Experiment() & [f'exp_name="{exp_name}"' for exp_name in experiment_names]
+        sc_q = sc_q * e_q.proj(...,experiment_id='id')
+        chunk_ids = sc_q.fetch('id')
+        ctf_q = ctf_q & [f'chunk_id={id}' for id in chunk_ids]
+        # df_delete = (ctf_q * sc_q.proj(...,chunk_id='id')).fetch(format='frame')
+        # display(df_delete)
+    else:
+        experiment_names = 'all experiments'
+    print(f'Found {len(sc_q)} chunks for {experiment_names}.')
+    print(f'Deleting associated {len(ctf_q)} cell type files.')
+    ctf_q.delete(safemode=False)
     
-    CellTypeFile.delete(safemode=False)
+    # Get all sorting chunks, each of which we'll look for typing files for.
+    df_sc = sc_q.fetch(format='frame').reset_index()
+    df_sc = df_sc.set_index('id')
     
-    df_sc = SortingChunk().fetch(format='frame')
-    ls_text_files = []
-    print(f'Found {len(df_sc)} sorting chunks in database.')
-    print('Adding CellTypeFile entries for each chunk...')
+    print('Finding CellTypeFile entries for each chunk...')
+
+    # Find cell type text files to enter into database.
+    ls_insert_ctf = []
     for chunk_id in tqdm(df_sc.index):
         experiment_id = df_sc.at[chunk_id, 'experiment_id']
         exp_name = (Experiment()& f"id={experiment_id}").fetch1('exp_name')
@@ -619,17 +640,25 @@ def reload_celltypefiles():
 
         chunk_path = os.path.join(NAS_DATA_DIR, exp_name, chunk_name)
         for file in os.listdir(chunk_path):
-            algorithm = os.listdir(chunk_path)[0]
-            algorithm_dir = os.path.join(chunk_path, algorithm)
-            append_sorting_files(chunk_id, algorithm, algorithm_dir)
-            p1 = os.path.split(algorithm_dir)
-            p2 = os.path.split(p1[0])
-            p3 = os.path.split(p2[0])
-            analysis_dir = os.path.join(NAS_ANALYSIS_DIR, p3[1], p2[1], p1[1])
-            if not os.path.exists(analysis_dir):
-                continue
-            for file in os.listdir(analysis_dir):
-                if file.endswith('.txt'):
-                    ls_text_files.append(os.path.join(analysis_dir, file))
-    print(f'Found {len(ls_text_files)} text files in analysis directories.')
-    print(f'Added {len(CellTypeFile())} entries in CellTypeFile.')
+            for algorithm in os.listdir(chunk_path):
+                algorithm_dir = os.path.join(chunk_path, algorithm)
+                if not os.path.isdir(algorithm_dir):
+                    continue
+                
+                # append_sorting_files(chunk_id, algorithm, algorithm_dir)
+                # Instead of using append_sorting_files, 
+                # collect info ourselves for a batch insert
+                p1 = os.path.split(algorithm_dir)
+                p2 = os.path.split(p1[0])
+                p3 = os.path.split(p2[0])
+                analysis_dir = os.path.join(NAS_ANALYSIS_DIR, p3[1], p2[1], p1[1])
+                if not os.path.exists(analysis_dir):
+                    continue
+                for file in os.listdir(analysis_dir):
+                    if file.endswith('.txt'):
+                        d_insert = {'chunk_id': chunk_id, 'algorithm': algorithm, 'file_name': file}
+                        ls_insert_ctf.append(d_insert)
+    CellTypeFile.insert(ls_insert_ctf)
+    
+    print(f'Found {len(ls_insert_ctf)} text files in analysis directories.')
+    print(f'There are now {len(CellTypeFile())} entries in CellTypeFile.')
