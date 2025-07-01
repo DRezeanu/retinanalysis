@@ -4,6 +4,7 @@ from .settings import *
 from .stim import *
 from .response import *
 from .analysis_chunk import *
+from .qc import *
 from .vision_utils import *
 from .mea_pipeline import *
 import retinanalysis.schema as schema
