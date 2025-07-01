@@ -35,7 +35,9 @@ class StimBlock:
 
         # Pull noise runs and target protocol run from experiment summary df
         noise_runs = experiment_summary.query('protocol_name == @self.noise_protocol_name and chunk_name.str.contains("chunk")')
-        target_run = experiment_summary.query('protocol_name == @self.d_block_summary["protocol_name"] and datafile_name == @self.datafile_name')
+        # target_run = experiment_summary.query('protocol_name == @self.d_block_summary["protocol_name"] and datafile_name == @self.datafile_name')
+        protocol_name = self.d_block_summary["protocol_name"]
+        target_run = experiment_summary.query('protocol_name == @protocol_name and datafile_name == @self.datafile_name')
 
         # Identify start and stop points for target and noise runs
         target_run_stop = target_run['minutes_since_start']
