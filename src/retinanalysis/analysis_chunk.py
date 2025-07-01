@@ -127,7 +127,7 @@ class AnalysisChunk:
             classification = [result_dict[cell] for cell in self.cell_ids]
             df_dict[f'typing_file_{idx}'] = classification
         
-        self.cell_params_df = pd.DataFrame(df_dict)
+        self.df_cell_params = pd.DataFrame(df_dict)
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
@@ -145,6 +145,6 @@ class AnalysisChunk:
         str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
         str_self += f"  rf_params with fiels: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
-        str_self += f"  cell_params_df of shape: {self.cell_params_df.shape}\n"
+        str_self += f"  df_cell_params of shape: {self.df_cell_params.shape}\n"
         return str_self
 

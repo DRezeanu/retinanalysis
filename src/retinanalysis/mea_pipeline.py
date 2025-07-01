@@ -34,6 +34,7 @@ class MEAPipeline:
 
         Kwargs to pass to cluster_match:
             use_isi: bool, default = false
+            use_rgb: bool, default = false
             corr_cutoff: float, default = 0.8
             method: str, default = 'full'"""
         
@@ -108,9 +109,9 @@ class MEAPipeline:
                 raise FileNotFoundError(f"{typing_file} Not Found in Analysis Chunk")
         
         type_dict = dict()
-        for id in self.analysis_chunk.cell_params_df['cell_id']:
+        for id in self.analysis_chunk.df_cell_params['cell_id']:
             if id in self.match_dict:
-                type_dict[self.match_dict[id]] = self.analysis_chunk.cell_params_df.query('cell_id == @id')[f'typing_file_{typing_file}'].values[0]
+                type_dict[self.match_dict[id]] = self.analysis_chunk.df_cell_params.query('cell_id == @id')[f'typing_file_{typing_file}'].values[0]
         
         for id in self.response_block.df_spike_times.index:
             if id in type_dict:
@@ -121,6 +122,49 @@ class MEAPipeline:
         type_dict_sorted = dict(sorted(type_dict.items()))
 
         self.response_block.df_spike_times['cell_type'] = type_dict_sorted
+
+    def plot_rfs(self, cell_ids: list[int] = None, cell_types: list[str] = None) -> dict:
+        ids_to_plot = dict()
+        # Pull analysis_block ids that match the input cell_ids and cell_types
+        # If neither is given, plot all matched ids
+        if cell_ids is None and cell_types is None:
+            cell_types = list(self.response_block.df_spike_times['cell_type'].unique())
+            cell_types.remove('Unmatched')
+            for ct in cell_types:
+                type_ids = self.response_block.df_spike_times.query('cell_type == @ct').index.values
+                ids_to_plot[ct] = [key for key, val in self.match_dict.items() if val in type_ids]
+        
+        # If only type is given, pull only ids that correspond to that type
+        elif cell_ids is None:
+            ids_to_plot = dict()
+            for ct in cell_types:
+                protocol_ids = self.response_block.df_spike_times.query('cell_type == @ct').index.values
+                ids_to_plot[ct] = [key for key, val in self.match_dict.items() if val in protocol_ids]
+        
+        # If only ids are given, pull all ids regardless of type
+        elif cell_types is None:
+            cell_types = list(self.response_block.df_spike_times['cell_type'].unique())
+            cell_types.remove('Unmatched')
+            for ct in cell_types:
+                type_ids = self.response_block.df_spike_times.query('cell_type == @ct').index.values
+                ids_to_plot[ct] = [key for key, val in self.match_dict if (val in cell_ids
+                                                                           and val in type_ids)]
+
+        # If both are given, pull only ids that match both the cell types and the cell ids given
+        else:
+            for ct in cell_types:
+                protocol_ids = self.response_block.df_spike_times.query('cell_type ==  @ct').index.values
+                ids_to_plot[ct] = [key for key, val in self.match_dict.items() if (val in protocol_ids
+                                                                    and val in cell_ids)]
+            
+    # Ideas: 
+    # - Plot time courses in addition to RFs. 
+    # - Add frame times to stim
+    # - Function that bins spike times according to frame
+    # - IN QC or in Pipeline, function to visualize the EIs/electrode maps/raw voltage traces
+    # - Stim Regen
+    # - Plot RFs by ROI
+    # - Stim mask that's the gaussian center fit
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
