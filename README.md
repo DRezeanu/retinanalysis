@@ -1,6 +1,14 @@
 # RetinAnalysis
 MEA and Single Cell Ephys Analysis Package
 
+## Installation
+```
+cd to root directory
+activate your conda environment of choice (if using)
+python -m pip install -e . (for dev use)
+python -m pip install . (to lock the modules in their current state)
+```
+
 ## Sample config.ini file (must be in same src folder as settings.py):
 ```
 [DEFAULT]
