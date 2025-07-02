@@ -20,6 +20,7 @@ def get_analysis_vcd(exp_name, chunk_name, ss_version):
                                   include_params = True, include_runtimemovie_params = True,
                                   include_neurons = True)
         
+        print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.')
         return vcd
 
 def get_protocol_vcd(exp_name, datafile_name, ss_version):
@@ -29,7 +30,7 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
             data_path, datafile_name, 
             include_ei = True, include_neurons = True
             )
-        
+        print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.')
         return vcd
 
 

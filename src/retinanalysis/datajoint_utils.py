@@ -264,7 +264,8 @@ def add_parameters_col(df, ls_params, src_col: str='epoch_parameters'):
     return df
 
 
-def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: list=None):
+def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: list=None,
+                                stim_time_name: str='stimTime'):
     # Filter Experiment by exp_name, EpochBlock by datafile_name, then join down to Epoch
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
     eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
@@ -295,9 +296,14 @@ def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: li
     if ls_params is not None:
         varying_params = list(set(varying_params).union(set(ls_params)))
     df = add_parameters_col(df, varying_params, 'epoch_parameters')
+
+    # Add preTime, stimTime, tailTime
+    ls_time_cols = ['preTime', stim_time_name, 'tailTime']
+    df = add_parameters_col(df, ls_time_cols, 'epoch_parameters')
     ls_order =  varying_params + \
         ['exp_name', 'datafile_name', 'group_label', 'protocol_name', 'frame_times_ms',
-        'epoch_parameters', 'data_dir', 'experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
+        'epoch_parameters', 'data_dir'] + ls_time_cols + \
+        ['experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
     df = df[ls_order]
     
     # Name index 'epoch_index'
