@@ -36,22 +36,22 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
 
 def cluster_match(ref_vcd: vl.VisionCellDataTable, test_vcd: vl.VisionCellDataTable,
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
-                use_timecourse: bool = False):
+                use_timecourse: bool = False, n_removed_channels: int = 1):
         
         if 'all' in method:
-            arr_full_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'full')
-            arr_space_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'space')
-            arr_power_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'power')
+            arr_full_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'full', n_removed_channels = n_removed_channels)
+            arr_space_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'space', n_removed_channels = n_removed_channels)
+            arr_power_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'power', n_removed_channels = n_removed_channels)
         elif 'full' in method:
-            arr_full_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method)
+            arr_full_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method, n_removed_channels = n_removed_channels)
             arr_space_corr: np.ndarray = np.zeros(arr_full_corr.shape)
             arr_power_corr: np.ndarray = np.zeros(arr_full_corr.shape)
         elif 'space' in method:
-            arr_space_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method)
+            arr_space_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method, n_removed_channels = n_removed_channels)
             arr_full_corr: np.ndarray = np.zeros(arr_space_corr.shape)
             arr_power_corr: np.ndarray = np.zeros(arr_space_corr.shape)
         elif 'power' in method:
-            arr_power_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method)
+            arr_power_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method, n_removed_channels = n_removed_channels)
             arr_space_corr: np.ndarray = np.zeros(arr_power_corr.shape)
             arr_full_corr: np.ndarray = np.zeros(arr_power_corr.shape)
         else:
@@ -78,6 +78,7 @@ def cluster_match(ref_vcd: vl.VisionCellDataTable, test_vcd: vl.VisionCellDataTa
 
             max_corrs = np.array([sorted_full_corr[0], sorted_space_corr[0], sorted_power_corr[0]])
             next_max_corrs = np.array([sorted_full_corr[1], sorted_space_corr[1], sorted_power_corr[1]])
+            corr_filter = next_max_corrs < max_corrs*0.9
 
             max_inds = np.array([np.argmax(arr_full_corr[idx,:]),
                                  np.argmax(arr_space_corr[idx,:]),
@@ -87,10 +88,16 @@ def cluster_match(ref_vcd: vl.VisionCellDataTable, test_vcd: vl.VisionCellDataTa
                                      np.argmax(arr_space_corr[:, max_inds[1]]),
                                      np.argmax(arr_power_corr[:, max_inds[2]])])
 
+            if any(corr_filter):
+                max_corrs = max_corrs[corr_filter]
+                max_inds = max_inds[corr_filter]
+                max_rev_inds = max_rev_inds[corr_filter]
+            else:
+                bad_match_count += 1
+                continue
+
             best_match = np.argmax(max_corrs)
             max_corr = max_corrs[best_match]
-
-            next_max_corr = next_max_corrs[best_match]
 
             max_ind = max_inds[best_match]
             max_rev_ind = max_rev_inds[best_match]
@@ -117,7 +124,7 @@ def cluster_match(ref_vcd: vl.VisionCellDataTable, test_vcd: vl.VisionCellDataTa
 
                     isi_corr = np.corrcoef(ref_isi, match_isi)[0,1]
 
-                if next_max_corr > (max_corr*0.90) or isi_corr < 0.3 or rgb_corr < 0.3:
+                if  isi_corr < 0.3 or rgb_corr < 0.3:
                     bad_match_count += 1
                 elif ref_ids[max_rev_ind] != ref_cell:
                     bad_match_count += 1
@@ -153,7 +160,7 @@ def get_classification_file_path(classification_file_name: str, exp_name: str, c
 
 
 def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
-            method: str = 'full', n_removed_channels: int = 0) -> np.ndarray:
+            method: str = 'full', n_removed_channels: int = 1) -> np.ndarray:
 
 
         # Pull reference eis
@@ -161,8 +168,10 @@ def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
         ref_eis = [ref_vcd.get_ei_for_cell(cell).ei for cell in ref_ids]
 
         if n_removed_channels > 0:
-            pass
-        
+            max_ref_vals = [np.array(np.max(ei, axis = 1)) for ei in ref_eis]
+            ref_to_remove = [np.argsort(val)[-n_removed_channels:] for val in max_ref_vals]
+            ref_eis = [np.delete(ei, ref_to_remove[idx], axis = 0) for idx, ei in enumerate(ref_eis)]
+
         # Set any EI value where the ei is less than 1.5* its standard deviation to 0
         for idx, ei in enumerate(ref_eis):
             ref_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
@@ -189,6 +198,11 @@ def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
         # Pull test eis
         test_ids = target_vcd.get_cell_ids()
         test_eis = [target_vcd.get_ei_for_cell(cell).ei for cell in test_ids]
+
+        if n_removed_channels > 0:
+            max_test_vals = [np.array(np.max(ei, axis = 1)) for ei in test_eis]
+            test_to_remove = [np.argsort(val)[-n_removed_channels:] for val in max_test_vals]
+            test_eis = [np.delete(ei, test_to_remove[idx], axis = 0) for idx, ei in enumerate(test_eis)]
 
         # Set the EI value where the EI is less than 1.5* its standard deviation to 0
         for idx, ei in enumerate(test_eis):
