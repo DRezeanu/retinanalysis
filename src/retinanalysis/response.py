@@ -6,6 +6,7 @@ from retinanalysis.settings import NAS_DATA_DIR
 import os
 import numpy as np
 import pandas as pd
+import tqdm
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
@@ -115,9 +116,8 @@ class ResponseBlock:
         n_cells = len(self.cell_ids)
         
         binned_spikes = np.zeros((n_cells, self.n_epochs, n_max_bins))
-        # self.df_spike_times['binned_spikes'] = pd.Series([None] * n_cells, dtype=object)
         ls_diff_frames = []
-        for i_cell, cell_id in enumerate(self.cell_ids):
+        for i_cell, cell_id in enumerate(tqdm.tqdm(self.cell_ids, desc='Binning spikes for cells')):
             sts = self.df_spike_times.at[cell_id, 'spike_times']
             for j_epoch in range(self.n_epochs):
                 e_sts = sts[j_epoch]
@@ -130,7 +130,7 @@ class ResponseBlock:
                 if len(bs) > n_max_bins:
                     bs = bs[:n_max_bins]
                 binned_spikes[i_cell, j_epoch, :len(bs)] = bs
-            # self.df_spike_times['binned_spikes'] = pd.Series(binned_spikes[i_cell], dtype=object)
+        
         self.df_spike_times['binned_spikes'] = [binned_spikes[i_cell, :, :] for i_cell in range(n_cells)]
         
         self.binned_spikes = binned_spikes
@@ -142,6 +142,7 @@ class ResponseBlock:
         print(f'Mean frame rate: {mean_frame_rate:.2f} Hz')
         self.mean_frame_rate = mean_frame_rate
         self.bin_rate = bin_rate
+        self.binned_time = np.arange(0, n_max_bins) / self.bin_rate * 1000 # in ms
 
 
     def __repr__(self):
