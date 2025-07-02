@@ -8,6 +8,7 @@ import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR
 from matplotlib.patches import Ellipse
 import matplotlib.pyplot as plt
+from typing import List
 
 
 class MEAPipeline:
@@ -134,7 +135,7 @@ class MEAPipeline:
 
         self.response_block.df_spike_times['cell_type'] = type_dict
 
-    def plot_rfs(self, cell_ids: list[int] = None, cell_types: list[str] = None,
+    def plot_rfs(self, cell_ids: List[int] = None, cell_types: List[str] = None,
                  std_scaling: float = 1.6, units: str = 'pixels') -> dict:
         
         cells_to_plot = dict()

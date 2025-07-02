@@ -159,13 +159,15 @@ def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
         ref_ids = ref_vcd.get_cell_ids()
         ref_eis = [ref_vcd.get_ei_for_cell(cell).ei for cell in ref_ids]
 
+        if n_removed_channels > 0:
+            pass
+        
         # Set any EI value where the ei is less than 1.5* its standard deviation to 0
         for idx, ei in enumerate(ref_eis):
             ref_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
 
         # For 'full' method: flatten each 512 x 201 ei array into a vector
         # and stack flattened eis into a numpy array
-        
         if 'full' in method:
             ref_eis_flat = [ei.flatten() for ei in ref_eis]
             ref_eis = np.array(ref_eis_flat)
