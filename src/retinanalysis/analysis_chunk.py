@@ -117,10 +117,10 @@ class AnalysisChunk:
                             result_dict[cell] = type
                             break
                 else:
-                    result_dict[cell] = 'Unmatched'
+                    result_dict[cell] = 'Unknown'
                 
                 if 'All' in result_dict[cell]:
-                    result_dict[cell] = 'Unmatched'
+                    result_dict[cell] = 'Unknown'
                 
             
             
