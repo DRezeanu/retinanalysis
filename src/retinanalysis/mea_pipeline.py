@@ -37,7 +37,7 @@ class MEAPipeline:
 
         Kwargs to pass to cluster_match:
             use_isi: bool, default = false
-            use_rgb: bool, default = false
+            use_timecourse: bool, default = false
             corr_cutoff: float, default = 0.8
             method: str, default = 'full'"""
         
@@ -256,12 +256,6 @@ class MEAPipeline:
 
             
     # Ideas: 
-    # - Plot time courses in addition to RFs. 
-    # - Add alternative methods to ei_corr
-    # - Add frame times to stim
-    # - IN QC or in Pipeline, function to visualize the EIs/electrode maps/raw voltage traces
-    # - Stim Regen
-    # - Plot RFs by ROI
     # - Stim mask that's the gaussian center fit
 
     def __repr__(self):

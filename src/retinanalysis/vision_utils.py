@@ -34,11 +34,27 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
 
 
 def cluster_match(ref_vcd: vl.VisionCellDataTable, test_vcd: vl.VisionCellDataTable,
-                corr_cutoff: float = 0.8, method: str = 'full', use_isi: bool = False,
-                use_rgb: bool = False):
+                corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
+                use_timecourse: bool = False):
         
-        corr_arr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method)
-        # Methods: full, space, power. Space uses no time dimension, power squares the response
+        if 'all' in method:
+            arr_full_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'full')
+            arr_space_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'space')
+            arr_power_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'power')
+        elif 'full' in method:
+            arr_full_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method)
+            arr_space_corr: np.ndarray = np.zeros(arr_full_corr.shape)
+            arr_power_corr: np.ndarray = np.zeros(arr_full_corr.shape)
+        elif 'space' in method:
+            arr_space_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method)
+            arr_full_corr: np.ndarray = np.zeros(arr_space_corr.shape)
+            arr_power_corr: np.ndarray = np.zeros(arr_space_corr.shape)
+        elif 'power' in method:
+            arr_power_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method)
+            arr_space_corr: np.ndarray = np.zeros(arr_power_corr.shape)
+            arr_full_corr: np.ndarray = np.zeros(arr_power_corr.shape)
+        else:
+            raise NameError("Method property must be 'all', 'full', 'space', or 'power'")
 
         match_dict = dict()
         match_count = 0
@@ -50,16 +66,36 @@ def cluster_match(ref_vcd: vl.VisionCellDataTable, test_vcd: vl.VisionCellDataTa
         test_ids = test_vcd.get_cell_ids()
 
         for idx, ref_cell in enumerate(ref_ids):
-            sorted_corr = np.sort(corr_arr[idx,:])
-            sorted_corr = np.flip(sorted_corr)
+            sorted_full_corr = np.sort(arr_full_corr[idx,:])
+            sorted_full_corr = np.flip(sorted_full_corr)
 
-            max_corr = sorted_corr[0]
-            next_max_corr = sorted_corr[1]
-            max_ind = np.argmax(corr_arr[idx,:])
-            max_rev_ind = np.argmax(corr_arr[:,max_ind])
+            sorted_space_corr = np.sort(arr_space_corr[idx,:])
+            sorted_space_corr = np.flip(sorted_space_corr)
+
+            sorted_power_corr = np.sort(arr_power_corr[idx,:])
+            sorted_power_corr = np.flip(sorted_power_corr)
+
+            max_corrs = np.array([sorted_full_corr[0], sorted_space_corr[0], sorted_power_corr[0]])
+            next_max_corrs = np.array([sorted_full_corr[1], sorted_space_corr[1], sorted_power_corr[1]])
+
+            max_inds = np.array([np.argmax(arr_full_corr[idx,:]),
+                                 np.argmax(arr_space_corr[idx,:]),
+                                 np.argmax(arr_power_corr[idx,:])])
+
+            max_rev_inds = np.array([np.argmax(arr_full_corr[:, max_inds[0]]),
+                                     np.argmax(arr_space_corr[:, max_inds[1]]),
+                                     np.argmax(arr_power_corr[:, max_inds[2]])])
+
+            best_match = np.argmax(max_corrs)
+            max_corr = max_corrs[best_match]
+
+            next_max_corr = next_max_corrs[best_match]
+
+            max_ind = max_inds[best_match]
+            max_rev_ind = max_rev_inds[best_match]
 
             if max_corr > corr_cutoff:
-                if use_rgb:
+                if use_timecourse:
                     ref_rg = ref_vcd.main_datatable[ref_cell]['GreenTimeCourse']
                     ref_b = ref_vcd.main_datatable[ref_cell]['BlueTimeCourse']
                     test_rg = test_vcd.main_datatable[test_ids[max_ind]]['GreenTimeCourse']
@@ -115,7 +151,9 @@ def get_classification_file_path(classification_file_name: str, exp_name: str, c
     return classification_file_path
 
 
-def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable, method: str = 'full') -> np.ndarray:
+def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
+            method: str = 'full', n_removed_channels: int = 0) -> np.ndarray:
+
 
         # Pull reference eis
         ref_ids = ref_vcd.get_cell_ids()
@@ -125,9 +163,25 @@ def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
         for idx, ei in enumerate(ref_eis):
             ref_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
 
-        # Flatten 512 x 201 array into a vector
-        ref_eis_flat = [ei.flatten() for ei in ref_eis]
-        ref_eis = np.array(ref_eis_flat)
+        # For 'full' method: flatten each 512 x 201 ei array into a vector
+        # and stack flattened eis into a numpy array
+        
+        if 'full' in method:
+            ref_eis_flat = [ei.flatten() for ei in ref_eis]
+            ref_eis = np.array(ref_eis_flat)
+        # For 'time' method, take max of absolute value over time and
+        # stack the resulting 512 x 1 vectors into a numpy array 
+        elif 'space' in method:
+            ref_eis_mean = [np.max(np.abs(ei), axis = 1) for ei in ref_eis]
+            ref_eis = np.array(ref_eis_mean)
+        # For 'power' method, square each 512 x 201 ei array, take the mean over time,
+        # and stack the resulting 512 x 1 vectors into a numpy array
+        elif 'power' in method:
+            ref_eis_mean = [np.mean(ei**2, axis = 1) for ei in ref_eis]
+            ref_eis = np.array(ref_eis_mean)
+        else:
+            raise NameError("Method poperty must be 'full', 'time', or 'power'.")
+
 
         # Pull test eis
         test_ids = target_vcd.get_cell_ids()
@@ -137,9 +191,24 @@ def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
         for idx, ei in enumerate(test_eis):
             test_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
 
-        # Flatten all the eis and turn them into numpy array
-        test_eis_flat = [ei.flatten() for ei in test_eis]
-        test_eis = np.array(test_eis_flat)
+        # For 'full' method: flatten each 512 x 201 ei array into a vector
+        # and stack flattened eis into a numpy array
+        if 'full' in method:
+            test_eis_flat = [ei.flatten() for ei in test_eis]
+            test_eis = np.array(test_eis_flat)
+        # For 'time' method, take max of absolute value over time and
+        # stack the resulting 512 x 1 vectors into a numpy array 
+        elif 'space' in method:
+            test_eis_mean = [np.max(np.abs(ei), axis = 1) for ei in test_eis]
+            test_eis = np.array(test_eis_mean)
+        # For 'power' method, square each 512 x 201 ei array, take the mean over time,
+        # and stack the resulting 512 x 1 vectors into a numpy array
+        elif 'power' in method:
+            test_eis_mean = [np.mean(ei**2, axis = 1) for ei in test_eis]
+            test_eis = np.array(test_eis_mean)
+        else:
+            raise NameError("Method poperty must be 'full', 'space', or 'power'.")
+
 
         num_pts = ref_eis.shape[1]
 
