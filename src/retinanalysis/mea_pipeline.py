@@ -18,8 +18,7 @@ class MEAPipeline:
         self.response_block = response_block
         self.analysis_chunk = analysis_chunk
 
-        self.match_dict = vu.cluster_match(self.analysis_chunk.vcd, self.response_block.vcd,
-                                           use_isi = False)
+        self.match_dict = vu.cluster_match(self.analysis_chunk.vcd, self.response_block.vcd)
         
         self.add_matches_to_protocol()
         self.add_types_to_protocol()
