@@ -130,7 +130,6 @@ class ResponseBlock:
                 if len(bs) > n_max_bins:
                     bs = bs[:n_max_bins]
                 binned_spikes[i_cell, j_epoch, :len(bs)] = bs
-        
         self.df_spike_times['binned_spikes'] = [binned_spikes[i_cell, :, :] for i_cell in range(n_cells)]
         
         self.binned_spikes = binned_spikes
