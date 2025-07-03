@@ -8,7 +8,7 @@ import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR
 from matplotlib.patches import Ellipse 
 import matplotlib.pyplot as plt
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 
 class MEAPipeline:
@@ -137,11 +137,11 @@ class MEAPipeline:
     def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
                  std_scaling: float = 1.6, units: str = 'pixels') -> np.ndarray:
         
-        cells_to_plot = self.get_noise_ids(protocol_ids, cell_types)
-        ells, scale_factor = self.get_ells(cells_to_plot, std_scaling = std_scaling, units = units)
+        d_ells_by_type = self.get_noise_ids(protocol_ids, cell_types)
+        d_ells_by_type, scale_factor = self.get_ells(d_ells_by_type, std_scaling = std_scaling, units = units)
 
-        rows = int(np.ceil(len(cells_to_plot.keys())/4))
-        cols = np.min([(len(cells_to_plot.keys())-1 % 4)+1, 4])
+        rows = int(np.ceil(len(d_ells_by_type.keys())/4))
+        cols = np.min([(len(d_ells_by_type.keys())-1 % 4)+1, 4])
         size = (4.5*cols, int(3*rows))
 
         fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
@@ -149,11 +149,11 @@ class MEAPipeline:
         if cols != 1:
             ax = ax.flatten()
 
-        for idx, ct in enumerate(cells_to_plot.keys()):
+        for idx, ct in enumerate(d_ells_by_type.keys()):
 
             if cols != 1:
-                for id in cells_to_plot[ct]:
-                    ax[idx].add_patch(ells[idx][id])
+                for id in d_ells_by_type[ct]:
+                    ax[idx].add_patch(d_ells_by_type[ct][id])
 
                 ax[idx].set_xlim(0,self.analysis_chunk.numXChecks * scale_factor)
                 ax[idx].set_ylim(0,self.analysis_chunk.numYChecks * scale_factor)
@@ -164,8 +164,8 @@ class MEAPipeline:
                 ax[idx].set_title(ct)
 
             else: 
-                for id in cells_to_plot[ct]:
-                    ax.add_patch(ells[idx][id])
+                for id in d_ells_by_type[ct]:
+                    ax.add_patch(d_ells_by_type[ct][id])
 
                 ax.set_xlim(0,self.analysis_chunk.numXChecks * scale_factor)
                 ax.set_ylim(0,self.analysis_chunk.numYChecks * scale_factor)
@@ -177,17 +177,17 @@ class MEAPipeline:
 
         # Remove extra empty axes 
         num_axes = (rows-1)*4 + cols
-        empty_axes = num_axes - len(cells_to_plot.keys())
+        empty_axes = num_axes - len(d_ells_by_type.keys())
 
         for i in range(empty_axes):
             fig.delaxes(ax[num_axes - 1 - i])
 
-        fig.suptitle("RFs by Cell Type", fontsize = 16)
+        fig.suptitle("RFs by Cell Type", fontsize = 15)
         fig.tight_layout()
 
         return ax
         
-    def get_ells(self, d_cells_by_type: dict, std_scaling: float = 1.6, units: str = 'pixels') -> Tuple[List[dict], int]:
+    def get_ells(self, d_cells_by_type: dict, std_scaling: float = 1.6, units: str = 'pixels') -> Tuple[Dict[str, dict], int]:
 
         if 'microns' in units.lower():
             scale_factor = self.analysis_chunk.microns_per_stixel
@@ -199,23 +199,25 @@ class MEAPipeline:
             raise NameError("Units string must be 'microns', 'pixels' or 'stixels'.")
         
         rf_params = self.analysis_chunk.rf_params
-        ells = []
+
+        d_ells_by_type = dict()
         for idx, ct in enumerate(d_cells_by_type.keys()):
-            ell_dict = dict()
+            d_ells_by_id = dict()
             for id in d_cells_by_type[ct]:
-                ell_dict[id] = Ellipse(xy=(rf_params[id]['center_x']*scale_factor,
+                d_ells_by_id[id] = Ellipse(xy=(rf_params[id]['center_x']*scale_factor,
                                         rf_params[id]['center_y']*scale_factor),
                                         width = rf_params[id]['std_x']*std_scaling*scale_factor,
                                         height = rf_params[id]['std_y']*std_scaling*scale_factor,
                                         angle = rf_params[id]['rot'],
                                         facecolor= f'C{idx}', edgecolor= f'C{idx}',
                                         alpha = 0.7)
-            ells.append(ell_dict)
+
+            d_ells_by_type[ct] = d_ells_by_id
         
-        return ells, scale_factor
+        return d_ells_by_type, scale_factor
 
     def plot_timecourses(self, protocol_ids: List[int] = None, cell_types: List[str] = None, 
-                        units: str = 'ms', std_scaling: float = 2):
+                        units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
         
         if 'ms' in units.lower() or 'milliseconds' in units.lower():
             scale_factor = 1
@@ -224,12 +226,12 @@ class MEAPipeline:
         else:
             raise NameError("Units string must be 'ms', 'milliseconds', 's' or 'seconds'")
 
-        cells_to_plot = self.get_noise_ids(protocol_ids, cell_types)
-        timecourse_dict = self.get_timecourses(cells_to_plot)
+        d_noise_ids_by_type = self.get_noise_ids(protocol_ids, cell_types)
+        d_timecourses_by_type = self.get_timecourses(d_noise_ids_by_type)
 
 
-        rows = int(np.ceil(len(cells_to_plot.keys())/4))
-        cols = np.min([(len(cells_to_plot.keys())-1 % 4)+1, 4])
+        rows = int(np.ceil(len(d_timecourses_by_type.keys())/4))
+        cols = np.min([(len(d_timecourses_by_type.keys())-1 % 4)+1, 4])
         size = (4.5*cols, int(3*rows))
 
         fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
@@ -237,18 +239,18 @@ class MEAPipeline:
         if cols != 1:
             ax = ax.flatten()
 
-        for idx, ct in enumerate(timecourse_dict.keys()):
+        for idx, ct in enumerate(d_timecourses_by_type.keys()):
 
-            time_vals = np.linspace(-491.66,8.33,len(timecourse_dict[ct]['rg_mean']))*scale_factor
+            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['rg_mean']))*scale_factor
             if cols != 1:
-                rg_err_top = timecourse_dict[ct]['rg_mean'] + timecourse_dict[ct]['rg_std']*std_scaling
-                rg_err_bottom = timecourse_dict[ct]['rg_mean'] - timecourse_dict[ct]['rg_std']*std_scaling
-                ax[idx].plot(time_vals, timecourse_dict[ct]['rg_mean'], '-g')
+                rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
+                rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
+                ax[idx].plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
                 ax[idx].fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
 
-                b_err_top = timecourse_dict[ct]['b_mean'] + timecourse_dict[ct]['b_std']*std_scaling
-                b_err_bottom = timecourse_dict[ct]['b_mean'] - timecourse_dict[ct]['b_std']*std_scaling
-                ax[idx].plot(time_vals, timecourse_dict[ct]['b_mean'], '-b')
+                b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
+                b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
+                ax[idx].plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
                 ax[idx].fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
 
                 ax[idx].set_xlim([time_vals[0], time_vals[-1]])
@@ -256,17 +258,17 @@ class MEAPipeline:
                 ax[idx].set_ylabel(f"STA (arb. units)")
                 ax[idx].set_xlabel(f"Time ({units})")
                 
-                ax[idx].set_title(f"{ct}, (n = {timecourse_dict[ct]['rg_timecourses'].shape[0]})")
+                ax[idx].set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
 
             else: 
-                rg_err_top = timecourse_dict[ct]['rg_mean'] + timecourse_dict[ct]['rg_std']*std_scaling
-                rg_err_bottom = timecourse_dict[ct]['rg_mean'] - timecourse_dict[ct]['rg_std']*std_scaling
-                ax.plot(time_vals, timecourse_dict[ct]['rg_mean'], '-g')
+                rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
+                rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
                 ax.fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
 
-                b_err_top = timecourse_dict[ct]['b_mean'] + timecourse_dict[ct]['b_std']*std_scaling
-                b_err_bottom = timecourse_dict[ct]['b_mean'] - timecourse_dict[ct]['b_std']*std_scaling
-                ax.plot(time_vals, timecourse_dict[ct]['b_mean'], '-b')
+                b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
+                b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
                 ax.fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
 
                 ax.set_xlim([time_vals[0], time_vals[-1]])
@@ -274,21 +276,23 @@ class MEAPipeline:
                 ax.set_ylabel(f"STA (arb. units)")
                 ax.set_xlabel(f"Time ({units})")
                 
-                ax.set_title(f"{ct}, (n = {timecourse_dict[ct]['rg_timecourses'].shape[0]})")
+                ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
         
         # Remove extra empty axes 
         num_axes = (rows-1)*4 + cols
-        empty_axes = num_axes - len(timecourse_dict.keys())
+        empty_axes = num_axes - len(d_timecourses_by_type.keys())
 
         for i in range(empty_axes):
             fig.delaxes(ax[num_axes - 1 - i])
 
-        fig.suptitle("Timecourse by Cell Type", fontsize = 16)
+        fig.suptitle("Timecourse by Cell Type", fontsize = 15)
         fig.tight_layout()
 
-    def get_timecourses(self, d_cells_by_type: dict): 
+        return ax
 
-        d_timecourse = dict()
+    def get_timecourses(self, d_cells_by_type: dict) -> Dict[str, dict]: 
+
+        d_timecourses_by_type = dict()
 
         for ct in d_cells_by_type.keys():
 
@@ -302,15 +306,15 @@ class MEAPipeline:
             b_mean = np.mean(b_timecourses, axis = 0)
             b_std = np.std(b_timecourses, axis = 0)
 
-            d_timecourse[ct] = {'rg_timecourses' : rg_timecourses, 'rg_mean' : rg_mean, 'rg_std' : rg_std,
+            d_timecourses_by_type[ct] = {'rg_timecourses' : rg_timecourses, 'rg_mean' : rg_mean, 'rg_std' : rg_std,
                                 'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
 
-        return d_timecourse
+        return d_timecourses_by_type
 
     # Helper function for pulling noise ids for plotting and organizing them into a dictionary
     # by type. IDs can be pulled by list of protocol ids, list of cell types, or both. Used
     # in plot_rfs and plot_timecourse
-    def get_noise_ids(self, protocol_ids: List[int] = None, cell_types: List[int] = None) -> dict:
+    def get_noise_ids(self, protocol_ids: List[int] = None, cell_types: List[int] = None) -> Dict[str,list]:
 
         d_cells_by_type = dict()
         # Pull analysis_block ids that match the input cell_ids and cell_types
