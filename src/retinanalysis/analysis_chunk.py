@@ -76,12 +76,13 @@ class AnalysisChunk:
     def get_rf_params(self):
         self.rf_params = dict()
         for id in self.cell_ids:
-            rf = self.vcd.get_stafit_for_cell(id)
-            self.rf_params[id] = {'center_x' : rf.center_x + self.deltaXChecks,
-                                'center_y' : (self.staYChecks - rf.center_y) + self.deltaYChecks,
-                                'std_x' : rf.std_x,
-                                'std_y' : rf.std_y,
-                                'rot' : rf.rot}
+            center_x = self.vcd.main_datatable[id]['x0']
+            center_y = self.vcd.main_datatable[id]['y0']
+            self.rf_params[id] = {'center_x' : center_x + self.deltaXChecks,
+                                'center_y' : (self.staYChecks - center_y) + self.deltaYChecks,
+                                'std_x' : self.vcd.main_datatable[id]['SigmaX'],
+                                'std_y' : self.vcd.main_datatable[id]['SigmaY'],
+                                'rot' : self.vcd.main_datatable[id]['Theta']}
               
     def get_df(self):
         center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
@@ -146,7 +147,7 @@ class AnalysisChunk:
             d_spatial_maps[n_ID] = d_params['spatial_maps'][idx_ID][:, :, ls_channels]
             
         self.d_spatial_maps = d_spatial_maps
-        print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells')# from:\n{mat_file}')
+        print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
         # TODO could also load convex hull fits too under 'hull_vertices'
 
     

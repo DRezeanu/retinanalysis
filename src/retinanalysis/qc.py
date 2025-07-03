@@ -41,7 +41,9 @@ def get_pct_refractory(isi_dict, n_bin_max):
     return pct_refractory
 
 def get_ei_corr(vcd1: vl.VisionCellDataTable, vcd2: vl.VisionCellDataTable, 
-                match_dict: dict):
+                match_dict: dict, method: str='full'):
+    if method != 'full':
+        raise NotImplementedError("Only 'full' method is implemented for now in QC EI correlation.")
     ei_corrs = []
     for id1 in match_dict.keys():
         ei1 = vcd1.get_ei_for_cell(id1).ei.flatten()
@@ -77,8 +79,14 @@ class MEAQC():
                     'protocol_spikes', 'protocol_isi_violations',
                     'analysis_chunk_cell_id']
         df_qc = pd.DataFrame(columns=ls_cols)
-        df_qc['cell_id'] = self.match_dict.values()
-        df_qc['analysis_chunk_cell_id'] = self.match_dict.keys()
+        ls_cell_ids = []
+        ls_analysis_chunk_cell_ids = []
+        for key, val in self.match_dict.items():
+            ls_cell_ids.append(val)
+            ls_analysis_chunk_cell_ids.append(key)
+        df_qc['cell_id'] = ls_cell_ids
+        df_qc['analysis_chunk_cell_id'] = ls_analysis_chunk_cell_ids
+
         df_qc['cell_type'] = self.rb.df_spike_times.loc[df_qc['cell_id'], 'cell_type']
         
         df_qc['protocol_spikes'] = get_nsps(self.rb.vcd, df_qc['cell_id'].values)
