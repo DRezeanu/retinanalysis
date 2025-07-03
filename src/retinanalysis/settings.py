@@ -2,6 +2,7 @@ from configparser import ConfigParser
 import platform
 import os
 
+
 def load_config(config_path):
     if os.path.exists(config_path):
         config_path = os.path.abspath(config_path)
@@ -82,6 +83,24 @@ def reset_config(config_path):
     os.remove(config_path)
     print("Config file successfully deleted")
 
+# reset_config('/Users/racheloaks-leaf/Desktop/retinanalysis/src/retinanalysis/')
+# create_config(config_path='/Users/racheloaks-leaf/Desktop/retinanalysis/src/retinanalysis/config.ini', 
+#               config_name='NAS',
+#               data_dir='/Volumes/data/data/sorted/',
+#                 analysis_dir='/Volumes/data/data/analysis/',
+#                 h5_dir='/Volumes/data/data/h5/',
+#                 meta_dir='/Volumes/data/datajoint_testbed/mea/meta/',
+#                 tags_dir='/Volumes/data/datajoint_testbed/mea/tags/',
+#                 username='roaksleaf')
+
+# create_config(config_path='/Users/racheloaks-leaf/Desktop/retinanalysis/src/retinanalysis/config.ini', 
+#               config_name='MAC_SSD',
+#               data_dir='/Volumes/RachelSSD/mea/sorted/',
+#                 analysis_dir='/Volumes/RachelSSD/mea/analysis/',
+#                 h5_dir='/Volumes/RachelSSD/mea/h5/',
+#                 meta_dir='/Volumes/RachelSSD/mea/datajoint_testbed/mea/meta/',
+#                 tags_dir='/Volumes/RachelSSD/mea/datajoint_testbed/mea/tags/',
+#                 username='roaksleaf')
 
 config_directory = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(config_directory, 'config.ini')
