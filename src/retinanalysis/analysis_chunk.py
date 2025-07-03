@@ -1,15 +1,26 @@
 import retinanalysis.schema as schema
-import visionloader as vl
 import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR, NAS_DATA_DIR
 import pandas as pd
-import numpy as np
 import retinanalysis.vision_utils as vu
 from hdf5storage import loadmat
+import pickle
 
 class AnalysisChunk:
 
-    def __init__(self, exp_name, chunk_name, ss_version: str = 'kilosort2.5'):
+    def __init__(self, exp_name: str=None, chunk_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
+        if pkl_file is not None:
+            # Load from pickle file if string, otherwise must be a dict
+            if isinstance(pkl_file, str):
+                with open(pkl_file, 'rb') as f:
+                    d_out = pickle.load(f)
+            else:
+                d_out = pkl_file
+                pkl_file = "input dict."
+            self.__dict__.update(d_out)
+            self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version)
+            print(f"AnalysisChunk loaded from {pkl_file}")
+            return
         self.exp_name = exp_name
         self.chunk_name = chunk_name
         self.ss_version = ss_version
@@ -173,4 +184,12 @@ class AnalysisChunk:
         else:
             str_self += "  d_spatial_maps not loaded\n"
         return str_self
+
+    def export_to_pkl(self, file_path: str):
+        d_out = self.__dict__.copy()
+        # Pop out vcd
+        d_out.pop('vcd')
+        with open(file_path, 'wb') as f:
+            pickle.dump(d_out, f)
+        print(f"AnalysisChunk exported to {file_path}")
 

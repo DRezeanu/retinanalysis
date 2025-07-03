@@ -2,18 +2,27 @@ import numpy as np
 from retinanalysis.response import ResponseBlock
 from retinanalysis.stim import StimBlock
 from retinanalysis.analysis_chunk import AnalysisChunk
-import visionloader as vl
 import retinanalysis.vision_utils as vu
 import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR
 from matplotlib.patches import Ellipse
 import matplotlib.pyplot as plt
 from typing import List
+import pickle
 
 
 class MEAPipeline:
 
-    def __init__(self, stim_block: StimBlock, response_block: ResponseBlock, analysis_chunk: AnalysisChunk):
+    def __init__(self, stim_block: StimBlock=None, response_block: ResponseBlock=None, analysis_chunk: AnalysisChunk=None, pkl_file: str = None):
+        if pkl_file is not None:
+            with open(pkl_file, 'rb') as f:
+                d_out = pickle.load(f)
+            self.__dict__.update(d_out)
+            self.stim_block = StimBlock(pkl_file=self.stim_block)
+            self.response_block = ResponseBlock(pkl_file=self.response_block)
+            self.analysis_chunk = AnalysisChunk(pkl_file=self.analysis_chunk)
+            print(f"MEAPipeline loaded from {pkl_file}")
+            return
         self.stim_block = stim_block
         self.response_block = response_block
         self.analysis_chunk = analysis_chunk
@@ -264,4 +273,21 @@ class MEAPipeline:
         str_self += f"  analysis_chunk: {self.analysis_chunk.chunk_name}\n"
         str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.stim_block.protocol_name)[1][1:]}_id"
         return str_self
+
+    def export_to_pkl(self, file_path: str):
+        """
+        Export the MEAPipeline to a pickle file.
+        """
+        d_out = self.__dict__.copy()
+        # For StimBlock, ResponseBlock, and AnalysisChunk, get only the __dict__ attribute
+        d_out['stim_block'] = self.stim_block.__dict__
+        d_out['response_block'] = self.response_block.__dict__
+        d_out['analysis_chunk'] = self.analysis_chunk.__dict__
+        # Pop out vcd from response_block and analysis_chunk
+        d_out['response_block'].pop('vcd', None)
+        d_out['analysis_chunk'].pop('vcd', None)
+        with open(file_path, 'wb') as f:
+            import pickle
+            pickle.dump(d_out, f)
+        print(f"MEAPipeline exported to {file_path}")
 
