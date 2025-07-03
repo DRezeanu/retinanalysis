@@ -1,10 +1,11 @@
 import retinanalysis.schema as schema
 import visionloader as vl
 import os
-from retinanalysis.settings import NAS_ANALYSIS_DIR
+from retinanalysis.settings import NAS_ANALYSIS_DIR, NAS_DATA_DIR
 import pandas as pd
 import numpy as np
 import retinanalysis.vision_utils as vu
+from hdf5storage import loadmat
 
 class AnalysisChunk:
 
@@ -36,50 +37,52 @@ class AnalysisChunk:
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_rf_params()
         self.get_df()
+        self.get_spatial_maps()
 
     def get_noise_params(self):
-            self.staXChecks = int(self.vcd.runtimemovie_params.width)
-            self.staYChecks = int(self.vcd.runtimemovie_params.height)
+        self.staXChecks = int(self.vcd.runtimemovie_params.width)
+        self.staYChecks = int(self.vcd.runtimemovie_params.height)
 
-            # Pull epoch block and epoch to get num X and num Y checks used in noise
-            epoch_blocks = schema.EpochBlock() & {'experiment_id' : self.exp_id, 'chunk_id' : self.chunk_id, 'protocol_id' : self.protocol_id}
-            epoch_block_ids = [epoch_blocks.fetch('id')[idx] for idx in range(len(epoch_blocks))]
-            epochs = [schema.Epoch() & {'experiment_id' : self.exp_id, 'parent_id' : block_id} for block_id in epoch_block_ids]
+        # Pull epoch block and epoch to get num X and num Y checks used in noise
+        epoch_blocks = schema.EpochBlock() & {'experiment_id' : self.exp_id, 'chunk_id' : self.chunk_id, 'protocol_id' : self.protocol_id}
+        epoch_block_ids = [epoch_blocks.fetch('id')[idx] for idx in range(len(epoch_blocks))]
+        epochs = [schema.Epoch() & {'experiment_id' : self.exp_id, 'parent_id' : block_id} for block_id in epoch_block_ids]
 
-            self.numXChecks = [epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs]
-            self.numYChecks = [epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs]
+        self.numXChecks = [epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs]
+        self.numYChecks = [epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs]
 
-            assert all(element == self.numXChecks[0] for element in self.numXChecks), "Not all epoch blocks used same number of X checks"
-            assert all(element == self.numYChecks[0] for element in self.numYChecks), "Not all epoch blocks used same number of Y checks"
+        assert all(element == self.numXChecks[0] for element in self.numXChecks), "Not all epoch blocks used same number of X checks"
+        assert all(element == self.numYChecks[0] for element in self.numYChecks), "Not all epoch blocks used same number of Y checks"
 
-            self.numXChecks = self.numXChecks[0]
-            self.numYChecks = self.numYChecks[0]
+        self.numXChecks = self.numXChecks[0]
+        self.numYChecks = self.numYChecks[0]
 
-            self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
-            self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
-            
-            self.microns_per_pixel = epochs[0].fetch('parameters')[0]['micronsPerPixel']
-            self.canvas_size = epochs[0].fetch('parameters')[0]['canvasSize']
+        self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
+        self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
+        
+        self.microns_per_pixel = epochs[0].fetch('parameters')[0]['micronsPerPixel']
+        self.canvas_size = epochs[0].fetch('parameters')[0]['canvasSize']
 
-            # Pull noise data file names
-            noise_data_dirs = epoch_blocks.fetch('data_dir')
-            self.data_files = [os.path.basename(path) for path in noise_data_dirs]
+        # Pull noise data file names
+        noise_data_dirs = epoch_blocks.fetch('data_dir')
+        self.data_files = [os.path.basename(path) for path in noise_data_dirs]
 
-            typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id}
-            self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
+        typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id}
+        self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
 
-            self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
-            self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
+        self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
+        self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
 
     def get_rf_params(self):
-         self.rf_params = dict()
-         for id in self.cell_ids:
-              rf = self.vcd.get_stafit_for_cell(id)
-              self.rf_params[id] = {'center_x' : rf.center_x + self.deltaXChecks,
-                                    'center_y' : (self.staYChecks - rf.center_y) + self.deltaYChecks,
-                                    'std_x' : rf.std_x,
-                                    'std_y' : rf.std_y,
-                                    'rot' : rf.rot}
+        self.rf_params = dict()
+        for id in self.cell_ids:
+            center_x = self.vcd.main_datatable[id]['x0']
+            center_y = self.vcd.main_datatable[id]['y0']
+            self.rf_params[id] = {'center_x' : center_x + self.deltaXChecks,
+                                'center_y' : (self.staYChecks - center_y) + self.deltaYChecks,
+                                'std_x' : self.vcd.main_datatable[id]['SigmaX'],
+                                'std_y' : self.vcd.main_datatable[id]['SigmaY'],
+                                'rot' : self.vcd.main_datatable[id]['Theta']}
               
     def get_df(self):
         center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
@@ -129,6 +132,25 @@ class AnalysisChunk:
         
         self.df_cell_params = pd.DataFrame(df_dict)
 
+    def get_spatial_maps(self, ls_channels=[0,2]):
+        # By default load red and blue channel spatial maps. 
+        mat_file = os.path.join(NAS_DATA_DIR, self.exp_name, self.chunk_name, self.ss_version, f'{self.ss_version}_params.mat')
+        if not os.path.exists(mat_file):
+            print(f'_params.mat file not found: {mat_file}')
+            return
+        
+        d_params = loadmat(mat_file)
+        d_spatial_maps = {}
+        for idx_ID, n_ID in enumerate(self.cell_ids):
+            # TODO pad spatial maps to match N_HEIGHT and N_WIDTH @roaksleaf pls help
+            # Cell ID index in vcd should be same as in _params.mat
+            d_spatial_maps[n_ID] = d_params['spatial_maps'][idx_ID][:, :, ls_channels]
+            
+        self.d_spatial_maps = d_spatial_maps
+        print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
+        # TODO could also load convex hull fits too under 'hull_vertices'
+
+    
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
@@ -146,5 +168,9 @@ class AnalysisChunk:
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
         str_self += f"  rf_params with fiels: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
         str_self += f"  df_cell_params of shape: {self.df_cell_params.shape}\n"
+        if hasattr(self, 'd_spatial_maps'):
+            str_self += f"  d_spatial_maps with {len(self.d_spatial_maps)} cells\n"
+        else:
+            str_self += "  d_spatial_maps not loaded\n"
         return str_self
 

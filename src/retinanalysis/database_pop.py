@@ -583,10 +583,11 @@ def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_p
 
     meta_list = gen_meta_list(data_dir, meta_dir, tags_dir)
     records_added = 0
-    for meta, data, tags in tqdm(meta_list):
+    for meta, data, tags in tqdm(meta_list, desc='Experiments'):
+        exp_name = os.path.basename(data)[:-3]
         # check if meta already in database
-        if len(Experiment & {'meta_file' : meta}) == 1:
-            print(f"Already in database: {meta}")
+        if len(Experiment & {'exp_name' : exp_name}) == 1:
+            print(f"Already in database: {exp_name}")
             continue
         
         print("Adding", meta, flush=True)
