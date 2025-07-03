@@ -146,7 +146,7 @@ class AnalysisChunk:
             d_spatial_maps[n_ID] = d_params['spatial_maps'][idx_ID][:, :, ls_channels]
             
         self.d_spatial_maps = d_spatial_maps
-        print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells')# from:\n{mat_file}')
+        print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
         # TODO could also load convex hull fits too under 'hull_vertices'
 
     
