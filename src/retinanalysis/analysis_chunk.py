@@ -157,12 +157,19 @@ class AnalysisChunk:
         d_params = loadmat(mat_file)
         d_spatial_maps = {}
         for idx_ID, n_ID in enumerate(self.cell_ids):
-            # TODO pad spatial maps to match N_HEIGHT and N_WIDTH @roaksleaf pls help
+            # TODO pad spatial maps to match N_HEIGHT and N_WIDTH @roaksleaf pls help 
             # Cell ID index in vcd should be same as in _params.mat
-            d_spatial_maps[n_ID] = d_params['spatial_maps'][idx_ID][:, :, ls_channels]
+            spat_mat = d_params['spatial_maps'][idx_ID][:, :, ls_channels]
+            left_pad = self.deltaXChecks
+            right_pad = self.numXChecks - self.staXChecks - self.deltaXChecks
+            top_pad = self.deltaYChecks
+            bottom_pad = self.numYChecks - self.staYChecks - self.deltaYChecks
+            padded = np.pad(spat_mat, ((top_pad, bottom_pad), (left_pad, right_pad), (0, 0)), mode='constant', constant_values=0)
+            d_spatial_maps[n_ID] = padded
             
         self.d_spatial_maps = d_spatial_maps
         print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
+        print(f'Spatial maps have been padded to align with RF parameters.')
         # TODO could also load convex hull fits too under 'hull_vertices'
 
     
