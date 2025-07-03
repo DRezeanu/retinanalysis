@@ -9,7 +9,10 @@ import pickle
 class AnalysisChunk:
 
     def __init__(self, exp_name: str=None, chunk_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
-        if pkl_file is not None:
+        if pkl_file is None:
+            if exp_name is None or chunk_name is None:
+                raise ValueError("Either exp_name and chunk_name or pkl_file must be provided.")
+        else:
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
                 with open(pkl_file, 'rb') as f:
@@ -21,6 +24,7 @@ class AnalysisChunk:
             self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version)
             print(f"AnalysisChunk loaded from {pkl_file}")
             return
+        
         self.exp_name = exp_name
         self.chunk_name = chunk_name
         self.ss_version = ss_version

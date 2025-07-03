@@ -1,8 +1,7 @@
 import datajoint as dj
 from retinanalysis.settings import mea_config
 import retinanalysis.schema as schema
-if schema.B_CONNECTED:
-    import retinanalysis.database_pop as database_pop
+import retinanalysis.database_pop as database_pop
     
 
 NAS_DATA_DIR = mea_config['data']

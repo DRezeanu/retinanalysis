@@ -14,7 +14,10 @@ import pickle
 class MEAPipeline:
 
     def __init__(self, stim_block: StimBlock=None, response_block: ResponseBlock=None, analysis_chunk: AnalysisChunk=None, pkl_file: str = None):
-        if pkl_file is not None:
+        if pkl_file is None:
+            if stim_block is None or response_block is None or analysis_chunk is None:
+                raise ValueError("Either stim_block, response_block, and analysis_chunk must be provided or pkl_file.")
+        else:
             with open(pkl_file, 'rb') as f:
                 d_out = pickle.load(f)
             self.__dict__.update(d_out)
