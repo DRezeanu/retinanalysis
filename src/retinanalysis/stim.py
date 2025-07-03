@@ -2,12 +2,27 @@ import retinanalysis.schema as schema
 import numpy as np
 import retinanalysis.vision_utils as vu
 import retinanalysis.datajoint_utils as dju
-import datajoint as dj
 import pandas as pd
 from typing import List
+import retinanalysis.regen as regen
+import pickle
 
 class StimBlock:
-    def __init__(self, exp_name, datafile_name, ls_params: list=None):
+    def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
+        if pkl_file is None:
+            if exp_name is None or datafile_name is None:
+                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+        else:
+            # Load from pickle file if string, otherwise must be a dict
+            if isinstance(pkl_file, str):
+                with open(pkl_file, 'rb') as f:
+                    d_out = pickle.load(f)
+            else:
+                d_out = pkl_file
+                pkl_file = "input dict."
+            self.__dict__.update(d_out)
+            print(f"StimBlock loaded from {pkl_file}")
+            return
         self.exp_name = exp_name
         self.datafile_name = datafile_name
         self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
@@ -81,9 +96,23 @@ class StimBlock:
         # Check if we looped through all the values. If so, no sorting files found
         if minimum_distance.size == 0:
             print("Warning, none of the noise chunks in this experiment have typing files\n")
-
+        else:
+            print(f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n")
         return nearest_noise_chunk
 
+    def regenerate_stimulus(self, ls_epochs: list=None):
+        """
+        Regenerate the stimulus for the block based on the epochs provided.
+        If no epochs are provided, it regenerates for all epochs in the block.
+        """
+        if ls_epochs is None:
+            ls_epochs = self.df_epochs.index.tolist()
+        
+        # Assuming there's a method to regenerate stimulus based on epochs
+        # This is a placeholder for actual implementation
+        print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.datafile_name}")
+    
+    
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
@@ -95,6 +124,17 @@ class StimBlock:
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
+
+    def export_to_pkl(self, file_path: str):
+        """
+        Export the StimBlock to a pickle file.
+        """
+        d_out = self.__dict__.copy()
+        # pop out vcd
+        d_out.pop('vcd', None) 
+        with open(file_path, 'wb') as f:
+            pickle.dump(d_out, f)
+        print(f"StimBlock exported to {file_path}")
 
 class StimGroup:
     def __init__(self, ls_blocks: List[StimBlock]):
@@ -126,6 +166,14 @@ class StimGroup:
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
+
+    def export_to_pkl(self, file_path: str):
+        """
+        Export the StimGroup to a pickle file.
+        """
+        with open(file_path, 'wb') as f:
+            pickle.dump(self, f)
+        print(f"StimGroup exported to {file_path}")
 
 def make_stim_group(exp_name, ls_datafile_names, ls_params: list=None):
     ls_blocks = []

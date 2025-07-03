@@ -4,9 +4,15 @@ dj.config['database.host'] = '127.0.0.1'
 dj.config['database.user'] = 'root'
 dj.config['database.password'] = 'simple'
 
-dj.conn().connect()
+try:
+    dj.conn().connect()
+    B_CONNECTED = True
+    schema = dj.schema('schema')
+except Exception as e:
+    print(f"Could not connect to DataJoint database: {e}")
+    B_CONNECTED = False
+    schema = lambda x: x  # Dummy schema for testing purposes
 
-schema = dj.schema('schema')
 
 @schema
 class Protocol(dj.Manual):
