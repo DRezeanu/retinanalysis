@@ -215,7 +215,7 @@ class MEAPipeline:
         return ells, scale_factor
 
     def plot_timecourses(self, protocol_ids: List[int] = None, cell_types: List[str] = None, 
-                        units: str = 'ms', std_scaling: int = 2):
+                        units: str = 'ms', std_scaling: float = 2):
         
         if 'ms' in units.lower() or 'milliseconds' in units.lower():
             scale_factor = 1
