@@ -76,7 +76,8 @@ def get_top_electrodes(n_ID: int, vcd: vl.VisionCellDataTable, n_interval=2, n_m
     return top_idx
 
 
-def plot_ei_map(n_ID: int, vcd: vl.VisionCellDataTable, top_idx=None, axs=None, label=None):
+def plot_ei_map(n_ID: int, vcd: vl.VisionCellDataTable, top_idx=None, 
+                axs=None, label=None):
     if top_idx is None:
         # Get top electrodes if not provided
         top_idx = get_top_electrodes(n_ID, vcd)
