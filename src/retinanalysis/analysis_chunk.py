@@ -117,7 +117,7 @@ class AnalysisChunk:
 
         for idx, typing_file in enumerate(self.typing_files):
             file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
-            result_dict = dict()
+            d_result = dict()
             
             with open(file_path, 'r') as file:
                 for line in file:
@@ -125,24 +125,24 @@ class AnalysisChunk:
                     key, value = map(str.strip, line.split(' ', 1))
                                 
                     # Add key-value pair to the dictionary
-                    result_dict[int(key)] = value
+                    d_result[int(key)] = value
 
             for cell in self.cell_ids:
-                if cell in result_dict.keys():
+                if cell in d_result.keys():
 
                     for type in cell_types:
-                        if type in result_dict[cell]:
-                            result_dict[cell] = type
+                        if type in d_result[cell]:
+                            d_result[cell] = type
                             break
                 else:
-                    result_dict[cell] = 'Unknown'
+                    d_result[cell] = 'Unknown'
                 
-                if 'All' in result_dict[cell]:
-                    result_dict[cell] = 'Unknown'
+                if 'All' in d_result[cell]:
+                    d_result[cell] = 'Unknown'
                 
             
             
-            classification = [result_dict[cell] for cell in self.cell_ids]
+            classification = [d_result[cell] for cell in self.cell_ids]
             df_dict[f'typing_file_{idx}'] = classification
         
         self.df_cell_params = pd.DataFrame(df_dict)
