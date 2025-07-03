@@ -27,6 +27,7 @@ class MEAPipeline:
             self.analysis_chunk = AnalysisChunk(pkl_file=self.analysis_chunk)
             print(f"MEAPipeline loaded from {pkl_file}")
             return
+        
         self.stim_block = stim_block
         self.response_block = response_block
         self.analysis_chunk = analysis_chunk

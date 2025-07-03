@@ -7,7 +7,6 @@ from retinanalysis.analysis_chunk import AnalysisChunk
 from retinanalysis.response import ResponseBlock
 from typing import Union
 
-
 NAS_DATA_DIR = mea_config['data'] 
 NAS_ANALYSIS_DIR = mea_config['analysis']
 META_DIR = mea_config['meta']
@@ -42,9 +41,9 @@ def cluster_match(ref_object: Union[AnalysisChunk, ResponseBlock], test_object: 
                 use_timecourse: bool = False, n_removed_channels: int = 1):
         
         ref_vcd = ref_object.vcd
-        test_vcd = ref_object.vcd
+        test_vcd = test_object.vcd
         ref_ids = ref_object.cell_ids
-        test_ids = ref_object.cell_ids
+        test_ids = test_object.cell_ids
         
         if 'all' in method:
             arr_full_corr: np.ndarray = ei_corr(ref_object, test_object, method = 'full', n_removed_channels = n_removed_channels)
