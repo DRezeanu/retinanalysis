@@ -1,12 +1,9 @@
-import visionloader as vl
 import retinanalysis.datajoint_utils as dju
 import retinanalysis.vision_utils as vu
-import retinanalysis.schema as schema
-from retinanalysis.settings import NAS_DATA_DIR
-import os
 import numpy as np
 import pandas as pd
 import tqdm
+import pickle
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
@@ -52,7 +49,22 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
         return frame_times, transition_frames
 
 class ResponseBlock:
-    def __init__(self, exp_name, datafile_name, ss_version: str = 'kilosort2.5'):
+    def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
+        if pkl_file is None:
+            if exp_name is None or datafile_name is None:
+                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+        else:
+            # Load from pickle file if string, otherwise must be a dict
+            if isinstance(pkl_file, str):
+                with open(pkl_file, 'rb') as f:
+                    d_out = pickle.load(f)
+            else:
+                d_out = pkl_file
+                pkl_file = "input dict."
+            self.__dict__.update(d_out)
+            self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
+            print(f"ResponseBlock loaded from {pkl_file}")
+            return
         self.exp_name = exp_name
         self.datafile_name = datafile_name
         self.ss_version = ss_version
@@ -154,3 +166,11 @@ class ResponseBlock:
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
         str_self += f"  df_spike_times with shape: {self.df_spike_times.shape}\n"
         return str_self
+
+    def export_to_pkl(self, file_path: str):
+        d_out = self.__dict__.copy()
+        # Pop out vcd
+        d_out.pop('vcd', None)
+        with open(file_path, 'wb') as f:
+            pickle.dump(d_out, f)
+        print(f"ResponseBlock exported to {file_path}")
