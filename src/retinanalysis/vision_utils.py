@@ -3,6 +3,9 @@ import os
 import numpy as np
 import retinanalysis.datajoint_utils as dju
 import visionloader as vl
+from retinanalysis.analysis_chunk import AnalysisChunk
+from retinanalysis.response import ResponseBlock
+from typing import Union
 
 
 NAS_DATA_DIR = mea_config['data'] 
@@ -34,37 +37,44 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
         return vcd
 
 
-def cluster_match(ref_vcd: vl.VisionCellDataTable, test_vcd: vl.VisionCellDataTable,
+def cluster_match(ref_object: Union[AnalysisChunk, ResponseBlock], test_object: Union[AnalysisChunk, ResponseBlock],
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
                 use_timecourse: bool = False, n_removed_channels: int = 1):
         
+        ref_vcd = ref_object.vcd
+        test_vcd = ref_object.vcd
+        ref_ids = ref_object.cell_ids
+        test_ids = ref_object.cell_ids
+        
         if 'all' in method:
-            arr_full_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'full', n_removed_channels = n_removed_channels)
-            arr_space_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'space', n_removed_channels = n_removed_channels)
-            arr_power_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = 'power', n_removed_channels = n_removed_channels)
+            arr_full_corr: np.ndarray = ei_corr(ref_object, test_object, method = 'full', n_removed_channels = n_removed_channels)
+            arr_space_corr: np.ndarray = ei_corr(ref_object, test_object, method = 'space', n_removed_channels = n_removed_channels)
+            arr_power_corr: np.ndarray = ei_corr(ref_object, test_object, method = 'power', n_removed_channels = n_removed_channels)
         elif 'full' in method:
-            arr_full_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method, n_removed_channels = n_removed_channels)
+            arr_full_corr: np.ndarray = ei_corr(ref_object, test_object, method = method, n_removed_channels = n_removed_channels)
             arr_space_corr: np.ndarray = np.zeros(arr_full_corr.shape)
             arr_power_corr: np.ndarray = np.zeros(arr_full_corr.shape)
         elif 'space' in method:
-            arr_space_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method, n_removed_channels = n_removed_channels)
+            arr_space_corr: np.ndarray = ei_corr(ref_object, test_object, method = method, n_removed_channels = n_removed_channels)
             arr_full_corr: np.ndarray = np.zeros(arr_space_corr.shape)
             arr_power_corr: np.ndarray = np.zeros(arr_space_corr.shape)
         elif 'power' in method:
-            arr_power_corr: np.ndarray = ei_corr(ref_vcd, test_vcd, method = method, n_removed_channels = n_removed_channels)
+            arr_power_corr: np.ndarray = ei_corr(ref_object, test_object, method = method, n_removed_channels = n_removed_channels)
             arr_space_corr: np.ndarray = np.zeros(arr_power_corr.shape)
             arr_full_corr: np.ndarray = np.zeros(arr_power_corr.shape)
         else:
             raise NameError("Method property must be 'all', 'full', 'space', or 'power'")
+
+
+        if hasattr(ref_object, "protocol_name") or hasattr(test_object, "protocol_name"):
+            if use_timecourse:
+                raise FileNotFoundError("Response blocks don't have .params files, can't use timecourse for cluster matching")
 
         match_dict = dict()
         match_count = 0
         bad_match_count = 0
         isi_corr = 1
         rgb_corr = 1
-
-        ref_ids = ref_vcd.get_cell_ids()
-        test_ids = test_vcd.get_cell_ids()
 
         for idx, ref_cell in enumerate(ref_ids):
             sorted_full_corr = np.sort(arr_full_corr[idx,:])
@@ -158,14 +168,101 @@ def get_classification_file_path(classification_file_name: str, exp_name: str, c
     
     return classification_file_path
 
+def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[AnalysisChunk, ResponseBlock],
+                                 ss_version: str = None, input_typing_file: str = None, 
+                                 output_typing_file: str = 'RA_autoClassification.txt', **kwargs):
 
-def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
+    """Transfer classification between analysis an chunk and another analysis chunk or a response block
+    Inputs:
+        analysis_chunk: AnalysisChunk
+        target_object: AnalysisChunk or ResponseBlock 
+        ss_version: str such as 'kilosort2.5', if None, uses same ss_version as analysis_chunk
+        input_typing_file: str, filename of classification file to use, if None will use
+                            the first typing file in analysis_chunk.typing_files
+        output_typing_file: str, filename of classification file to export, default is
+                            RA_autoClassification.txt
+
+    Kwargs to pass to cluster_match:
+        use_isi: bool, default = false
+        use_timecourse: bool, default = false
+        corr_cutoff: float, default = 0.8
+        method: str, default = 'full'
+        n_removed_channels: int, default = 1
+        """
+
+    if len(analysis_chunk.typing_files) == 0:
+            raise FileNotFoundError("No typing files available for this analysis chunk")
+        
+    if target_object == analysis_chunk:
+        raise Exception(f"Target chunk ({target_object.chunk_name}) cannot be the same as analysis chunk {analysis_chunk.chunk_name}")
+
+    # If no input typing file is specified, use typing_file_0
+    if input_typing_file is None:
+        input_typing_file = analysis_chunk.typing_files[0] 
+
+    # Flag if input typing file is not actually part of the current analysis chunk
+    if input_typing_file not in analysis_chunk.typing_files:
+        raise FileNotFoundError("Input typing file not found in current chunk")         
+
+    # If no spike sorting version is given, use same ss_version as analysis chunk
+    if ss_version is None:
+        ss_version = ss_version
+
+    if hasattr(target_object, "chunk_name"):
+        print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n")
+        destination_file_path = os.path.join(NAS_ANALYSIS_DIR, analysis_chunk.exp_name,
+                                                target_object.chunk_name, ss_version, output_typing_file)
+        
+    else:
+        print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.protocol_name}\n")
+        destination_file_path = os.path.join(os.getcwd(), output_typing_file)
+        if 'use_timecourse' in kwargs:
+            if kwargs['use_timecourse']:
+                raise FileNotFoundError("Response blocks don't have a .params file, can't use timecourse for cluster matching")
+
+    # Cluster Match
+    target_ids = target_object.cell_ids
+
+    match_dict = cluster_match(analysis_chunk, target_object, **kwargs)
+    
+    # Create classification file and drop it in the destination path
+    input_file_path = os.path.join(NAS_ANALYSIS_DIR, analysis_chunk.exp_name,
+                                    analysis_chunk.chunk_name, analysis_chunk.ss_version,
+                                    input_typing_file)
+    
+    matched_count = 0
+    unmatched_count = 0
+    input_classification_dict = create_dictionary_from_file(input_file_path, delimiter = ' ')
+
+    with open(destination_file_path, mode='w') as output_file:
+        for key in match_dict.keys():
+            matched_count += 1
+            print(match_dict[key], input_classification_dict[key], file = output_file)
+
+    partial_output = create_dictionary_from_file(destination_file_path, delimiter = ' ')
+
+    with open(destination_file_path, mode = 'a') as output_file:
+        for id in target_ids:
+            if id in partial_output:
+                pass
+            else:
+                print(id, 'All/Unknown', file = output_file)
+                unmatched_count += 1
+
+    print(f"\nTarget clusters matched: {matched_count}\nTarget clusters unmatched: {unmatched_count}\n")
+    print(f"Classification file {output_typing_file} created at: {destination_file_path}")
+
+    return match_dict
+
+
+
+def ei_corr(ref_object: Union[AnalysisChunk, ResponseBlock], target_object: Union[AnalysisChunk, ResponseBlock],
             method: str = 'full', n_removed_channels: int = 1) -> np.ndarray:
 
 
         # Pull reference eis
-        ref_ids = ref_vcd.get_cell_ids()
-        ref_eis = [ref_vcd.get_ei_for_cell(cell).ei for cell in ref_ids]
+        ref_ids = ref_object.cell_ids
+        ref_eis = [ref_object.vcd.get_ei_for_cell(cell).ei for cell in ref_ids]
 
         if n_removed_channels > 0:
             max_ref_vals = [np.array(np.max(ei, axis = 1)) for ei in ref_eis]
@@ -196,8 +293,8 @@ def ei_corr(ref_vcd: vl.VisionCellDataTable, target_vcd: vl.VisionCellDataTable,
 
 
         # Pull test eis
-        test_ids = target_vcd.get_cell_ids()
-        test_eis = [target_vcd.get_ei_for_cell(cell).ei for cell in test_ids]
+        test_ids = target_object.cell_ids
+        test_eis = [target_object.vcd.get_ei_for_cell(cell).ei for cell in test_ids]
 
         if n_removed_channels > 0:
             max_test_vals = [np.array(np.max(ei, axis = 1)) for ei in test_eis]
