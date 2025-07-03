@@ -8,10 +8,13 @@ import json
 NAS_ANALYSIS_DIR = mea_config['analysis']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
-    dj.config["database.host"] = f"{host_address}"
-    dj.config["database.user"] = f"{user}"
-    dj.config["database.password"] = f"{password}"
-    dj.conn()
+    try:
+        dj.config["database.host"] = f"{host_address}"
+        dj.config["database.user"] = f"{user}"
+        dj.config["database.password"] = f"{password}"
+        dj.conn()
+    except Exception as e:
+        print(f"Could not connect to DataJoint database: {e}")
 
 
 def populate_ndf_column(df):

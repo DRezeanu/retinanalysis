@@ -1,15 +1,30 @@
 import retinanalysis.schema as schema
-import visionloader as vl
 import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR, NAS_DATA_DIR
 import pandas as pd
-import numpy as np
 import retinanalysis.vision_utils as vu
 from hdf5storage import loadmat
+import pickle
 
 class AnalysisChunk:
 
-    def __init__(self, exp_name, chunk_name, ss_version: str = 'kilosort2.5'):
+    def __init__(self, exp_name: str=None, chunk_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
+        if pkl_file is None:
+            if exp_name is None or chunk_name is None:
+                raise ValueError("Either exp_name and chunk_name or pkl_file must be provided.")
+        else:
+            # Load from pickle file if string, otherwise must be a dict
+            if isinstance(pkl_file, str):
+                with open(pkl_file, 'rb') as f:
+                    d_out = pickle.load(f)
+            else:
+                d_out = pkl_file
+                pkl_file = "input dict."
+            self.__dict__.update(d_out)
+            self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version)
+            print(f"AnalysisChunk loaded from {pkl_file}")
+            return
+        
         self.exp_name = exp_name
         self.chunk_name = chunk_name
         self.ss_version = ss_version
@@ -102,7 +117,7 @@ class AnalysisChunk:
 
         for idx, typing_file in enumerate(self.typing_files):
             file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
-            result_dict = dict()
+            d_result = dict()
             
             with open(file_path, 'r') as file:
                 for line in file:
@@ -110,24 +125,24 @@ class AnalysisChunk:
                     key, value = map(str.strip, line.split(' ', 1))
                                 
                     # Add key-value pair to the dictionary
-                    result_dict[int(key)] = value
+                    d_result[int(key)] = value
 
             for cell in self.cell_ids:
-                if cell in result_dict.keys():
+                if cell in d_result.keys():
 
                     for type in cell_types:
-                        if type in result_dict[cell]:
-                            result_dict[cell] = type
+                        if type in d_result[cell]:
+                            d_result[cell] = type
                             break
                 else:
-                    result_dict[cell] = 'Unknown'
+                    d_result[cell] = 'Unknown'
                 
-                if 'All' in result_dict[cell]:
-                    result_dict[cell] = 'Unknown'
+                if 'All' in d_result[cell]:
+                    d_result[cell] = 'Unknown'
                 
             
             
-            classification = [result_dict[cell] for cell in self.cell_ids]
+            classification = [d_result[cell] for cell in self.cell_ids]
             df_dict[f'typing_file_{idx}'] = classification
         
         self.df_cell_params = pd.DataFrame(df_dict)
@@ -180,4 +195,12 @@ class AnalysisChunk:
         else:
             str_self += "  d_spatial_maps not loaded\n"
         return str_self
+
+    def export_to_pkl(self, file_path: str):
+        d_out = self.__dict__.copy()
+        # Pop out vcd
+        d_out.pop('vcd')
+        with open(file_path, 'wb') as f:
+            pickle.dump(d_out, f)
+        print(f"AnalysisChunk exported to {file_path}")
 
