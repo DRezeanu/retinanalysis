@@ -76,12 +76,13 @@ class AnalysisChunk:
     def get_rf_params(self):
         self.rf_params = dict()
         for id in self.cell_ids:
-            rf = self.vcd.get_stafit_for_cell(id)
-            self.rf_params[id] = {'center_x' : rf.center_x + self.deltaXChecks,
-                                'center_y' : (self.staYChecks - rf.center_y) + self.deltaYChecks,
-                                'std_x' : rf.std_x,
-                                'std_y' : rf.std_y,
-                                'rot' : rf.rot}
+            center_x = self.vcd.main_datatable[id]['x0']
+            center_y = self.vcd.main_datatable[id]['y0']
+            self.rf_params[id] = {'center_x' : center_x + self.deltaXChecks,
+                                'center_y' : (self.staYChecks - center_y) + self.deltaYChecks,
+                                'std_x' : self.vcd.main_datatable[id]['SigmaX'],
+                                'std_y' : self.vcd.main_datatable[id]['SigmaY'],
+                                'rot' : self.vcd.main_datatable[id]['Theta']}
               
     def get_df(self):
         center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
