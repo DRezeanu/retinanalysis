@@ -5,6 +5,7 @@ import pandas as pd
 import retinanalysis.vision_utils as vu
 from hdf5storage import loadmat
 import pickle
+import numpy as np
 
 class AnalysisChunk:
 
