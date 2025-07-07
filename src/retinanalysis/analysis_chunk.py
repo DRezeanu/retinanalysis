@@ -112,8 +112,11 @@ class AnalysisChunk:
                    'std_y' : std_y, 'rot' : rot} 
 
 
-        root = os.path.abspath('../')
-        cell_types_list = pd.read_csv(os.path.join(root, 'assets/cell_types.csv'))
+        current_file_path = os.path.dirname(os.path.abspath(__file__))
+        src_folder_path = os.path.split(current_file_path)[0]
+        root_folder = os.path.split(src_folder_path)[0]
+        cell_types_list = pd.read_csv(os.path.join(root_folder, 'assets/cell_types.csv'))
+        
         cell_types = cell_types_list['cell_types'].values
 
         for idx, typing_file in enumerate(self.typing_files):

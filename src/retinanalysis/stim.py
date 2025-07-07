@@ -28,7 +28,10 @@ class StimBlock:
         self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
 
         df = dju.get_mea_exp_summary(exp_name)
-        self.d_block_summary = df[df['datafile_name'] == datafile_name].iloc[0].to_dict()
+        self.d_block_summary = df.query('datafile_name == @self.datafile_name').iloc[0].to_dict()
+        
+        epoch_block = schema.EpochBlock() & {'experiment_id' : self.d_block_summary['experiment_id'], 'data_dir' : self.d_block_summary['data_dir']}
+        self.d_epoch_block_params = epoch_block.fetch('parameters')[0]
 
         df_e = dju.get_mea_epoch_data_from_exp(exp_name, datafile_name, ls_params=ls_params)
         self.df_epochs = df_e
@@ -122,6 +125,7 @@ class StimBlock:
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
+        str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
 
