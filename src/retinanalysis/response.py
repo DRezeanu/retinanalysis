@@ -83,7 +83,8 @@ class ResponseBlock:
 
         self.n_epochs = len(epoch_starts)
         for cell_id in self.cell_ids:
-            all_spike_times = np.zeros(self.n_epochs, dtype=object)
+            all_spike_times = []
+            # all_spike_times = np.zeros(self.n_epochs, dtype=object)
             # STs in samples
             cell_sts = self.vcd.get_spike_times_for_cell(cell_id)
             for i in range(self.n_epochs):
@@ -97,7 +98,9 @@ class ResponseBlock:
                 # From samples to ms
                 e_sts = e_sts / SAMPLE_RATE * 1000
 
-                all_spike_times[i] = e_sts
+                all_spike_times.append(e_sts)
+                # all_spike_times[i] = e_sts
+
             d_spike_times['cell_id'].append(cell_id)
             d_spike_times['spike_times'].append(all_spike_times)
         self.df_spike_times = pd.DataFrame(d_spike_times)
