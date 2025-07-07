@@ -257,7 +257,7 @@ class MEAPipeline:
         # Pull analysis_block ids that match the input cell_ids and cell_types
         # If neither is given, plot all matched ids
         if protocol_ids is None and cell_types is None:
-            cell_types = list(self.response_block.df_spike_times['cell_type'].unique())
+            cell_types = self.response_block.df_spike_times['cell_type'].unique()
             for ct in cell_types:
                 type_ids = self.response_block.df_spike_times.query('cell_type == @ct').index.values
                 d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if val in type_ids]
@@ -275,7 +275,7 @@ class MEAPipeline:
 
         # If only ids are given, pull all ids regardless of type
         elif cell_types is None:
-            cell_types = list(self.response_block.df_spike_times['cell_type'].unique())
+            cell_types = self.response_block.df_spike_times['cell_type'].unique()
             for ct in cell_types:
                 type_ids = self.response_block.df_spike_times.query('cell_type == @ct').index.values
                 d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if (val in protocol_ids
