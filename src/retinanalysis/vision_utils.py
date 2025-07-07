@@ -5,7 +5,7 @@ import retinanalysis.datajoint_utils as dju
 import visionloader as vl
 from retinanalysis.analysis_chunk import AnalysisChunk
 from retinanalysis.response import ResponseBlock
-from typing import Union
+from typing import Union, List, Dict
 
 NAS_DATA_DIR = mea_config['data'] 
 NAS_ANALYSIS_DIR = mea_config['analysis']
@@ -166,6 +166,39 @@ def get_classification_file_path(classification_file_name: str, exp_name: str, c
     classification_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name)
     
     return classification_file_path
+
+def get_spike_dict(response_block: ResponseBlock, protocol_ids: List[int] = None, 
+                         cell_types: List[str] = None) -> dict:
+    
+    spike_time_df = response_block.df_spike_times
+
+    if protocol_ids is None and cell_types is None:
+        filtered_df = spike_time_df
+        cell_types = filtered_df['cell_type'].unique()
+    
+    elif protocol_ids is None:
+        filtered_df = spike_time_df.query('cell_type == @cell_types')
+
+    elif cell_types is None:
+        filtered_df = spike_time_df.query('index == @protocol_ids')
+        cell_types = filtered_df['cell_type'].unique()
+        
+    else:
+        filtered_df = spike_time_df.query('index == @protocol_ids and cell_type == @cell_types')
+
+    d_spike_times = dict()
+    for ct in cell_types:
+        d_times_and_ids = dict()
+        df_type = filtered_df.query('cell_type == @ct')
+        type_ids = df_type.index.values
+        arr_spike_times = [df_type.loc[idx, 'spike_times'] for idx in type_ids]
+        arr_spike_times = np.array(arr_spike_times, dtype = object)
+        d_times_and_ids['spike_times'] = arr_spike_times
+        d_times_and_ids['cell_ids'] = type_ids
+
+        d_spike_times[ct] = d_times_and_ids
+
+    return d_spike_times
 
 def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[AnalysisChunk, ResponseBlock],
                                  ss_version: str = None, input_typing_file: str = None, 
