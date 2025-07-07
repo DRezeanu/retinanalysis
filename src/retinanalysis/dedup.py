@@ -104,7 +104,8 @@ def plotRFs_dedup(ac: AnalysisChunk, ei_method: str = 'full', sm_threshold: floa
         - fig, ax: matplotlib figure and axis objects.
     '''
 
-    assert hasattr(ac, 'chunk_name'), "Must use AnalysisChunk for plotting RFs."
+    # assert hasattr(ac, 'chunk_name'), "Must use AnalysisChunk for plotting RFs."
+    assert isinstance(ac, AnalysisChunk), "Input must be an AnalysisChunk."
 
     problem_cells, all_ei_cells, all_sm_cells = isolate_problem_cells(ac, ei_method=ei_method, sm_threshold=sm_threshold, ei_threshold=ei_threshold)
 
