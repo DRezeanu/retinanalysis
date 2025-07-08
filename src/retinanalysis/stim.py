@@ -160,7 +160,8 @@ class StimGroup:
         self.datafile_names = datafile_names
         self.df_epochs = pd.concat([block.df_epochs for block in ls_blocks], ignore_index=True)
         self.df_epochs.index = self.df_epochs.index.rename('epoch_index')
-    
+        self.df_epochs = self.df_epochs.reset_index(drop=False)
+
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
