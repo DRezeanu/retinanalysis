@@ -2,13 +2,10 @@ import numpy as np
 from retinanalysis.response import ResponseBlock
 from retinanalysis.stim import StimBlock
 from retinanalysis.analysis_chunk import AnalysisChunk
-import visionloader as vl
 import retinanalysis.vision_utils as vu
 import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR
-from matplotlib.patches import Ellipse 
-import matplotlib.pyplot as plt
-from typing import List, Tuple, Dict
+from typing import List
 import pickle
 
 
