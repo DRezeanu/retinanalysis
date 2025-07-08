@@ -3,3 +3,4 @@ databases
 *.ini
 assets/images/
 assets/resources/
+*.DS_Store
