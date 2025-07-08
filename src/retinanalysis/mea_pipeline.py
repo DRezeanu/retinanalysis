@@ -75,233 +75,57 @@ class MEAPipeline:
         for idx, id in enumerate(self.response_block.df_spike_times['cell_id'].values):
             self.response_block.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
 
-        # self.response_block.df_spike_times['cell_type'] = type_dict
-
     def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
-                 std_scaling: float = 1.6, units: str = 'pixels') -> np.ndarray:
+                 typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6) -> np.ndarray:
         
-        d_ells_by_type = self.get_noise_ids(protocol_ids, cell_types)
-        d_ells_by_type, scale_factor = self.get_ells(d_ells_by_type, std_scaling = std_scaling, units = units)
-
-        rows = int(np.ceil(len(d_ells_by_type.keys())/4))
-        cols = np.min([(len(d_ells_by_type.keys())-1 % 4)+1, 4])
-        size = (4.5*cols, int(3*rows))
-
-        fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
-
-        if cols != 1:
-            ax = ax.flatten()
-
-        for idx, ct in enumerate(d_ells_by_type.keys()):
-
-            if cols != 1:
-                for id in d_ells_by_type[ct]:
-                    ax[idx].add_patch(d_ells_by_type[ct][id])
-
-                ax[idx].set_xlim(0,self.analysis_chunk.numXChecks * scale_factor)
-                ax[idx].set_ylim(0,self.analysis_chunk.numYChecks * scale_factor)
-
-                ax[idx].set_ylabel(units.lower())
-                ax[idx].set_xlabel(units.lower())
-                
-                ax[idx].set_title(ct)
-
-            else: 
-                for id in d_ells_by_type[ct]:
-                    ax.add_patch(d_ells_by_type[ct][id])
-
-                ax.set_xlim(0,self.analysis_chunk.numXChecks * scale_factor)
-                ax.set_ylim(0,self.analysis_chunk.numYChecks * scale_factor)
-
-                ax.set_ylabel(units.lower())
-                ax.set_xlabel(units.lower())
-
-                ax.set_title(ct)
-
-        # Remove extra empty axes 
-        num_axes = (rows-1)*4 + cols
-        empty_axes = num_axes - len(d_ells_by_type.keys())
-
-        for i in range(empty_axes):
-            fig.delaxes(ax[num_axes - 1 - i])
-
-        fig.suptitle("RFs by Cell Type", fontsize = 15)
-        fig.tight_layout()
+        noise_ids = self.get_noise_ids(protocol_ids, cell_types)
+        ax = self.analysis_chunk.plot_rfs(noise_ids, cell_types = cell_types,
+                                          typing_file = typing_file, units = units,
+                                          std_scaling = std_scaling)
 
         return ax
-        
-    def get_ells(self, d_cells_by_type: dict, std_scaling: float = 1.6, units: str = 'pixels') -> Tuple[Dict[str, dict], int]:
-
-        if 'microns' in units.lower():
-            scale_factor = self.analysis_chunk.microns_per_stixel
-        elif 'pixels' in units.lower():
-            scale_factor = self.analysis_chunk.pixels_per_stixel
-        elif 'stixels' in units.lower():
-            scale_factor = 1
-        else:
-            raise NameError("Units string must be 'microns', 'pixels' or 'stixels'.")
-        
-        rf_params = self.analysis_chunk.rf_params
-
-        d_ells_by_type = dict()
-        for idx, ct in enumerate(d_cells_by_type.keys()):
-            d_ells_by_id = dict()
-            for id in d_cells_by_type[ct]:
-                d_ells_by_id[id] = Ellipse(xy=(rf_params[id]['center_x']*scale_factor,
-                                        rf_params[id]['center_y']*scale_factor),
-                                        width = rf_params[id]['std_x']*std_scaling*scale_factor,
-                                        height = rf_params[id]['std_y']*std_scaling*scale_factor,
-                                        angle = rf_params[id]['rot'],
-                                        facecolor= f'C{idx}', edgecolor= f'C{idx}',
-                                        alpha = 0.7)
-
-            d_ells_by_type[ct] = d_ells_by_id
-        
-        return d_ells_by_type, scale_factor
 
     def plot_timecourses(self, protocol_ids: List[int] = None, cell_types: List[str] = None, 
-                        units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
+                        typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
+
+        noise_ids = self.get_noise_ids(protocol_ids, cell_types)
+        ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
+                                             typing_file = typing_file, units = units,
+                                             std_scaling = std_scaling)
         
-        if 'ms' in units.lower() or 'milliseconds' in units.lower():
-            scale_factor = 1
-        elif 's' in units.lower() or 'seconds' in units.lower():
-            scale_factor = 1e-3
-        else:
-            raise NameError("Units string must be 'ms', 'milliseconds', 's' or 'seconds'")
-
-        d_noise_ids_by_type = self.get_noise_ids(protocol_ids, cell_types)
-        d_timecourses_by_type = self.get_timecourses(d_noise_ids_by_type)
-
-
-        rows = int(np.ceil(len(d_timecourses_by_type.keys())/4))
-        cols = np.min([(len(d_timecourses_by_type.keys())-1 % 4)+1, 4])
-        size = (4.5*cols, int(3*rows))
-
-        fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
-
-        if cols != 1:
-            ax = ax.flatten()
-
-        for idx, ct in enumerate(d_timecourses_by_type.keys()):
-
-            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['rg_mean']))*scale_factor
-            if cols != 1:
-                rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
-                rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
-                ax[idx].plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
-                ax[idx].fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
-
-                b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
-                b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
-                ax[idx].plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
-                ax[idx].fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
-
-                ax[idx].set_xlim([time_vals[0], time_vals[-1]])
-
-                ax[idx].set_ylabel(f"STA (arb. units)")
-                ax[idx].set_xlabel(f"Time ({units})")
-                
-                ax[idx].set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
-
-            else: 
-                rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
-                rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
-                ax.fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
-
-                b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
-                b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
-                ax.fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
-
-                ax.set_xlim([time_vals[0], time_vals[-1]])
-
-                ax.set_ylabel(f"STA (arb. units)")
-                ax.set_xlabel(f"Time ({units})")
-                
-                ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
-        
-        # Remove extra empty axes 
-        num_axes = (rows-1)*4 + cols
-        empty_axes = num_axes - len(d_timecourses_by_type.keys())
-
-        for i in range(empty_axes):
-            fig.delaxes(ax[num_axes - 1 - i])
-
-        fig.suptitle("Timecourse by Cell Type", fontsize = 15)
-        fig.tight_layout()
-
         return ax
 
-    def get_timecourses(self, d_cells_by_type: dict) -> Dict[str, dict]: 
-
-        d_timecourses_by_type = dict()
-
-        for ct in d_cells_by_type.keys():
-
-            rg_timecourses = [self.analysis_chunk.vcd.main_datatable[cell]['GreenTimeCourse'] for cell in d_cells_by_type[ct]]
-            rg_timecourses = np.array(rg_timecourses)
-            rg_mean = np.mean(rg_timecourses, axis = 0)
-            rg_std = np.std(rg_timecourses, axis = 0)
-
-            b_timecourses = [self.analysis_chunk.vcd.main_datatable[cell]['BlueTimeCourse'] for cell in d_cells_by_type[ct]]
-            b_timecourses = np.array(b_timecourses)
-            b_mean = np.mean(b_timecourses, axis = 0)
-            b_std = np.std(b_timecourses, axis = 0)
-
-            d_timecourses_by_type[ct] = {'rg_timecourses' : rg_timecourses, 'rg_mean' : rg_mean, 'rg_std' : rg_std,
-                                'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
-
-        return d_timecourses_by_type
+    
 
     # Helper function for pulling noise ids for plotting and organizing them into a dictionary
     # by type. IDs can be pulled by list of protocol ids, list of cell types, or both. Used
     # in plot_rfs and plot_timecourse
-    def get_noise_ids(self, protocol_ids: List[int] = None, cell_types: List[int] = None) -> Dict[str,list]:
+    def get_noise_ids(self, protocol_ids: List[int] = None, cell_types: List[int] = None) -> List[int]:
 
-        d_cells_by_type = dict()
         # Pull analysis_block ids that match the input cell_ids and cell_types
         # If neither is given, plot all matched ids
         if protocol_ids is None and cell_types is None:
-            cell_types = self.response_block.df_spike_times['cell_type'].unique()
-            for ct in cell_types:
-                type_ids = self.response_block.df_spike_times.query('cell_type == @ct')['cell_id'].values
-                d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if val in type_ids]
-
-                # remove empty keys
-                if not d_cells_by_type[ct]:
-                    d_cells_by_type.pop(ct, None)
+            protocol_ids = self.response_block.df_spike_times['cell_id'].values
+            noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only type is given, pull only ids that correspond to that type
         elif protocol_ids is None:
-            d_cells_by_type = dict()
-            for ct in cell_types:
-                protocol_ids = self.response_block.df_spike_times.query('cell_type == @ct')['cell_id'].values
-                d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if val in protocol_ids]
+            protocol_ids = self.response_block.df_spike_times.query('cell_type == @cell_types')['cell_id'].values
+            noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only ids are given, pull all ids regardless of type
         elif cell_types is None:
-            cell_types = self.response_block.df_spike_times['cell_type'].unique()
-            for ct in cell_types:
-                type_ids = self.response_block.df_spike_times.query('cell_type == @ct')['cell_id'].values
-                d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if (val in protocol_ids
-                                                                            and val in type_ids)]
-                # remove empty keys
-                if not d_cells_by_type[ct]:
-                    d_cells_by_type.pop(ct, None) 
+            noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If both are given, pull only ids that match both the cell types and the cell ids given
         else:
-            for ct in cell_types:
-                protocol_ids = self.response_block.df_spike_times.query('cell_type ==  @ct')['cell_id'].values
-                d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if (val in protocol_ids
-                                                                    and val in protocol_ids)]
+            protocol_ids = self.response_block.df_spike_times.query('cell_type ==  @cell_types')['cell_id'].values
+            noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
-
-        if not d_cells_by_type:
+        if len(noise_ids) == 0:
             raise Exception("No cluster matched ids found for given list of cell ids and/or cell types") 
 
-        return d_cells_by_type
+        return noise_ids
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
