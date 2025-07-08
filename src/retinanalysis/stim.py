@@ -7,6 +7,12 @@ from typing import List
 import retinanalysis.regen as regen
 import pickle
 
+D_REGEN_FXNS = {
+    # 'manookinlab.protocols.FastNoise',
+    'manookinlab.protocols.SpatialNoise': regen.make_spatial_noise,
+    # 'manookinlab.protocols.DovesMovie'
+}
+
 class StimBlock:
     def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
         if pkl_file is None:
@@ -103,7 +109,7 @@ class StimBlock:
             print(f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n")
         return nearest_noise_chunk
 
-    def regenerate_stimulus(self, ls_epochs: list=None):
+    def regenerate_stimulus(self, ls_epochs: list=None, **kwargs):
         """
         Regenerate the stimulus for the block based on the epochs provided.
         If no epochs are provided, it regenerates for all epochs in the block.
@@ -111,9 +117,18 @@ class StimBlock:
         if ls_epochs is None:
             ls_epochs = self.df_epochs.index.tolist()
         
-        # Assuming there's a method to regenerate stimulus based on epochs
-        # This is a placeholder for actual implementation
-        print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.datafile_name}")
+        if self.protocol_name in D_REGEN_FXNS.keys():
+            print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.datafile_name}")
+            f_regen = D_REGEN_FXNS[self.protocol_name]
+            stim_frames = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
+            self.stim_frames = stim_frames
+            print(f"Made stimulus of shape: {stim_frames.shape}")
+            return
+        else:
+            print(f'Method for regenerating {self.protocol_name} is not implemented yet!')
+            print('Please do so at your convenience in regen.py, and add function name to D_REGEN_FXNS.')
+            return
+        
     
     
     def __repr__(self):
@@ -125,7 +140,7 @@ class StimBlock:
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
-        str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}"
+        str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
 

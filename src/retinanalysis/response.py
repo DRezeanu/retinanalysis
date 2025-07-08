@@ -129,8 +129,8 @@ class ResponseBlock:
         
         binned_spikes = np.zeros((n_cells, self.n_epochs, n_max_bins))
         ls_diff_frames = []
-        for i_cell, cell_id in enumerate(tqdm.tqdm(self.cell_ids, desc='Binning spikes for cells')):
-            sts = self.df_spike_times.at[cell_id, 'spike_times']
+        for i_cell in tqdm.tqdm(self.df_spike_times.index, desc='Binning spikes for cells'):
+            sts = self.df_spike_times.at[i_cell, 'spike_times']
             for j_epoch in range(self.n_epochs):
                 e_sts = sts[j_epoch]
                 
