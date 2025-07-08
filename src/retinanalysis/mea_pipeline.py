@@ -46,7 +46,10 @@ class MEAPipeline:
             else:
                 inverse_match_dict[id] = 0
 
-        self.response_block.df_spike_times['noise_ids'] = inverse_match_dict
+        for idx, id in enumerate(self.response_block.df_spike_times['cell_id'].values):
+            self.response_block.df_spike_times.at[idx, 'noise_id'] = inverse_match_dict[id]
+        
+        self.response_block.df_spike_times['noise_id'] = self.response_block.df_spike_times['noise_id'].astype(int)
 
     def add_types_to_protocol(self, typing_file: str = None) -> None:
 
@@ -69,7 +72,10 @@ class MEAPipeline:
             else:
                 type_dict[id] = "Unmatched"
 
-        self.response_block.df_spike_times['cell_type'] = type_dict
+        for idx, id in enumerate(self.response_block.df_spike_times['cell_id'].values):
+            self.response_block.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
+
+        # self.response_block.df_spike_times['cell_type'] = type_dict
 
     def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
                  std_scaling: float = 1.6, units: str = 'pixels') -> np.ndarray:
