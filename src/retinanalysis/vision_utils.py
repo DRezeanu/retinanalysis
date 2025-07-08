@@ -180,17 +180,17 @@ def get_spike_dict(response_block: ResponseBlock, protocol_ids: List[int] = None
         filtered_df = spike_time_df.query('cell_type == @cell_types')
 
     elif cell_types is None:
-        filtered_df = spike_time_df.query('index == @protocol_ids')
+        filtered_df = spike_time_df.query('cell_id == @protocol_ids')
         cell_types = filtered_df['cell_type'].unique()
         
     else:
-        filtered_df = spike_time_df.query('index == @protocol_ids and cell_type == @cell_types')
+        filtered_df = spike_time_df.query('cell_id == @protocol_ids and cell_type == @cell_types')
 
     d_spike_times = dict()
     for ct in cell_types:
         d_times_and_ids = dict()
         df_type = filtered_df.query('cell_type == @ct')
-        type_ids = df_type.index.values
+        type_ids = df_type['cell_id'].values
         arr_spike_times = [df_type.loc[idx, 'spike_times'] for idx in type_ids]
         arr_spike_times = np.array(arr_spike_times, dtype = object)
         d_times_and_ids['spike_times'] = arr_spike_times
