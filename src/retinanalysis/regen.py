@@ -1,11 +1,44 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
 import tqdm
-IMPLEMENTED_PROTOCOLS = [
-    # 'manookinlab.protocols.FastNoise',
-    'manookinlab.protocols.SpatialNoise',
-    # 'manookinlab.protocols.DovesMovie'
-]
+import pandas as pd
+
+
+def make_spatial_noise(df_epochs: pd.DataFrame, center_row: int=None, center_col: int=None, n_pad: int=None):
+    # Create noise movies by epochs
+    ls_frames = []
+    for e_idx in tqdm.tqdm(df_epochs.index):
+        fts = df_epochs.at[e_idx, 'frame_times_ms']
+        pre_time = df_epochs.at[e_idx, 'preTime']
+        unique_time = df_epochs.at[e_idx, 'epoch_parameters']['uniqueTime']
+        total_frames = len(fts)-1
+        unique_frames = len(np.where(np.logical_and((fts > pre_time),(fts <= pre_time+unique_time)))[0])
+        
+        d_e_params = df_epochs.at[e_idx, 'epoch_parameters']
+        d_meta = {
+            'numXStixels': d_e_params['numXStixels'],
+            'numYStixels': d_e_params['numYStixels'],
+            'numXChecks': d_e_params['numXChecks'],
+            'numYChecks': d_e_params['numYChecks'],
+            'chromaticClass': d_e_params['chromaticClass'],
+            'unique_frames': unique_frames,
+            'repeat_frames': total_frames - unique_frames,
+            'stepsPerStixel': d_e_params['stepsPerStixel'],
+            'seed': d_e_params['seed'],
+            'frameDwell': d_e_params['frameDwell'],
+        }
+        if 'gaussianFilter' in d_e_params:
+            d_meta['gaussianFilter'] = d_e_params['gaussianFilter']
+        if 'filterSdStixels' in d_e_params:
+            d_meta['filterSdStixels'] = d_e_params['filterSdStixels']
+        frames = get_spatial_noise_frames(**d_meta)
+        
+        ls_frames.append(frames)
+    frames = np.array(ls_frames)
+    if center_row is not None:
+        # Crop frames around the cell center
+        frames = frames[:, :, center_row-n_pad:center_row+n_pad+1, center_col-n_pad:center_col+n_pad+1, :]
+    return frames
 
 def get_spatial_noise_frames(numXStixels: int, 
                         numYStixels: int, 
