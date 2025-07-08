@@ -327,3 +327,15 @@ class MEAPipeline:
             pickle.dump(d_out, f)
         print(f"MEAPipeline exported to {file_path}")
 
+def create_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: str=None,
+                    ss_version: str='kilosort2.5', ls_params: list=None):
+    # Helper function for initializing MEAPipeline from metadata
+    # TODO StimGroup and ResponseGroup functionality
+    s = StimBlock(exp_name, datafile_name, ls_params)
+    r = ResponseBlock(exp_name, datafile_name, ss_version)
+    if analysis_chunk_name is None:
+        analysis_chunk_name = s.nearest_noise_chunk
+        print(f'Using {analysis_chunk_name} for AnalysisChunk')
+    ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version)
+    mp = MEAPipeline(s, r, ac)
+    return mp
