@@ -6,6 +6,8 @@ import retinanalysis.vision_utils as vu
 from hdf5storage import loadmat
 import pickle
 import numpy as np
+from typing import List
+import matplotlib.pyplot as plt
 
 class AnalysisChunk:
 
@@ -176,7 +178,179 @@ class AnalysisChunk:
         print(f'Spatial maps have been padded to align with RF parameters.')
         # TODO could also load convex hull fits too under 'hull_vertices'
 
-    
+    def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
+                 typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6):
+
+        if typing_file is None:
+            typing_file = self.typing_files[0]
+        
+        typing_file_idx = self.typing_files.index(typing_file)
+
+        if typing_file not in self.typing_files:
+            raise FileNotFoundError("Given Typing File Doesn't Exist in Analysis Chunk")
+        
+        if noise_ids is None and cell_types is None:
+            filtered_df = self.df_cell_params
+            noise_ids = filtered_df['cell_id'].values
+            cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
+        elif noise_ids is None:
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types')
+            noise_ids = filtered_df['cell_id'].values
+        elif cell_types is None:
+            filtered_df = self.df_cell_params.query(f'cell_id  == @noise_ids')
+            cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
+        else:
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+
+        d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
+
+        d_ells_by_type, scale_factor = vu.get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)
+
+        rows = int(np.ceil(len(cell_types)/4))
+        cols = np.min([(len(cell_types)-1 % 4)+1, 4])
+        size = (4.5*cols, int(3*rows))
+
+        fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
+
+        if cols != 1:
+            ax = ax.flatten()
+
+        for idx, ct in enumerate(cell_types):
+
+            if cols != 1:
+                for id in d_ells_by_type[ct]:
+                    ax[idx].add_patch(d_ells_by_type[ct][id])
+
+                ax[idx].set_xlim(0, self.numXChecks * scale_factor)
+                ax[idx].set_ylim(0, self.numYChecks * scale_factor)
+
+                ax[idx].set_ylabel(units.lower())
+                ax[idx].set_xlabel(units.lower())
+                
+                ax[idx].set_title(ct)
+
+            else: 
+                for id in d_ells_by_type[ct]:
+                    ax.add_patch(d_ells_by_type[ct][id])
+
+                ax.set_xlim(0,self.numXChecks * scale_factor)
+                ax.set_ylim(0,self.numYChecks * scale_factor)
+
+                ax.set_ylabel(units.lower())
+                ax.set_xlabel(units.lower())
+
+                ax.set_title(ct)
+
+        # Remove extra empty axes 
+        num_axes = (rows-1)*4 + cols
+        empty_axes = num_axes - len(cell_types)
+
+        for i in range(empty_axes):
+            fig.delaxes(ax[num_axes - 1 - i])
+
+        fig.suptitle("RFs by Cell Type", fontsize = 15)
+        fig.tight_layout()
+
+        return ax
+
+        
+    def plot_timecourses(self, noise_ids: List[int], cell_types: List[int],
+                         typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
+        
+        if 'ms' in units.lower() or 'milliseconds' in units.lower():
+            scale_factor = 1
+        elif 's' in units.lower() or 'seconds' in units.lower():
+            scale_factor = 1e-3
+        else:
+            raise NameError("Units string must be 'ms', 'milliseconds', 's' or 'seconds'")
+
+        if typing_file is None:
+            typing_file = self.typing_files[0]
+        
+        typing_file_idx = self.typing_files.index(typing_file)
+
+        if typing_file not in self.typing_files:
+            raise FileNotFoundError("Given Typing File Doesn't Exist in Analysis Chunk")
+
+        if noise_ids is None and cell_types is None:
+            filtered_df = self.df_cell_params
+            noise_ids = filtered_df['cell_id'].values
+            cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
+        elif noise_ids is None:
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types')
+            noise_ids = filtered_df['cell_id'].values
+        elif cell_types is None:
+            filtered_df = self.df_cell_params.query(f'cell_id  == @noise_ids')
+            cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
+        else:
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+
+        d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
+
+        d_timecourses_by_type = vu.get_timecourses(self, d_noise_ids_by_type)
+
+        rows = int(np.ceil(len(cell_types)/4))
+        cols = np.min([(len(cell_types)-1 % 4)+1, 4])
+        size = (4.5*cols, int(3*rows))
+
+        fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
+
+        if cols != 1:
+            ax = ax.flatten()
+
+        for idx, ct in enumerate(cell_types):
+
+            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['rg_mean']))*scale_factor
+            if cols != 1:
+                rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
+                rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
+                ax[idx].plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
+                ax[idx].fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
+
+                b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
+                b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
+                ax[idx].plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
+                ax[idx].fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
+
+                ax[idx].set_xlim([time_vals[0], time_vals[-1]])
+
+                ax[idx].set_ylabel(f"STA (arb. units)")
+                ax[idx].set_xlabel(f"Time ({units})")
+                
+                ax[idx].set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
+
+            else: 
+                rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
+                rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
+                ax.fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
+
+                b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
+                b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
+                ax.fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
+
+                ax.set_xlim([time_vals[0], time_vals[-1]])
+
+                ax.set_ylabel(f"STA (arb. units)")
+                ax.set_xlabel(f"Time ({units})")
+                
+                ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
+        
+        # Remove extra empty axes 
+        num_axes = (rows-1)*4 + cols
+        empty_axes = num_axes - len(cell_types)
+
+        for i in range(empty_axes):
+            fig.delaxes(ax[num_axes - 1 - i])
+
+        fig.suptitle("Timecourse by Cell Type", fontsize = 15)
+        fig.tight_layout()
+
+        return ax
+
+
+
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
