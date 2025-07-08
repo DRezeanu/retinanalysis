@@ -309,8 +309,9 @@ def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: li
         ['experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
     df = df[ls_order]
     
-    # Name index 'epoch_index'
+    # Add column for 'epoch_index'
     df.index = df.index.rename('epoch_index')
+    df = df.reset_index(drop=False)
 
     return df
 
