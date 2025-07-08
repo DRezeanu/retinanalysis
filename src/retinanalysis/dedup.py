@@ -7,6 +7,7 @@ import retinanalysis.vision_utils as vu
 import retinanalysis.ei_utils as eu
 import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR
+from retinanalysis.settings import NAS_DATA_DIR
 from matplotlib.patches import Ellipse
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -14,6 +15,15 @@ import copy
 from typing import Union
 from itertools import combinations
 import pandas as pd
+
+def load_ks_amplitudes(block: Union[AnalysisChunk, ResponseBlock]):
+    amps = np.load(os.path.join(NAS_DATA_DIR, block.exp_name, block.chunk_name, block.ss_version, 'amplitudes.npy'))
+    temps = np.load(os.path.join(NAS_DATA_DIR, block.exp_name, block.chunk_name, block.ss_version, 'spike_templates.npy'))
+
+    vision_temps = temps+1
+
+    amplitudes = np.vstack((np.squeeze(amps), np.squeeze(vision_temps)))
+    return amplitudes
 
 def get_sm_autocorrelation(ac: AnalysisChunk, threshold: float = 0.80):
     '''
@@ -348,15 +358,18 @@ def visualize_groups(group: tuple, block: Union[AnalysisChunk, ResponseBlock], a
     plt.subplots_adjust(top=0.95)
     return axs
 
-def plot_amplitude_histograms(amplitudes: np.ndarray, group: tuple, axs=None):
+def plot_amplitude_histograms(block: Union[AnalysisChunk, ResponseBlock], group: tuple, axs=None, amplitudes=None):
     '''
     Plots histograms of amplitudes for a group of cells.
     Args:
-        - amps: kilsort output of amplitudes and corresponding templates
+        - amps: kilsort output of amplitudes and corresponding templates (optional, will load if set to none)
         - group: group of associated cells
     Returns:
         - axs: matplotlib axis objects with histograms
     '''
+    if amplitudes is None:
+        amplitudes = load_ks_amplitudes(block)
+
     if axs is None:
         fig, axs = plt.subplots(1,1, figsize=(10, 5))
     ax_histy = axs.inset_axes([1.05, 0, 0.25, 1], sharey=axs)
@@ -388,15 +401,18 @@ def plot_amplitude_histograms(amplitudes: np.ndarray, group: tuple, axs=None):
     plt.tight_layout()
     return axs
 
-def get_amplitude_overlap(amplitudes: np.ndarray, pair:tuple):
+def get_amplitude_overlap(block: Union[ResponseBlock, AnalysisChunk], pair:tuple, amplitudes=None):
     '''
     generates amplitude histograms for all cells in a set of pairs.
     Args:
-        - amps: kilsort output of amplitudes and corresponding templates
+        - amps: kilsort output of amplitudes and corresponding templates (optional, will load if set to none)
         
     Returns:
         - overlap fraction (float) 
     '''
+
+    if amplitudes is None:
+        amplitudes = load_ks_amplitudes(block)
 
     amp1 = amplitudes[0, amplitudes[1,:]==pair[0]]
     amp2 = amplitudes[0, amplitudes[1,:]==pair[1]]
@@ -412,7 +428,7 @@ def get_amplitude_overlap(amplitudes: np.ndarray, pair:tuple):
     overlap_fraction = intersect_sum / total_sum if total_sum > 0 else 0
     return overlap_fraction
 
-def get_summary_stats(block: Union[AnalysisChunk, ResponseBlock], amplitudes: np.ndarray, ei_method: str = 'full', ei_threshold: float = 0.80, sm_threshold: float = 0.80):
+def get_summary_stats(block: Union[AnalysisChunk, ResponseBlock], ei_method: str = 'full', ei_threshold: float = 0.80, sm_threshold: float = 0.80):
     '''
     Generates summary statistics for a set of potentially duplicated clusters.
     Args:
@@ -447,7 +463,7 @@ def get_summary_stats(block: Union[AnalysisChunk, ResponseBlock], amplitudes: np
             if sm_autocorr is not None:
                 sm_corr = sm_autocorr[cluster_to_index[cluster_a], cluster_to_index[cluster_b]]
             ei_corr = ei_autocorr[cluster_to_index[cluster_a], cluster_to_index[cluster_b]]
-            overlap_fraction = get_amplitude_overlap(amplitudes, (cluster_a, cluster_b))
+            overlap_fraction = get_amplitude_overlap(block, (cluster_a, cluster_b))
             stats.append([cluster_a, cluster_b, ei_corr, sm_corr if sm_autocorr is not None else None, overlap_fraction])
     
     summary_stats = pd.DataFrame(stats, columns=header)
