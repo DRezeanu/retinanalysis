@@ -5,6 +5,7 @@ from retinanalysis.analysis_chunk import AnalysisChunk
 import retinanalysis.vision_utils as vu
 import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR
+from typing import List
 import pickle
 
 
