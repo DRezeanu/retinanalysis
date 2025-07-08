@@ -5,7 +5,8 @@ import retinanalysis.datajoint_utils as dju
 import visionloader as vl
 from retinanalysis.analysis_chunk import AnalysisChunk
 from retinanalysis.response import ResponseBlock
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Tuple
+from matplotlib.patches import Ellipse
 
 NAS_DATA_DIR = mea_config['data'] 
 NAS_ANALYSIS_DIR = mea_config['analysis']
@@ -34,7 +35,6 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
             )
         print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.')
         return vcd
-
 
 def cluster_match(ref_object: Union[AnalysisChunk, ResponseBlock], test_object: Union[AnalysisChunk, ResponseBlock],
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
@@ -167,6 +167,57 @@ def get_classification_file_path(classification_file_name: str, exp_name: str, c
     
     return classification_file_path
 
+def get_ells(analysis_chunk: AnalysisChunk, d_cells_by_type: Dict[str,List[int]],
+              std_scaling: float = 1.6, units: str = 'pixels') -> Tuple[Dict[str, dict], int]:
+    
+    if 'microns' in units.lower():
+        scale_factor = analysis_chunk.microns_per_stixel
+    elif 'pixels' in units.lower():
+        scale_factor = analysis_chunk.pixels_per_stixel
+    elif 'stixels' in units.lower():
+        scale_factor = 1
+    else:
+        raise NameError("Units string must be 'microns', 'pixels' or 'stixels'.")
+    
+    rf_params = analysis_chunk.rf_params
+
+    d_ells_by_type = dict()
+    for idx, ct in enumerate(d_cells_by_type.keys()):
+        d_ells_by_id = dict()
+        for id in d_cells_by_type[ct]:
+            d_ells_by_id[id] = Ellipse(xy=(rf_params[id]['center_x']*scale_factor,
+                                    rf_params[id]['center_y']*scale_factor),
+                                    width = rf_params[id]['std_x']*std_scaling*scale_factor,
+                                    height = rf_params[id]['std_y']*std_scaling*scale_factor,
+                                    angle = rf_params[id]['rot'],
+                                    facecolor= f'C{idx}', edgecolor= f'C{idx}',
+                                    alpha = 0.7)
+
+        d_ells_by_type[ct] = d_ells_by_id
+    
+    return d_ells_by_type, scale_factor
+
+def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dict[str, dict]: 
+
+    d_timecourses_by_type = dict()
+
+    for ct in d_cells_by_type.keys():
+
+        rg_timecourses = [analysis_chunk.vcd.main_datatable[cell]['GreenTimeCourse'] for cell in d_cells_by_type[ct]]
+        rg_timecourses = np.array(rg_timecourses)
+        rg_mean = np.mean(rg_timecourses, axis = 0)
+        rg_std = np.std(rg_timecourses, axis = 0)
+
+        b_timecourses = [analysis_chunk.vcd.main_datatable[cell]['BlueTimeCourse'] for cell in d_cells_by_type[ct]]
+        b_timecourses = np.array(b_timecourses)
+        b_mean = np.mean(b_timecourses, axis = 0)
+        b_std = np.std(b_timecourses, axis = 0)
+
+        d_timecourses_by_type[ct] = {'rg_timecourses' : rg_timecourses, 'rg_mean' : rg_mean, 'rg_std' : rg_std,
+                            'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
+
+    return d_timecourses_by_type
+
 def get_spike_dict(response_block: ResponseBlock, protocol_ids: List[int] = None, 
                          cell_types: List[str] = None) -> dict:
     
@@ -286,8 +337,6 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
 
     return match_dict
 
-
-
 def ei_corr(ref_object: Union[AnalysisChunk, ResponseBlock], target_object: Union[AnalysisChunk, ResponseBlock],
             method: str = 'full', n_removed_channels: int = 1) -> np.ndarray:
 
@@ -370,7 +419,6 @@ def ei_corr(ref_object: Union[AnalysisChunk, ResponseBlock], target_object: Unio
         np.nan_to_num(corr, copy=False, nan = 0, posinf = 0, neginf = 0)
 
         return corr.T
-
 
 def create_dictionary_from_file(file_path, delimiter=' '):
     result_dict = {}
