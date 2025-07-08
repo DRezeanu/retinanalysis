@@ -253,7 +253,6 @@ class AnalysisChunk:
 
         return ax
 
-        
     def plot_timecourses(self, noise_ids: List[int], cell_types: List[int],
                          typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
         
