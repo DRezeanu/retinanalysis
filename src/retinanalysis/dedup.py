@@ -352,8 +352,7 @@ def plot_amplitude_histograms(amplitudes: np.ndarray, group: tuple, axs=None):
     '''
     Plots histograms of amplitudes for a group of cells.
     Args:
-        - amps: kilsort output of amplitudes 
-        - templates: kilsort output of templates
+        - amps: kilsort output of amplitudes and corresponding templates
         - group: group of associated cells
     Returns:
         - axs: matplotlib axis objects with histograms
@@ -393,8 +392,8 @@ def get_amplitude_overlap(amplitudes: np.ndarray, pair:tuple):
     '''
     generates amplitude histograms for all cells in a set of pairs.
     Args:
-        - amplitudes: kilsort output of amplitudes
-        - templates: kilsort output of templates
+        - amps: kilsort output of amplitudes and corresponding templates
+        
     Returns:
         - overlap fraction (float) 
     '''
