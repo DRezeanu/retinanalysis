@@ -40,7 +40,7 @@ class MEAPipeline:
 
     def add_matches_to_protocol(self) -> None:
         inverse_match_dict = {val : key for key, val in self.match_dict.items()}
-        for id in self.response_block.df_spike_times.index:
+        for id in self.response_block.df_spike_times['cell_id']:
             if id in inverse_match_dict:
                 pass
             else:
@@ -63,7 +63,7 @@ class MEAPipeline:
             if id in self.match_dict:
                 type_dict[self.match_dict[id]] = self.analysis_chunk.df_cell_params.query('cell_id == @id')[f'typing_file_{typing_file}'].values[0]
         
-        for id in self.response_block.df_spike_times.index:
+        for id in self.response_block.df_spike_times['cell_id']:
             if id in type_dict:
                 pass
             else:
@@ -259,7 +259,7 @@ class MEAPipeline:
         if protocol_ids is None and cell_types is None:
             cell_types = self.response_block.df_spike_times['cell_type'].unique()
             for ct in cell_types:
-                type_ids = self.response_block.df_spike_times.query('cell_type == @ct').index.values
+                type_ids = self.response_block.df_spike_times.query('cell_type == @ct')['cell_id'].values
                 d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if val in type_ids]
 
                 # remove empty keys
@@ -270,14 +270,14 @@ class MEAPipeline:
         elif protocol_ids is None:
             d_cells_by_type = dict()
             for ct in cell_types:
-                protocol_ids = self.response_block.df_spike_times.query('cell_type == @ct').index.values
+                protocol_ids = self.response_block.df_spike_times.query('cell_type == @ct')['cell_id'].values
                 d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only ids are given, pull all ids regardless of type
         elif cell_types is None:
             cell_types = self.response_block.df_spike_times['cell_type'].unique()
             for ct in cell_types:
-                type_ids = self.response_block.df_spike_times.query('cell_type == @ct').index.values
+                type_ids = self.response_block.df_spike_times.query('cell_type == @ct')['cell_id'].values
                 d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if (val in protocol_ids
                                                                             and val in type_ids)]
                 # remove empty keys
@@ -287,7 +287,7 @@ class MEAPipeline:
         # If both are given, pull only ids that match both the cell types and the cell ids given
         else:
             for ct in cell_types:
-                protocol_ids = self.response_block.df_spike_times.query('cell_type ==  @ct').index.values
+                protocol_ids = self.response_block.df_spike_times.query('cell_type ==  @ct')['cell_id'].values
                 d_cells_by_type[ct] = [key for key, val in self.match_dict.items() if (val in protocol_ids
                                                                     and val in protocol_ids)]
 
