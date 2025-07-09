@@ -262,7 +262,6 @@ class AnalysisChunk:
         fig.tight_layout()
 
         return axs
-
         
     def plot_timecourses(self, noise_ids: List[int]=None, cell_types: List[int]=None,
                          typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:

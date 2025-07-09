@@ -68,7 +68,7 @@ def cluster_match(ref_object: Union[AnalysisChunk, ResponseBlock], test_object: 
             raise NameError("Method property must be 'all', 'full', 'space', or 'power'")
 
 
-        if hasattr(ref_object, "protocol_name") or hasattr(test_object, "protocol_name"):
+        if isinstance(ref_object, ResponseBlock) or isinstance(test_object, ResponseBlock):
             if use_timecourse:
                 raise FileNotFoundError("Response blocks don't have .params files, can't use timecourse for cluster matching")
 
@@ -243,9 +243,9 @@ def get_spike_dict(response_block: ResponseBlock, protocol_ids: List[int] = None
     d_spike_times = dict()
     for ct in cell_types:
         d_times_and_ids = dict()
-        df_type = filtered_df.query('cell_type == @ct')
+        df_type = filtered_df.query('cell_type == @ct').reset_index(drop = True)
         type_ids = df_type['cell_id'].values
-        arr_spike_times = [df_type.loc[idx, 'spike_times'] for idx in type_ids]
+        arr_spike_times = [df_type.loc[idx, 'spike_times'] for idx, id in enumerate(type_ids)]
         arr_spike_times = np.array(arr_spike_times, dtype = object)
         d_times_and_ids['spike_times'] = arr_spike_times
         d_times_and_ids['cell_ids'] = type_ids
@@ -294,7 +294,7 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
     if ss_version is None:
         ss_version = ss_version
 
-    if hasattr(target_object, "chunk_name"):
+    if isinstance(target_object, AnalysisChunk):
         print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n")
         destination_file_path = os.path.join(NAS_ANALYSIS_DIR, analysis_chunk.exp_name,
                                                 target_object.chunk_name, ss_version, output_typing_file)
