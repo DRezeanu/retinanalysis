@@ -441,7 +441,9 @@ def get_presentation_times(frame_times, preFrames, flashFrames, gapFrames, image
         flash_times.append([frame_times[epoch, preFrames + flashFrames*idx+gapFrames*idx] for idx in range(images_per_epoch)])
         gap_times.append([frame_times[epoch, preFrames + flashFrames*(idx+1)+gapFrames*idx] for idx in range(images_per_epoch)])
 
+    pre_times = [frame_times[epoch,preFrames] for epoch in range(frame_times.shape[0])]
+    pre_times = np.array(pre_times)
     flash_times = np.array(flash_times)
     gap_times = np.array(gap_times)
 
-    return flash_times, gap_times
+    return flash_times, gap_times, pre_times
