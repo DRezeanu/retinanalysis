@@ -9,9 +9,19 @@ import numpy as np
 from typing import List
 import matplotlib.pyplot as plt
 
+def get_noise_name_by_exp(exp_name):
+    # Pull appropriate noise protocol for cell typing
+    if int(exp_name[:8]) < 20230926:
+            noise_protocol_name = 'manookinlab.protocols.FastNoise'
+    else:
+        noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
+    return noise_protocol_name
+
 class AnalysisChunk:
 
-    def __init__(self, exp_name: str=None, chunk_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
+    def __init__(self, exp_name: str=None, chunk_name: str=None, 
+                 ss_version: str = 'kilosort2.5', pkl_file: str=None, 
+                 b_load_spatial_maps: bool=True, **vu_kwargs):
         if pkl_file is None:
             if exp_name is None or chunk_name is None:
                 raise ValueError("Either exp_name and chunk_name or pkl_file must be provided.")
@@ -24,7 +34,7 @@ class AnalysisChunk:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version)
+            self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
             print(f"AnalysisChunk loaded from {pkl_file}")
             return
         
@@ -40,22 +50,19 @@ class AnalysisChunk:
         chunk_id = schema.SortingChunk() & {'experiment_id' : self.exp_id, 'chunk_name' : self.chunk_name}
         self.chunk_id = chunk_id.fetch('id')[0]
 
-        # Pull appropriate noise protocol for cell typing
-        if int(exp_name[:8]) < 20230926:
-            self.noise_protocol = 'manookinlab.protocols.FastNoise'
-        else:
-            self.noise_protocol = 'manookinlab.protocols.SpatialNoise'
+        self.noise_protocol = get_noise_name_by_exp(exp_name)
 
         # Pull protocol id
         protocol_id = schema.Protocol() & {'name' : self.noise_protocol}
         self.protocol_id = protocol_id.fetch('protocol_id')[0]
 
-        self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version)
+        self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
         self.get_noise_params()
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_rf_params()
         self.get_df()
-        self.get_spatial_maps()
+        if b_load_spatial_maps:
+            self.get_spatial_maps()
 
     def get_noise_params(self):
         self.staXChecks = int(self.vcd.runtimemovie_params.width)
@@ -85,7 +92,7 @@ class AnalysisChunk:
         noise_data_dirs = epoch_blocks.fetch('data_dir')
         self.data_files = [os.path.basename(path) for path in noise_data_dirs]
 
-        typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id}
+        typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id, 'algorithm': self.ss_version}
         self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
 
         self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
@@ -179,7 +186,8 @@ class AnalysisChunk:
         # TODO could also load convex hull fits too under 'hull_vertices'
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
-                 typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6):
+                 typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
+                 b_zoom: bool = False, n_pad = 6):
 
         if typing_file is None:
             typing_file = self.typing_files[0]
@@ -202,59 +210,61 @@ class AnalysisChunk:
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
 
+        if len(filtered_df) == 0:
+            print("No data found for the given noise_ids and cell_types.")
+            return
+
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
 
         d_ells_by_type, scale_factor = vu.get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)
 
         rows = int(np.ceil(len(cell_types)/4))
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
-        size = (4.5*cols, int(3*rows))
+        size = (3*cols, int(3*rows))
 
-        fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
+        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
 
         if cols != 1:
-            ax = ax.flatten()
+            axs = axs.flatten()
+        else:
+            axs = np.array([axs])
 
         for idx, ct in enumerate(cell_types):
+            ax = axs[idx]
+            for id in d_ells_by_type[ct]:
+                ax.add_patch(d_ells_by_type[ct][id])
 
-            if cols != 1:
-                for id in d_ells_by_type[ct]:
-                    ax[idx].add_patch(d_ells_by_type[ct][id])
+            ax.set_xlim(0,self.numXChecks * scale_factor)
+            ax.set_ylim(0,self.numYChecks * scale_factor)
 
-                ax[idx].set_xlim(0, self.numXChecks * scale_factor)
-                ax[idx].set_ylim(0, self.numYChecks * scale_factor)
+            ax.set_ylabel(units.lower())
+            ax.set_xlabel(units.lower())
 
-                ax[idx].set_ylabel(units.lower())
-                ax[idx].set_xlabel(units.lower())
-                
-                ax[idx].set_title(ct)
-
-            else: 
-                for id in d_ells_by_type[ct]:
-                    ax.add_patch(d_ells_by_type[ct][id])
-
-                ax.set_xlim(0,self.numXChecks * scale_factor)
-                ax.set_ylim(0,self.numYChecks * scale_factor)
-
-                ax.set_ylabel(units.lower())
-                ax.set_xlabel(units.lower())
-
-                ax.set_title(ct)
+            n_cells = len(d_ells_by_type[ct])
+            ax.set_title(f"{ct}, (n = {n_cells})")
 
         # Remove extra empty axes 
         num_axes = (rows-1)*4 + cols
         empty_axes = num_axes - len(cell_types)
 
         for i in range(empty_axes):
-            fig.delaxes(ax[num_axes - 1 - i])
+            fig.delaxes(axs[num_axes - 1 - i])
 
+        if b_zoom:
+            x_min, x_max = filtered_df['center_x'].min(), filtered_df['center_x'].max()
+            y_min, y_max = filtered_df['center_y'].min(), filtered_df['center_y'].max()
+            
+            for ax in axs:
+                ax.set_xlim((x_min - n_pad)*scale_factor, (x_max + n_pad)*scale_factor)
+                ax.set_ylim((y_min - n_pad)*scale_factor, (y_max + n_pad)*scale_factor)
+        
         fig.suptitle("RFs by Cell Type", fontsize = 15)
         fig.tight_layout()
 
-        return ax
+        return axs
 
         
-    def plot_timecourses(self, noise_ids: List[int], cell_types: List[int],
+    def plot_timecourses(self, noise_ids: List[int]=None, cell_types: List[int]=None,
                          typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
         
         if 'ms' in units.lower() or 'milliseconds' in units.lower():
