@@ -1,12 +1,12 @@
 import retinanalysis.schema as schema
+from .vision_utils import *
+from .analysis_chunk import *
 from .database_utils import *
 from .datajoint_utils import *
 from .settings import *
 from .stim import *
 from .response import *
-from .analysis_chunk import *
 from .qc import *
-from .vision_utils import *
 from .mea_pipeline import *
 
 from .database_pop import *
