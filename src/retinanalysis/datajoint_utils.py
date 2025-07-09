@@ -5,6 +5,9 @@ import os
 import pandas as pd
 from retinanalysis.settings import mea_config
 import json
+import tqdm
+import retinanalysis.analysis_chunk as ac
+from IPython.display import display
 NAS_ANALYSIS_DIR = mea_config['analysis']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
@@ -93,6 +96,7 @@ def search_protocol(str_search: str):
     return matches
 
 def get_datasets_from_protocol_names(ls_protocol_names):
+    # TODO pull available algorithm names from CellTypeFile
     if type(ls_protocol_names) is str:
         ls_protocol_names = [ls_protocol_names]
 
@@ -169,6 +173,7 @@ def get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_na
         distance = distance / np.timedelta64(1, 'm')
         noise_chunk_distances.append(distance)
     noise_chunk_names = noise_chunk_names[np.argsort(noise_chunk_distances)]
+    noise_chunk_distances = np.sort(noise_chunk_distances)
     if verbose:
         print(f'Found {len(noise_chunk_names)} noise chunks for protocol "{noise_protocol_name}"')
         print('Noise chunks sorted by distance:')
@@ -178,68 +183,154 @@ def get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_na
     return noise_chunk_names, noise_chunk_distances
 
 
-def get_typing_files_for_protocol(exp_name, datafile_name, noise_protocol_name, verbose=False):
-    # Return df with columns:
+def get_n_cells_of_interest(str_file, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM']):
+    # str_file is cell typing file path
+    # Returns the number of cells of interest in the typing file
+    if not os.path.exists(str_file):
+        print(f'Cell typing file {str_file} does not exist!')
+        return 0
+    try:
+        arr_types = np.genfromtxt(str_file, dtype=str, delimiter='  ')
+        if len(arr_types.shape) != 2:
+            try_shape = arr_types.shape
+            # Try 1 space delimiter
+            arr_types = np.genfromtxt(str_file, dtype=str, delimiter=' ')
+            if len(arr_types.shape) != 2:
+                print(f'Could not parse {str_file}')
+                print(f'Error: 2 space delimiter resulted in {try_shape} shape')
+                print(f'Error: 1 space delimiter resulted in {arr_types.shape} shape')
+                return 0
+    except:
+        print(f'Error reading cell typing file {str_file}. Please check the file format.')
+        return 0
+    n_cells = 0
+    # 2nd column of arr_types contains cell types, where we want to match substring after .lower()
+    for str_match in ls_cell_types:
+        ls_match = []
+        for i in range(len(arr_types)):
+            str_cell_type = arr_types[i, 1].lower()
+            if str_match.lower() in str_cell_type:
+                ls_match.append(arr_types[i, 0])
+        n_cells += len(ls_match)
+    return n_cells
+
+
+def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM'],
+                                  verbose: bool = False):
+    # Return df_typed with columns:
     # exp_name, datafile_names, chunk_name, protocol_name, ss_version, typing_file_name, typing_file_path
     # Each row corresponds to a typing file for the nearest noise chunk.
-
-    df_exp = get_mea_exp_summary(exp_name)
-    noise_chunk_names, noise_chunk_distances = get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose)
-    ls_no_cell_typing = []
-    d_typing_files = {'datafile_name': [], 'datafile_names': [], 'ss_version': [], 
-                      'typing_file_name': [], 'typing_file_path': [], 'typing_file_id': []}
-    b_found = False
-    selected_noise_chunk = None
-    ideal_noise_chunk = noise_chunk_names[0]
-    for noise_chunk in noise_chunk_names:
-        noise_chunk = noise_chunk_names[0]
-        df_chunk = df_exp[(df_exp['chunk_name']==noise_chunk) & (df_exp['protocol_name']==noise_protocol_name)]
-        noise_chunk_id = df_chunk['chunk_id'].values[0]
-        noise_datafile_names = list(df_chunk['datafile_name'].values)
-        df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).fetch(format='frame')
-        n_typing_files = df_ct.shape[0]
-        print(f'Found {n_typing_files} cell typing file(s) for {noise_chunk}')
-        if n_typing_files == 0:
-            ls_no_cell_typing.append(noise_chunk)
-
-        if not b_found:
-            for idx in df_ct.index:
-                ss_version = df_ct.at[idx, 'algorithm']
-                typing_file_name = df_ct.at[idx, 'file_name']
-                typing_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, noise_chunk, ss_version, typing_file_name)
-                
-                d_typing_files['datafile_name'].append(noise_datafile_names[0])
-                d_typing_files['datafile_names'].append(noise_datafile_names)
-                d_typing_files['ss_version'].append(ss_version)
-                d_typing_files['typing_file_name'].append(typing_file_name)
-                d_typing_files['typing_file_path'].append(typing_file_path)
-                d_typing_files['typing_file_id'].append(idx)
-            selected_noise_chunk = noise_chunk
-            b_found = True
-
-    # If no cell typing files found, return noise chunk names.
-    if not b_found:
-        print(f'No cell typing files found for any noise chunk for protocol "{noise_protocol_name}" in experiment "{exp_name}"')
-        print(f'You should type the closest noise chunk:')
-        for chunk_name, distance in zip(noise_chunk_names, noise_chunk_distances):
-            print(f'  {chunk_name}: {distance:.2f} minutes')
-        return noise_chunk_names
+    # And df_not_typed with columns:
+    # exp_name, datafile_names, nearest_noise_chunk, nearest_noise_distance
+    # Each row corresponds to a dataset without any typing files.
+    d_not_typed = {'exp_name': [], 'datafile_name': [], 'nearest_noise_chunk': [],
+                   'nearest_noise_distance': []}
+    d_typed = {'exp_name': [], 'datafile_name': [], 'nearest_noise_chunk': [],
+                'nearest_noise_distance': [], 'typed_noise_chunk': [], 
+                'nearest_noise_distance': [], 'typed_noise_distance': [], 'is_nearest': [],
+                'ss_version': [], 'noise_datafile_names': [],
+                'typing_file_name': [], 'typing_file_path': [], 'typing_file_id': [],
+                'n_cells_of_interest': []}
+    for exp_name in tqdm.tqdm(df['exp_name'].unique(), desc="Finding typing files for unique experiments"):
+        df_q = df.query('exp_name==@exp_name')
+        df_exp = get_mea_exp_summary(exp_name)
+        noise_protocol_name = ac.get_noise_name_by_exp(exp_name)
+        
+        for datafile_name in df_q['datafile_name'].values:
+            noise_chunk_names, noise_chunk_distances = get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose)
     
-    # If selected noise chunk is not ideal, print warning.
-    if selected_noise_chunk != ideal_noise_chunk:
-        print(f'WARNING: Selected noise chunk "{selected_noise_chunk}" is not the ideal noise chunk "{ideal_noise_chunk}".')
-        print('Consider typing the ideal noise chunk:')
-        for chunk_name, distance in zip(noise_chunk_names, noise_chunk_distances):
-            print(f'  {chunk_name}: {distance:.2f} minutes')
+            # Find nearest noise chunk with typing.
+            b_found = False
+            nearest_noise_chunk = noise_chunk_names[0]
+            for i_c, noise_chunk in enumerate(noise_chunk_names):
+                df_chunk = df_exp[(df_exp['chunk_name']==noise_chunk) & (df_exp['protocol_name']==noise_protocol_name)]
+                noise_chunk_id = df_chunk['chunk_id'].values[0]
+                noise_datafile_names = list(df_chunk['datafile_name'].values)
+                df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).fetch(format='frame')
 
-    df_typing_files = pd.DataFrame(d_typing_files)
-    df_typing_files['exp_name'] = exp_name
-    df_typing_files['chunk_name'] = selected_noise_chunk
-    df_typing_files['protocol_name'] = noise_protocol_name
-    ls_order = ['exp_name', 'datafile_name', 'datafile_names', 'chunk_name', 'protocol_name',
-                'ss_version', 'typing_file_name', 'typing_file_path', 'typing_file_id']
-    df_typing_files = df_typing_files[ls_order]
-    return df_typing_files
+                if not b_found and len(df_ct) > 0:
+                    for i_ct in df_ct.index:
+                        ss_version = df_ct.at[i_ct, 'algorithm']
+                        typing_file_name = df_ct.at[i_ct, 'file_name']
+                        typing_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, noise_chunk, ss_version, typing_file_name)
+                        n_cells_of_interest = get_n_cells_of_interest(typing_file_path, ls_cell_types)
+                        d_typed['exp_name'].append(exp_name)
+                        d_typed['datafile_name'].append(datafile_name)
+                        d_typed['nearest_noise_chunk'].append(nearest_noise_chunk)
+                        d_typed['nearest_noise_distance'].append(noise_chunk_distances[0])
+                        d_typed['typed_noise_chunk'].append(noise_chunk)
+                        d_typed['typed_noise_distance'].append(noise_chunk_distances[i_c])
+                        d_typed['noise_datafile_names'].append(noise_datafile_names)
+                        d_typed['ss_version'].append(ss_version)
+                        d_typed['typing_file_name'].append(typing_file_name)
+                        d_typed['typing_file_path'].append(typing_file_path)
+                        d_typed['typing_file_id'].append(i_ct)
+                        d_typed['n_cells_of_interest'].append(n_cells_of_interest)
+                        if noise_chunk == nearest_noise_chunk:
+                            d_typed['is_nearest'].append(True)
+                        else:
+                            d_typed['is_nearest'].append(False)
+                    b_found = True
+
+            # If no cell typing files found, append to d_not_typed
+            if not b_found:
+                d_not_typed['exp_name'].append(exp_name)
+                d_not_typed['datafile_name'].append(datafile_name)
+                d_not_typed['nearest_noise_chunk'].append(nearest_noise_chunk)
+                d_not_typed['nearest_noise_distance'].append(noise_chunk_distances[0])
+
+
+    df_typed = pd.DataFrame(d_typed)
+    df_not_typed = pd.DataFrame(d_not_typed)
+    return df_typed, df_not_typed
+
+def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP', 'OffM', 'OnP', 'OnM'],
+                                  n_top: int=None):
+    # df should be output of get_datasets_from_protocol_names
+    df_typed, df_not_typed = get_typing_files_for_datasets(df, ls_cell_types)
+    print(f'Found {df_not_typed.shape[0]} datasets without any typing files:')
+    display(df_not_typed)
+    print(f'Found {df_typed.shape[0]} datasets with typing files.')
+
+    df_u = df_typed[['exp_name', 'typed_noise_chunk', 'n_cells_of_interest']].drop_duplicates()
+    # Keep only those with n_cells_of_interest > 0
+    df_u = df_u.query('n_cells_of_interest > 0')
+    # Sort by n_cells_of_interest
+    df_u = df_u.sort_values('n_cells_of_interest', ascending=False)
+    if n_top is None:
+        n_top = 20
+    print(f'Found {df_u.shape[0]} unique datasets with typing files and > 0  cells of interest.')
+    for u_idx in df_u.index[:n_top]:
+        exp_name = df_u.at[u_idx, 'exp_name']
+        
+        chunk_name = df_u.at[u_idx, 'typed_noise_chunk']
+        df_q = df_typed.query(f'exp_name == "{exp_name}" and typed_noise_chunk == "{chunk_name}"')
+        df_q = df_q.reset_index(drop=True)
+        datafile_names = df_q['datafile_name'].unique()
+        # for i, row in df_q.iterrows():
+        # Find row with max n_cells_of_interest
+        row = df_q.loc[df_q['n_cells_of_interest'].idxmax()]
+        ss_version = row['ss_version']
+        typing_file = row['typing_file_name']
+        try:    
+            ac1 = ac.AnalysisChunk(exp_name, chunk_name, ss_version, b_load_spatial_maps=False,
+                                include_ei=False, include_neurons=False, verbose=False)
+
+            axs = ac1.plot_rfs(typing_file=typing_file,
+                cell_types=ls_cell_types, units = 'microns', 
+                std_scaling = 1.0, b_zoom=True, n_pad = 6
+            )
+            f = axs[0].get_figure()
+            nearest_chunk = row['nearest_noise_chunk']
+            str_title = f"{exp_name} {chunk_name} {ss_version} {typing_file}\nfor {datafile_names}"
+            if nearest_chunk != chunk_name:
+                str_title += f"\n(nearest chunk: {nearest_chunk})"
+            f.suptitle(str_title, y=1.05)
+        except Exception as e:
+            print(f'Error processing {exp_name}, {datafile_names}, {chunk_name}: {e}')
+            continue
+    return df_typed, df_not_typed
+
 
 def find_varying_epoch_parameters(df):
     # df should have epoch data for a SINGLE EpochBlock.
