@@ -326,6 +326,8 @@ def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP',
             if nearest_chunk != chunk_name:
                 str_title += f"\n(nearest chunk: {nearest_chunk})"
             f.suptitle(str_title, y=1.05)
+            for ax in axs:
+                ax.set_aspect('equal', adjustable='box')
         except Exception as e:
             print(f'Error processing {exp_name}, {datafile_names}, {chunk_name}: {e}')
             continue
