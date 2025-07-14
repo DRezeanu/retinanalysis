@@ -173,10 +173,11 @@ class AnalysisChunk:
             # TODO pad spatial maps to match N_HEIGHT and N_WIDTH @roaksleaf pls help 
             # Cell ID index in vcd should be same as in _params.mat
             spat_mat = d_params['spatial_maps'][idx_ID][:, :, ls_channels]
-            left_pad = self.deltaXChecks
-            right_pad = self.numXChecks - self.staXChecks - self.deltaXChecks
-            top_pad = self.deltaYChecks
-            bottom_pad = self.numYChecks - self.staYChecks - self.deltaYChecks
+            left_pad = int(self.deltaXChecks)
+            right_pad = int(self.numXChecks - self.staXChecks - self.deltaXChecks)
+            top_pad = int(self.deltaYChecks)
+            bottom_pad = int(self.numYChecks - self.staYChecks - self.deltaYChecks)
+
             padded = np.pad(spat_mat, ((top_pad, bottom_pad), (left_pad, right_pad), (0, 0)), mode='constant', constant_values=0)
             d_spatial_maps[n_ID] = padded
             
@@ -220,7 +221,7 @@ class AnalysisChunk:
 
         rows = int(np.ceil(len(cell_types)/4))
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
-        size = (3*cols, int(3*rows))
+        size = (4*cols, int(3*rows))
 
         fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
 
@@ -300,7 +301,7 @@ class AnalysisChunk:
 
         rows = int(np.ceil(len(cell_types)/4))
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
-        size = (4.5*cols, int(3*rows))
+        size = (4*cols, int(3*rows))
 
         fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
 

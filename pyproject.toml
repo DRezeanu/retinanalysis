@@ -24,7 +24,19 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = []
+dependencies = [
+  "hdf5storage",
+  "progressbar2",
+  "cython",
+  "opencv-python",
+  "matplotlib",
+  "scikit-learn",
+  "pybind11",
+  "scipy==1.15",
+  "numpy==2.2.6",
+  "pandas",
+  "seaborn",
+  "datajoint"]
 
 [project.urls]
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
