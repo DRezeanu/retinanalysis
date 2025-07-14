@@ -1,6 +1,8 @@
 from configparser import ConfigParser
 import platform
 import os
+import importlib.resources as ir
+import retinanalysis
 
 
 def load_config(config_path):
@@ -102,8 +104,7 @@ def reset_config(config_path):
 #                 tags_dir='/Volumes/RachelSSD/mea/datajoint_testbed/mea/tags/',
 #                 username='roaksleaf')
 
-config_directory = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(config_directory, 'config.ini')
+config_path = ir.files(retinanalysis) / "config.ini"
 mea_config = load_config(config_path)
 
 NAS_DATA_DIR = mea_config['data'] 
