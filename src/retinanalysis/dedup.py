@@ -48,31 +48,73 @@ def generate_extended_pairings(pairs: set):
     return extended
 
 
-def compare_ei_methods(block: Union[AnalysisChunk,] , axs=None):
+def compare_ei_methods(block: Union[AnalysisChunk,ResponseBlock], ei_threshold: float=0.8, axs=None):
+    
     methods = ['full', 'space', 'power']
-    full_ei_autocorr, ei_full_pairs = get_ei_autocorrelation(block,ei_method=methods[0])
-    space_ei_autocorr, ei_space_pairs = get_ei_autocorrelation(block,ei_method=methods[1])
-    power_ei_autocorr, ei_power_pairs = get_ei_autocorrelation(block,ei_method=methods[2])
+    full_ei_autocorr, ei_full_pairs = get_ei_autocorrelation(block,ei_method=methods[0], ei_threshold=ei_threshold)
+    space_ei_autocorr, ei_space_pairs = get_ei_autocorrelation(block,ei_method=methods[1], ei_threshold=ei_threshold)
+    power_ei_autocorr, ei_power_pairs = get_ei_autocorrelation(block,ei_method=methods[2], ei_threshold=ei_threshold)
 
-    fig = plt.subfigure
-    (top, bottom) = fig.subfigures(2, 1, height_ratios=[2, 1], hspace=0.3)
+    ig_zero_full = full_ei_autocorr[np.triu_indices_from(full_ei_autocorr, k=1)]
+    ig_zero_space = space_ei_autocorr[np.triu_indices_from(space_ei_autocorr, k=1)]
+    ig_zero_power = power_ei_autocorr[np.triu_indices_from(power_ei_autocorr, k=1)]
+
+    full_thresh = ei_threshold
+    space_thresh = ei_threshold
+    power_thresh = ei_threshold
+
+    # full_thresh = np.quantile(ig_zero_full, 0.9999)
+    # space_thresh = np.quantile(ig_zero_space, 0.9999)
+    # power_thresh = np.quantile(ig_zero_power, 0.9999)
+
+    # full_ei_autocorr, ei_full_pairs = get_ei_autocorrelation(block,ei_method=methods[0], ei_threshold=full_thresh)
+    # space_ei_autocorr, ei_space_pairs = get_ei_autocorrelation(block,ei_method=methods[1], ei_threshold=space_thresh)
+    # power_ei_autocorr, ei_power_pairs = get_ei_autocorrelation(block,ei_method=methods[2], ei_threshold=power_thresh)
+
     if axs is None:
-        axs[0] = top.subplots(1, figsize=(10, 10))
-        axs[1] = bottom.subplots(1, 3, figsize=(10, 5))
-    im = axs[1][0].imshow(full_ei_autocorr, cmap='hot', interpolation='nearest')
-    im1 = axs[1][1].imshow(space_ei_autocorr, cmap='hot', interpolation='nearest')
-    im2 = axs[1][2].imshow(power_ei_autocorr, cmap='hot', interpolation='nearest')
-    fig.colorbar(im, ax=axs[1], orientation='vertical', fraction=0.02, pad=0.04)
-    axs[0].venn3([set(ei_full_pairs), set(ei_space_pairs), set(ei_power_pairs)], set_labels = methods)
-    axs[0].set_title('High EI Correlation Pairs by Method')
+        fig, axs  = plt.subplots(2,4, figsize=(20,15))
+    im = axs[0,0].imshow(full_ei_autocorr, cmap='hot', interpolation='nearest')
+    im1 = axs[0,1].imshow(space_ei_autocorr, cmap='hot', interpolation='nearest')
+    im2 = axs[0,2].imshow(power_ei_autocorr, cmap='hot', interpolation='nearest')
+    fig.colorbar(im, ax=axs[0,0], orientation='vertical', fraction=0.02, pad=0.04)
+    fig.colorbar(im1, ax=axs[0,1], orientation='vertical', fraction=0.02, pad=0.04)
+    fig.colorbar(im2, ax=axs[0,2], orientation='vertical', fraction=0.02, pad=0.04)
+
+    venn3([set(ei_full_pairs), set(ei_space_pairs), set(ei_power_pairs)], set_labels = methods, ax=axs[0,3])
+    fig.suptitle('High EI Correlation Pairs by Method', fontsize=16)
     for i in range(3):
-        axs[1][i].set_title(f'EI Autocorrelation Matrix - {methods[i]} method')
-        axs[1][i].set_xlabel('Cell ID')
-        axs[1][i].set_ylabel('Cell ID')
+        axs[0,i].set_title(f'{methods[i]} method')
+        axs[0,i].set_xlabel('Cell ID')
+        axs[0,i].set_ylabel('Cell ID')
+
+    axs[1,0].hist(ig_zero_full, bins=50, color='blue', alpha=0.7)
+    axs[1,0].set_title('full method')
+    axs[1,0].set_xlabel('R')
+    axs[1,0].set_ylabel('Count')
+    axs[1,0].semilogy()
+    axs[1,0].axvline(full_thresh, color='red', linestyle='--', label=f'Threshold: {full_thresh:.2f}')
+    axs[1,0].legend()
+    axs[1,1].hist(ig_zero_space, bins=50, color='blue', alpha=0.7)
+    axs[1,1].set_title('space method')
+    axs[1,1].set_xlabel('R')
+    axs[1,1].set_ylabel('Count')
+    axs[1,1].semilogy()
+    axs[1,1].axvline(space_thresh, color='red', linestyle='--', label=f'Threshold: {space_thresh:.2f}')
+    axs[1,1].legend()
+    axs[1,2].hist(ig_zero_power, bins=50, color='blue', alpha=0.7)
+    axs[1,2].set_title('power method')
+    axs[1,2].set_xlabel('R')
+    axs[1,2].set_ylabel('Count')
+    axs[1,2].semilogy()
+    axs[1,2].axvline(power_thresh, color='red', linestyle='--', label=f'Threshold: {power_thresh:.2f}')
+    axs[1,2].legend()
+
+    fig.delaxes(axs[1,3])
+
 
     plt.tight_layout()
-    plt.subplots_adjust(top=0.95)
-    return axs
+    plt.subplots_adjust(top=0.98)
+    return axs, ei_full_pairs, ei_space_pairs, ei_power_pairs
 
 def get_sm_autocorrelation(ac: AnalysisChunk, sm_threshold: float):
     '''
@@ -125,10 +167,15 @@ class DedupBlock:
                  ei_method: str='full',
                  ei_threshold: float = 0.80, sm_threshold: float = 0.80,
                  **vu_kwargs):
+        self.exp_name = exp_name
+        self.datafile_name = datafile_name
+        self.chunk_name = chunk_name
+        self.ss_version = ss_version
+        self.pkl_file = pkl_file
         self.is_noise = is_noise
         self.ei_threshold = ei_threshold
         self.sm_threshold = sm_threshold
-        # self.ei_method = ei_method
+        self.ei_method = ei_method
         if is_noise:
             self.AnalysisChunk = AnalysisChunk(exp_name=exp_name, chunk_name=chunk_name,
                                                 ss_version=ss_version, pkl_file=pkl_file, b_load_spatial_maps=True, **vu_kwargs)
@@ -145,28 +192,36 @@ class DedupBlock:
         if is_noise:
             #if noise, get the highly correlated spatial maps, the transitively connected groups, and the decomposed list of clusters
             self.sm_autocorr, high_sm_pairs = get_sm_autocorrelation(self.AnalysisChunk, sm_threshold=self.sm_threshold)
-            extended_sm_pairs = generate_extended_pairings(self.high_sm_pairs)
-            problem_cells, all_ei_cells, all_sm_cells = self.isolate_problem_cells()
+            self.ei_autocorr, high_ei_pairs = get_ei_autocorrelation(self.AnalysisChunk, self.ei_method, ei_threshold=self.ei_threshold)
+            extended_ei_pairs = generate_extended_pairings(high_ei_pairs)
+            extended_sm_pairs = generate_extended_pairings(high_sm_pairs)
+            problem_cells, all_ei_cells, all_sm_cells = self.isolate_problem_cells(high_ei_pairs, high_sm_pairs)
+        else:
+            self.ei_autocorr, high_ei_pairs = get_ei_autocorrelation(self.ResponseBlock,self.ei_method, ei_threshold=self.ei_threshold)
+            extended_ei_pairs = generate_extended_pairings(high_ei_pairs)
+            problem_cells, all_ei_cells = self.isolate_problem_cells(high_ei_pairs)
 
-        #then always, do the same for EI
-        self.ei_autocorr, high_ei_pairs = get_ei_autocorrelation(self.ei_method, ei_threshold=self.ei_threshold)
-        extended_ei_pairs = generate_extended_pairings(self.high_ei_pairs)
-        problem_cells, all_ei_cells = self.isolate_problem_cells()
-
+        print('Creating deduplication sets...')
         self.dedup_sets['all_pairs'] = high_ei_pairs.union(high_sm_pairs) if is_noise else high_ei_pairs #combined pairings
         self.dedup_sets['extended_pairs_across'] = generate_extended_pairings(self.dedup_sets['all_pairs']) #combined transitively connected groups across metrics
         self.dedup_sets['all_extended_pairs'] = extended_ei_pairs.union(extended_sm_pairs) if is_noise else extended_ei_pairs #transitively connected groups within metrics
         
         self.dedup_sets['problem_cells'] = problem_cells #all cells in any pair
 
-        self.dedup_sets['ei_only_cells'] = all_ei_cells.difference(problem_cells) #cells only in high ei pairs
-        self.dedup_sets['ei_only_pairs'] = high_ei_pairs.difference(self.dedup_sets['all_pairs']) if is_noise else high_ei_pairs #pairs only in high ei pairs
+        self.dedup_sets['ei_only_cells'] = problem_cells.difference(all_sm_cells) #cells only in high ei pairs
+        self.dedup_sets['ei_only_pairs'] = self.dedup_sets['all_pairs'].difference(high_sm_pairs) if is_noise else high_ei_pairs #pairs only in high ei pairs
         self.dedup_sets['extended_ei_pairs'] = extended_ei_pairs #transitively connected groups within high ei pairs
         if is_noise:
-            self.dedup_sets['sm_only_cells'] = all_sm_cells.difference(problem_cells)
-            self.dedup_sets['sm_only_pairs'] = high_sm_pairs.difference(self.dedup_sets['all_pairs'])
+            self.dedup_sets['sm_only_cells'] = problem_cells.difference(all_ei_cells) #cells only in high sm pairs
+            self.dedup_sets['sm_only_pairs'] = self.dedup_sets['all_pairs'].difference(high_ei_pairs) #pairs only in high sm pairs
             self.dedup_sets['extended_sm_pairs'] = extended_sm_pairs
 
+            #now only the intersecting sets
+            self.dedup_sets['both_cells'] = all_ei_cells.intersection(all_sm_cells) #cells in both high ei and high sm pairs
+            self.dedup_sets['both_pairs'] = high_ei_pairs.intersection(high_sm_pairs) #pairs in both high ei and high sm pairs
+            self.dedup_sets['extended_both_pairs'] = generate_extended_pairings(self.dedup_sets['both_pairs']) #transitively connected groups within both high ei and high sm pairs
+        
+        print('Loading Kilosort amplitudes...')
         self.load_ks_amplitudes()
 
 
@@ -184,13 +239,13 @@ class DedupBlock:
 
         #combine into 3D array
         amplitudes = np.zeros((3, len(amps)))
-        amplitudes[0,:] = amps
-        amplitudes[1,:] = vision_temps
-        amplitudes[2,:] = times
+        amplitudes[0,:] = np.squeeze(amps)
+        amplitudes[1,:] = np.squeeze(vision_temps)
+        amplitudes[2,:] = np.squeeze(times)
         self.amplitudes = amplitudes
 
 
-    def isolate_problem_cells(self):
+    def isolate_problem_cells(self, high_ei_pairs:set, high_sm_pairs:set=None):
         '''
         Isolates problem cells based on spatial map and EI autocorrelation.
         Returns:
@@ -200,22 +255,17 @@ class DedupBlock:
         '''
         
         # Compute autocorrelation for spatial maps
-        if self.is_noise:
-            block = self.AnalysisChunk
-        else:
-            block = self.ResponseBlock
-        
 
         if self.is_noise:
-            problem_cells = {cell for pair in self.high_sm_pairs.union(self.high_ei_pairs) for cell in pair}
-            all_sm_cells = {cell for pair in self.high_sm_pairs for cell in pair}
-            all_ei_cells = {cell for pair in self.high_ei_pairs for cell in pair}
+            problem_cells = {cell for pair in high_sm_pairs.union(high_ei_pairs) for cell in pair}
+            all_sm_cells = {cell for pair in high_sm_pairs for cell in pair}
+            all_ei_cells = {cell for pair in high_ei_pairs for cell in pair}
 
             return problem_cells, all_ei_cells, all_sm_cells
 
         else:
-            problem_cells = {cell for pair in self.high_ei_pairs for cell in pair}
-            all_ei_cells = {cell for pair in self.high_ei_pairs for cell in pair}
+            problem_cells = {cell for pair in high_ei_pairs for cell in pair}
+            all_ei_cells = {cell for pair in high_ei_pairs for cell in pair}
 
             return problem_cells, all_ei_cells
 
@@ -243,19 +293,19 @@ class DedupBlock:
                     width=rf_params[cell]['std_x']*2, height=rf_params[cell]['std_y']*2,
                     angle=rf_params[cell]['rot'], 
                     edgecolor='None', facecolor='None', lw=1, alpha=0.8)
-            if cell in self.all_ei_cells and cell in self.all_sm_cells:
+            if cell in self.dedup_sets['problem_cells'].difference(self.dedup_sets['ei_only_cells']) and cell in self.dedup_sets['problem_cells'].difference(self.dedup_sets['sm_only_cells']):
                 ell1.set_edgecolor('red')
                 color = 'red'
                 axs[1].add_patch(ell1)
                 axs[1].annotate(f'{cell}', xy=(rf_params[cell]['center_x'], rf_params[cell]['center_y']),
                             color='black', fontsize=10, ha='center', va='center')
-            elif cell in self.all_ei_cells:
+            elif cell in self.dedup_sets['ei_only_cells']:
                 ell1.set_edgecolor('orange')
                 color = 'orange'
                 axs[1].add_patch(ell1)
                 axs[1].annotate(f'{cell}', xy=(rf_params[cell]['center_x'], rf_params[cell]['center_y']),
                             color='black', fontsize=10, ha='center', va='center')
-            elif cell in self.all_sm_cells:
+            elif cell in self.dedup_sets['sm_only_cells']:
                 ell1.set_edgecolor('magenta')
                 color = 'magenta'
                 axs[1].add_patch(ell1)
@@ -304,14 +354,14 @@ class DedupBlock:
             axs[0,0].set_ylabel('Cell ID')
             axs[0,1].set_ylabel('Cell ID')
 
-            axs[1,0].hist(self.ei_corr_values, bins=50, color='blue', alpha=0.7)
+            axs[1,0].hist(np.triu(self.ei_autocorr, k=1).flatten(), bins=50, color='blue', alpha=0.7)
             axs[1,0].set_title('EI Autocorrelation Histogram')
             axs[1,0].set_xlabel('R')
             axs[1,0].set_ylabel('Count')
             axs[1,0].semilogy()
             axs[1,0].axvline(self.ei_threshold, color='red', linestyle='--', label=f'Threshold: {self.ei_threshold}')
             axs[1,0].legend()
-            axs[1,1].hist(self.sm_corr_values, bins=50, color='green', alpha=0.7)
+            axs[1,1].hist(np.triu(self.sm_autocorr, k=1).flatten(), bins=50, color='green', alpha=0.7)
             axs[1,1].set_title('Spatial Map Autocorrelation Histogram')
             axs[1,1].set_xlabel('R')
             axs[1,1].set_ylabel('Count')
@@ -326,7 +376,7 @@ class DedupBlock:
             axs[0].set_xlabel('Cell ID')
             axs[0].set_ylabel('Cell ID')
             
-            axs[1].hist(self.ei_corr_values, bins=50, color='blue', alpha=0.7)
+            axs[1].hist(np.triu_indices_from(self.ei_autocorr, k=1).flatten(), bins=50, color='blue', alpha=0.7)
             axs[1].set_title('EI Autocorrelation Histogram')
             axs[1].set_xlabel('R')
             axs[1].set_ylabel('Count')
@@ -433,7 +483,7 @@ class DedupBlock:
 
         for i, cell in enumerate(group):
             amps.append(self.amplitudes[0, self.amplitudes[1,:]==cell])
-            times = self.amplitudes[2, self.amplitudes[1,:]==cell]
+            times = self.amplitudes[2, self.amplitudes[1,:]==cell] * 1000 / 20000  # convert to seconds assuming 20kHz sampling rate
             axs.plot(times,amps[i], label=f'ID {cell}', alpha=0.5)
         
         min_val = min([np.min(a) for a in amps])
@@ -478,6 +528,56 @@ class DedupBlock:
         total_sum = np.sum(hist1)
         overlap_fraction = intersect_sum / total_sum if total_sum > 0 else 0
         return overlap_fraction
+    
+    def plot_pcs(self, pair:tuple, n_pcs=2, n_chans=2):
+        if not hasattr(self, 'spike_pcs'):
+            if self.is_noise:
+                self.spike_pcs = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'pc_features.npy'), mmap_mode='r')
+                self.spike_pc_idx = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
+            else: 
+                self.spike_pcs = np.load(os.path.join(NAS_DATA_DIR, self.ResponseBlock.exp_name, self.ResponseBlock.datafile_name, self.ResponseBlock.ss_version, 'pc_features.npy'), mmap_mode='r')
+                self.spike_pc_idx = np.load(os.path.join(NAS_DATA_DIR, self.ResponseBlock.exp_name, self.ResponseBlock.datafile_name, self.ResponseBlock.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
+        spike_idxs = []
+        feat_chan_ids = []
+        channels = []
+        spike_times = []
+        n_combs = n_chans * n_pcs
+        for cluster in pair:
+            spike_idxs.append(np.where(self.amplitudes[1,:]==cluster)[0])
+            feat_chan_ids.append(self.spike_pc_idx[cluster-1, :].astype(int))
+            cluster_chans = []
+            for c in range(n_chans):
+                cluster_chans.append(feat_chan_ids[-1][c])
+            channels.append(cluster_chans)
+            spike_times.append(self.amplitudes[2, spike_idxs[-1]] * 1000 / 20000)
+        fig, axs = plt.subplots(n_combs, n_combs, figsize=(5*n_chans, 5*n_pcs))
+        for i in range(n_combs):
+            for j in range(n_combs):
+                if i == j:
+                    for idx,cluster2 in enumerate(pair):
+                        x = spike_times[idx]
+                        y = self.spike_pcs[spike_idxs[idx], i%2, i//2]
+                        axs[i, j].scatter(x, y, alpha=0.5, label=f'Cluster {cluster2}')
+                        axs[i, j].set_xlabel('Time (s)')
+                        axs[i, j].set_ylabel(f'Chan{i//2+1} PC{i%2+1}')
+
+                else:
+                    for idx,cluster2 in enumerate(pair):
+                        axs[i, j].set_xlabel('Time (s)')
+                        axs[i, j].set_ylabel(f'Chan{i//2+1} PC{i%2+1}')
+                        x = self.spike_pcs[spike_idxs[idx], i%2, i//2]
+                        y = self.spike_pcs[spike_idxs[idx], j%2, j//2]
+                        axs[i, j].scatter(x, y, alpha=0.5, label=f'Cluster {cluster2}')
+                        axs[i,j].axvline(0, color='gray', linewidth=0.5)
+                        axs[i,j].axhline(0, color='gray', linewidth=0.5)
+
+                axs[i,j].legend(loc='upper right')
+                axs[i,j].margins(0.2,0.2)
+        fig.suptitle(f'PCs for clusters {pair}', fontsize=16)
+        return axs
+
+                
+
 
     def get_summary_stats(self, pairs:set):
         '''
@@ -500,6 +600,22 @@ class DedupBlock:
         
         summary_stats = pd.DataFrame(stats, columns=header)
         return summary_stats
+
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  chunk_name: {self.chunk_name}\n"
+        str_self += f"  ss_version: {self.ss_version}\n"
+        str_self += f"  noise_status: {self.is_noise}\n"
+        str_self += f"  data_file: {self.datafile_name}\n"
+        if self.is_noise:
+            str_self += f"  cell_ids of length: {len(self.AnalysisChunk.cell_ids)}\n"
+        else:
+            str_self += f"  cell_ids of length: {len(self.ResponseBlock.cell_ids)}\n"
+        str_self += f"  ei_threshold: {self.ei_threshold}\n"
+        str_self += f"  sm_threshold: {self.sm_threshold}\n"
+        str_self += f"  ei_method: {self.ei_method}\n"
+        return str_self
 
 
     
