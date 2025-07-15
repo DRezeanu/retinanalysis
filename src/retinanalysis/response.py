@@ -49,10 +49,10 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
         return frame_times, transition_frames
 
 class ResponseBlock:
-    def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
+    def __init__(self, exp_name: str=None, block_id: int=None, pkl_file: str=None):
         if pkl_file is None:
-            if exp_name is None or datafile_name is None:
-                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+            if exp_name is None or block_id is None:
+                raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
@@ -62,14 +62,21 @@ class ResponseBlock:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
             print(f"ResponseBlock loaded from {pkl_file}")
             return
+
         self.exp_name = exp_name
-        self.datafile_name = datafile_name
+        self.block_id = block_id        
+
+class MEAResponseBlock(ResponseBlock):
+    def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
+        self.vcd = vu.get_protocol_vcd(exp_name, datafile_name, ss_version)
         self.ss_version = ss_version
+        self.datafile_name = datafile_name
+        block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file)
+        
         self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
-        self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_spike_times()
 
