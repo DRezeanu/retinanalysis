@@ -37,32 +37,46 @@ def populate_ndf_column(df):
     return df
 
 
-def get_mea_exp_summary(exp_name: str):
+def get_exp_summary(exp_name: str):
     exp_ids = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')
+    exp_id = exp_ids[0]
     if len(exp_ids) == 0:
         print(f'Experiment "{exp_name}" not found!')
         return None
-    exp_id = exp_ids[0]
-    eg_q = schema.EpochGroup() & f'experiment_id={exp_id}'
-    eg_q = eg_q.proj(group_label='label', group_id='id')
     is_mea = (schema.Experiment() & f'id={exp_id}').fetch1('is_mea')
+
+    eg_q = schema.EpochGroup() & f'experiment_id={exp_id}'
+    eg_q = eg_q.proj('experiment_id', group_label='label', group_id='id', cell_id='parent_id')
+    c_q = schema.Cell.proj(
+        prep_id='parent_id', cell_id='id',
+        cell_label='label', cell_properties='properties'
+        )
+    pr_q = schema.Preparation.proj(prep_label='label', prep_id='id')
+    eg_q = eg_q * c_q * pr_q
     
-    if not is_mea:
-        print(f'Experiment "{exp_name}" is not an MEA experiment!')
-        print('Please use INSERT_METHOD for single cell experiments.')
-        return None
-    sc_q = schema.SortingChunk() & f'experiment_id={exp_id}'
-    sc_q = sc_q.proj('chunk_name', 'experiment_id',chunk_id='id')
-    eg_sc_q = eg_q * sc_q
-    # eb_q = eg_q.proj(group_label='label',group_id='id') * schema.EpochBlock.proj(group_id='parent_id', data_dir='data_dir', chunk_id='chunk_id')
-    eb_q = eg_sc_q * schema.EpochBlock.proj('chunk_id', 'protocol_id','data_dir', 
-                                            'start_time', 'end_time',
-                                            group_id='parent_id', block_id='id')  
+    eb_q = schema.EpochBlock.proj(
+        'chunk_id', 'protocol_id','data_dir', 
+        'start_time', 'end_time',
+        group_id='parent_id', block_id='id'
+        )  
+    eb_q = eg_q * eb_q
+    # If MEA experiment, get sorting chunk information
+    if is_mea:
+        sc_q = schema.SortingChunk() & f'experiment_id={exp_id}'
+        sc_q = sc_q.proj('chunk_name', chunk_id='id')
+        eb_q = eb_q * sc_q
     p_q = eb_q * schema.Protocol.proj(..., protocol_name='name')
 
     df = p_q.fetch(format='frame').reset_index()
     df = df.sort_values('start_time').reset_index()
     
+    # Check that end_time and start_time are in datetime format
+    if not pd.api.types.is_datetime64_any_dtype(df['start_time']):
+        print("Converting 'start_time' to datetime format.")
+        df['start_time'] = pd.to_datetime(df['start_time'], errors='coerce')
+    if not pd.api.types.is_datetime64_any_dtype(df['end_time']):
+        print("Converting 'end_time' to datetime format.")
+        df['end_time'] = pd.to_datetime(df['end_time'], errors='coerce')
     # Add column of minutes_since_start
     df['minutes_since_start'] = (df['end_time'] - df['start_time'].min()).dt.total_seconds() / 60
     df['minutes_since_start'] = df['minutes_since_start'].round(2)
@@ -70,17 +84,37 @@ def get_mea_exp_summary(exp_name: str):
     df['duration_minutes'] = (df['end_time'] - df['start_time']).dt.total_seconds() / 60
     df['duration_minutes'] = df['duration_minutes'].round(2)
 
-    df = populate_ndf_column(df)
-    df['exp_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-2])
-    df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
+    df['exp_name'] = exp_name
 
-    # Order columns
-    ls_order = ['exp_name', 'datafile_name', 'group_label', 'NDF','chunk_name', 'protocol_name',
-    'duration_minutes', 'minutes_since_start', 'start_time', 'end_time', 'data_dir', 
-    'experiment_id', 'group_id', 'block_id', 'chunk_id', 'protocol_id']
+    df = populate_ndf_column(df)
+
+    
+    if is_mea:
+        df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
+
+        # Order columns.
+        ls_order = ['exp_name', 'prep_label', 'datafile_name', 'group_label', 'NDF','chunk_name', 'protocol_name',
+        'duration_minutes', 'minutes_since_start', 'start_time', 'end_time', 'data_dir', 
+        'experiment_id', 'prep_id', 'group_id', 'block_id', 'chunk_id', 'protocol_id']
+    else:
+        # Add cell type from cell_properties dict w/ key 'type'
+        df['cell_type'] = df['cell_properties'].apply(lambda x: x.get('type', 'Unknown'))
+        ls_order = ['exp_name', 'prep_label', 'cell_id', 'cell_label', 'cell_type', 
+        'NDF', 'protocol_name', 'duration_minutes', 'minutes_since_start', 
+        'start_time', 'end_time', 'cell_properties','group_label',
+        'experiment_id', 'prep_id', 'group_id', 'block_id', 'protocol_id']
     df = df[ls_order]
 
     return df
+
+def get_block_id_from_datafile(exp_name: str, datafile_name: str):
+    exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch1('id')
+    eb_q = schema.EpochBlock() & f'experiment_id={exp_id}'
+    df = eb_q.fetch(format='frame').reset_index()
+    df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
+    block_id = df.query('datafile_name == @datafile_name')['id'].values[0]
+    return block_id
+
 
 def search_protocol(str_search: str):
     str_search = str_search.lower()
@@ -233,7 +267,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
                 'n_cells_of_interest': []}
     for exp_name in tqdm.tqdm(df['exp_name'].unique(), desc="Finding typing files for unique experiments"):
         df_q = df.query('exp_name==@exp_name')
-        df_exp = get_mea_exp_summary(exp_name)
+        df_exp = get_exp_summary(exp_name)
         noise_protocol_name = ac.get_noise_name_by_exp(exp_name)
         
         for datafile_name in df_q['datafile_name'].values:
@@ -360,19 +394,24 @@ def add_parameters_col(df, ls_params, src_col: str='epoch_parameters'):
     return df
 
 
-def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: list=None,
+def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: list=None,
                                 stim_time_name: str='stimTime'):
-    # Filter Experiment by exp_name, EpochBlock by datafile_name, then join down to Epoch
+    # Filter Experiment by exp_name, EpochBlock by block_id, then join down to Epoch
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    is_mea = (ex_q.fetch1('is_mea') == 1)
     eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
     eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
     
+    ls_eb_cols = ['protocol_id']
+    if is_mea:
+        ls_eb_cols += ['data_dir']
     eb_q = schema.EpochBlock.proj(
-        'protocol_id', 'data_dir', group_id='parent_id', block_id='id'
+        *ls_eb_cols, group_id='parent_id', block_id='id'
         )
+        
     eb_q = eg_q * eb_q
-    data_dir = os.path.join(exp_name, datafile_name)
-    eb_q = eb_q & f'data_dir="{data_dir}"'
+    
+    eb_q = eb_q & f'block_id={block_id}'
     
     p_q = eb_q * schema.Protocol.proj(protocol_name='name')
     
@@ -385,7 +424,8 @@ def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: li
     # Make frame_times_ms list using json.loads
     df['frame_times_ms'] = df['frame_times_ms'].apply(lambda x: json.loads(x))
 
-    df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
+    if is_mea:
+        df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
 
     varying_params = find_varying_epoch_parameters(df)
     # Add ls_params to varying_params if provided
@@ -396,10 +436,16 @@ def get_mea_epoch_data_from_exp(exp_name: str, datafile_name: str, ls_params: li
     # Add preTime, stimTime, tailTime
     ls_time_cols = ['preTime', stim_time_name, 'tailTime']
     df = add_parameters_col(df, ls_time_cols, 'epoch_parameters')
-    ls_order =  varying_params + \
-        ['exp_name', 'datafile_name', 'group_label', 'protocol_name', 'frame_times_ms',
-        'epoch_parameters', 'data_dir'] + ls_time_cols + \
-        ['experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
+    if is_mea:
+        ls_order =  varying_params + \
+            ['exp_name', 'datafile_name', 'group_label', 'protocol_name', 'frame_times_ms',
+            'epoch_parameters', 'data_dir'] + ls_time_cols + \
+            ['experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
+    else:
+        ls_order =  varying_params + \
+            ['exp_name', 'group_label', 'protocol_name', 'frame_times_ms',
+            'epoch_parameters'] + ls_time_cols + \
+            ['experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
     df = df[ls_order]
     
     # Add column for 'epoch_index'
