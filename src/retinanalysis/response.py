@@ -71,7 +71,10 @@ class ResponseBlock:
         self.exp_name = exp_name
         self.block_id = block_id    
         self.d_timing = dju.get_epochblock_timing(self.exp_name, self.block_id)
-        self.frame_data = dju.get_epochblock_frame_data(self.exp_name, self.block_id)    
+        frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id)    
+        self.frame_data = frame_data
+        self.frame_sample_rate = frame_sample_rate
+
 
 class SCResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
@@ -82,12 +85,17 @@ class SCResponseBlock(ResponseBlock):
 
         self.h5_file = h5_file
         self.b_spiking = b_spiking
-        self.amp_data = dju.get_epochblock_amp_data(self.exp_name, self.block_id, str_h5=self.h5_file)
+        amp_data, sample_rate = dju.get_epochblock_amp_data(self.exp_name, self.block_id, str_h5=self.h5_file)
+        self.amp_data = amp_data
+        self.amp_sample_rate = sample_rate
         if b_spiking:
-            self.get_spike_times()
+            self.get_spike_times(**detector_kwargs)
 
-    def get_spike_times(self):
-        spikes, amps, refs = spdet.detector(self.amp_data, )
+    def get_spike_times(self, **detector_kwargs):
+        spikes, amps, refs = spdet.detector(self.amp_data, self.amp_sample_rate, **detector_kwargs)
+        self.spikes = spikes
+        self.amps = amps
+        self.refs = refs
 
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
