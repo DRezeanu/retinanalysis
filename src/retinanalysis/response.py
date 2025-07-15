@@ -1,5 +1,6 @@
 import retinanalysis.datajoint_utils as dju
 import retinanalysis.vision_utils as vu
+import retinanalysis.spike_detector as spdet
 import numpy as np
 import pandas as pd
 import tqdm
@@ -49,7 +50,9 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
         return frame_times, transition_frames
 
 class ResponseBlock:
-    def __init__(self, exp_name: str=None, block_id: int=None, pkl_file: str=None):
+    def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
+                 pkl_file: str=None):
+        print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
         if pkl_file is None:
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
@@ -66,25 +69,44 @@ class ResponseBlock:
             return
 
         self.exp_name = exp_name
-        self.block_id = block_id        
+        self.block_id = block_id    
+        self.d_timing = dju.get_epochblock_timing(self.exp_name, self.block_id)
+        self.frame_data = dju.get_epochblock_frame_data(self.exp_name, self.block_id)    
+
+class SCResponseBlock(ResponseBlock):
+    def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
+                 pkl_file: str=None, b_spiking: bool=False, **detector_kwargs):
+        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file)
+        if pkl_file is not None:
+            return
+
+        self.h5_file = h5_file
+        self.b_spiking = b_spiking
+        self.amp_data = dju.get_epochblock_amp_data(self.exp_name, self.block_id, str_h5=self.h5_file)
+        if b_spiking:
+            self.get_spike_times()
+
+    def get_spike_times(self):
+        spikes, amps, refs = spdet.detector(self.amp_data, )
 
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
         self.vcd = vu.get_protocol_vcd(exp_name, datafile_name, ss_version)
-        self.ss_version = ss_version
-        self.datafile_name = datafile_name
         block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
         super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file)
+        if pkl_file is not None:
+            return
         
+        self.ss_version = ss_version
+        self.datafile_name = datafile_name
         self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_spike_times()
 
     def get_spike_times(self):
-        self.d_timing = dju.get_mea_epochblock_timing(self.exp_name, self.datafile_name)
         d_spike_times = {'cell_id': [], 'spike_times': []}
-        epoch_starts = self.d_timing['epoch_starts']
-        epoch_ends = self.d_timing['epoch_ends']
+        epoch_starts = self.d_timing['epochStarts']
+        epoch_ends = self.d_timing['epochEnds']
         # n_samples = self.d_timing['n_samples']
         # frame_times_ms = self.d_timing['frame_times_ms']
 
@@ -113,8 +135,8 @@ class MEAResponseBlock(ResponseBlock):
     def get_max_bins_for_rate(self, bin_rate: float):
         # bin_rate: float, in Hz
         # Returns the maximum number of bins for the given bin rate across all epochs.
-        epoch_starts = self.d_timing['epoch_starts']
-        epoch_ends = self.d_timing['epoch_ends']
+        epoch_starts = self.d_timing['epochStarts']
+        epoch_ends = self.d_timing['epochEnds']
         ls_bins = []
         for i in range(self.n_epochs):
             n_epoch_samples = epoch_ends[i] - epoch_starts[i]
@@ -124,7 +146,7 @@ class MEAResponseBlock(ResponseBlock):
         return n_max_bins
     
     def bin_spike_times_by_frames(self, stride: int=1):
-        frame_times_ms = self.d_timing['frame_times_ms']
+        frame_times_ms = self.d_timing['frameTimesMs']
         if int(self.exp_name[:8]) < 20230926:
             marginal_frame_rate = 60.31807657 # Upper bound on the frame rate to make sure that we don't miss any frames.
         else:

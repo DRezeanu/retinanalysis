@@ -8,6 +8,7 @@ import json
 import tqdm
 import retinanalysis.analysis_chunk as ac
 from IPython.display import display
+import h5py
 NAS_ANALYSIS_DIR = mea_config['analysis']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
@@ -69,6 +70,8 @@ def get_exp_summary(exp_name: str):
 
     df = p_q.fetch(format='frame').reset_index()
     df = df.sort_values('start_time').reset_index()
+    if len(df)==0:
+        raise ValueError(f'No data found for experiment {exp_name}')
     
     # Check that end_time and start_time are in datetime format
     if not pd.api.types.is_datetime64_any_dtype(df['start_time']):
@@ -454,7 +457,8 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: list=None,
 
     return df
 
-def get_mea_epochblock_timing(exp_name: str, datafile_name: str):
+
+def get_epochblock_query(exp_name: str, block_id: int):
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
     eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
     eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
@@ -463,26 +467,95 @@ def get_mea_epochblock_timing(exp_name: str, datafile_name: str):
         group_id='parent_id', block_id='id'
         )
     eb_q = eg_q * eb_q
-    data_dir = os.path.join(exp_name, datafile_name)
-    eb_q = eb_q & f'data_dir="{data_dir}"'
+    eb_q = eb_q & f'block_id={block_id}'
+    return eb_q
+
+
+def get_epochblock_timing(exp_name: str, block_id: int):
+    eb_q = get_epochblock_query(exp_name, block_id)
     df = eb_q.fetch(format='frame').reset_index()
     if len(df) > 1:
-        raise ValueError(f'Expected only one EpochBlock for {exp_name} {datafile_name}, but found {len(df)}')
+        raise ValueError(f'Expected only one EpochBlock for {exp_name} {block_id}, but found {len(df)}')
     if len(df) == 0:
-        raise ValueError(f'No EpochBlock found for {exp_name} {datafile_name}')
+        raise ValueError(f'No EpochBlock found for {exp_name} {block_id}')
     d_data = df.loc[0].to_dict()
-    epoch_starts = d_data['group_properties']['epochStarts']
-    epoch_ends = d_data['group_properties']['epochEnds']
-    n_samples = d_data['group_properties']['n_samples']
-    frame_times_ms = d_data['group_properties']['frameTimesMs']
+    # epoch_starts = d_data['group_properties']['epochStarts']
+    # epoch_ends = d_data['group_properties']['epochEnds']
+    # n_samples = d_data['group_properties']['n_samples']
+    # frame_times_ms = d_data['group_properties']['frameTimesMs']
 
     d_timing = {
         'exp_name': exp_name,
-        'datafile_name': datafile_name,
-        'epoch_starts': epoch_starts,
-        'epoch_ends': epoch_ends,
-        'n_samples': n_samples,
-        'frame_times_ms': frame_times_ms
+        'block_id': block_id,
+        # 'epoch_starts': epoch_starts,
+        # 'epoch_ends': epoch_ends,
+        # 'n_samples': n_samples,
+        # 'frame_times_ms': frame_times_ms
     }
+    
+    # For MEA data, this has epoch_starts, epoch_ends, n_samples, frame_times_ms
+    # For SC data, this has just frame_times_ms
+    d_group = d_data['group_properties']
+    for key in d_group.keys():
+        d_timing[key] = d_group[key]
+    
 
     return d_timing
+
+def get_sc_response_query(exp_name: str, block_id: int):
+    eb_q = get_epochblock_query(exp_name, block_id)
+    p_q = eb_q * schema.Protocol.proj(protocol_name='name')
+    e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
+    r_q = e_q * schema.Response.proj(..., epoch_id='parent_id', response_id='id') 
+    return r_q
+
+
+def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
+    ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    if str_h5 is None:
+        str_h5 = ex_q.fetch1('data_file')
+    print(f'Loading frame monitor data...')
+    r_q = get_sc_response_query(exp_name, block_id)
+    df = r_q.fetch(format='frame').reset_index()
+    
+    df_frame = df[df['device_name']=='Frame Monitor']
+    df_frame = df_frame.reset_index(drop=True)
+
+    frame_h5paths = df_frame['h5path'].values
+
+    # Collect data
+    frame_data = []
+    with h5py.File(str_h5, 'r') as f:
+        for h5path in frame_h5paths:
+            trace = f[h5path]['data']['quantity']
+            frame_data.append(trace)
+    
+    frame_data = np.array(frame_data)
+    print(f'Loaded {frame_data.shape} frame_data.')
+
+    return frame_data
+
+def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: str=None):
+    ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    if str_h5 is None:
+        str_h5 = ex_q.fetch1('data_file')
+    print(f'Loading Amp1 data...')
+    r_q = get_sc_response_query(exp_name, block_id)
+    df = r_q.fetch(format='frame').reset_index()
+    
+    df_amp = df[df['device_name']=='Amp1']
+    df_amp = df_amp.reset_index(drop=True)
+
+    amp_h5paths = df_amp['h5path'].values
+
+    # Collect data
+    amp_data = []
+    with h5py.File(str_h5, 'r') as f:
+        for h5path in amp_h5paths:
+            trace = f[h5path]['data']['quantity']
+            amp_data.append(trace)
+    
+    amp_data = np.array(amp_data)
+    print(f'Loaded {amp_data.shape} amp_data.')
+
+    return amp_data

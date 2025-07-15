@@ -15,6 +15,7 @@ D_REGEN_FXNS = {
 
 class StimBlock:
     def __init__(self, exp_name: str=None, block_id: int=None, ls_params: list=None, pkl_file: str=None):
+        print(f"Initializing StimBlock for {exp_name} block {block_id}")
         if pkl_file is None:
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
