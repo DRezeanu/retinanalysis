@@ -60,6 +60,7 @@ def get_ei_autocorrelation(block: Union[AnalysisChunk, MEAResponseBlock], ei_met
     Returns:
         - ei_autocorr: 2D numpy array of autocorrelation values for EI maps.
         - high_ei_pairs: set of tuples containing cell IDs of EI maps with autocorrelation above the specified threshold.
+    '''
 
     assert isinstance(block, AnalysisChunk) or isinstance(block, MEAResponseBlock), "Input must be a ResponseBlock or AnalysisChunk."
 
