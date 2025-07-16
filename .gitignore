@@ -1,6 +1,6 @@
 databases
 *__pycache__
 *.ini
-assets/images/
-assets/resources/
+src/retinanalysis/assets/images/
+src/retinanalysis/assets/resources/
 *.DS_Store
