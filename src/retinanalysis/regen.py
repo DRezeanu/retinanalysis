@@ -2,7 +2,8 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 import tqdm
 import pandas as pd
-
+import os
+import cv2
 
 def make_spatial_noise(df_epochs: pd.DataFrame, center_row: int=None, center_col: int=None, n_pad: int=None):
     # Create noise movies by epochs
@@ -165,3 +166,122 @@ def get_spatial_noise_frames(numXStixels: int,
     else:
         return stimulus
 
+
+# Functions for PresentImages protocol
+def load_and_process_img(str_img,screen_size = np.array([1140, 1824]), # rows, cols
+                        magnification_factor = 8,
+                        ds_factor: int=3, rescale: bool=True,
+                        verbose: bool=False):
+    img = cv2.imread(str_img, cv2.IMREAD_GRAYSCALE)
+    screen_size = screen_size.astype(int)
+
+    img_size = np.array(img.shape)
+
+    scene_size = img_size * magnification_factor
+    scene_size = scene_size.astype(int)
+    if verbose:
+        print(f'Loaded image size: {img_size}')
+        print(f'Scene size: {scene_size}')
+    # Scale image to scene size with linear interpolation
+    img_resized = cv2.resize(img, tuple(scene_size[::-1]), interpolation=cv2.INTER_LINEAR)
+
+    # scene_position = screen_size / 2
+    scene_position = scene_size / 2
+    if verbose:
+        print(f'Image resized size: {img_resized.shape}')
+        print(f'Scene position: {scene_position}')
+        print(f'Img dtype: {img_resized.dtype}')
+
+    frame = np.zeros(screen_size, dtype=img_resized.dtype)
+
+    x_vals = np.arange(-screen_size[1] / 2, screen_size[1] / 2)
+    y_vals = np.arange(-screen_size[0] / 2, screen_size[0] / 2)
+    x_idx = np.round(scene_position[1] + x_vals).astype(int)
+    y_idx = np.round(scene_position[0] + y_vals).astype(int)
+
+    x_good = (x_idx >= 0) & (x_idx < scene_size[1])  #& (x_idx < screen_size[1])
+    y_good = (y_idx >= 0) & (y_idx < scene_size[0])  #& (y_idx < screen_size[0])
+
+    assign_idx = np.ix_(np.where(y_good)[0], np.where(x_good)[0])
+    frame[assign_idx] = img_resized[y_idx[y_good], :][:, x_idx[x_good]]
+
+    # Downsample by ds factor
+    if ds_factor > 1:
+        ds_shape = np.array(frame.shape) // ds_factor
+        if verbose:
+            print(f'Downsampling by {ds_factor} to shape {ds_shape}')
+        ds_shape = ds_shape.astype(int)
+        frame = cv2.resize(frame, tuple(ds_shape[::-1]), interpolation=cv2.INTER_LINEAR)
+
+    if rescale:
+        # Convert from (0,255) to (-1, 1)
+        frame = (frame.astype(np.float32) / 255.0) * 2 - 1
+
+    return frame
+
+
+def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str, 
+                        ds_mu: float=10.0):
+    # Given dataframe of epoch metadata, load all unique flashed images.
+    # Return dataarray of unique images with coords of image name.
+    # Or alternatively dictionary with 'unique_images' array and 'image_names' list.
+    # Let's start with dictionary.
+    # ds_mu = 10 => Downscale to 10x10 um pixels
+
+    # Get unique image paths
+    print('Loading flashed images...')
+    all_image_names = df_epochs['imageName'].values
+    all_image_names = np.concatenate([x.split(',') for x in all_image_names])
+
+    all_image_folders = df_epochs['folder'].values
+    all_image_folders = np.concatenate([x.split(',') for x in all_image_folders])
+
+    all_image_paths = []
+    for folder, name in zip(all_image_folders, all_image_names):
+        str_path = os.path.join(folder, name)
+        all_image_paths.append(str_path)
+    all_image_paths = np.array(all_image_paths)
+    u_image_paths = np.unique(all_image_paths)
+    print(f'Found {len(u_image_paths)} unique images to load.')
+    print(f'These are named: {u_image_paths[0]} - {u_image_paths[-1]}')
+
+    # Get display parameters.
+    d_epoch_params = df_epochs.iloc[0]['epoch_parameters']
+    # Check for magFactor consistency across epochs
+    mag_factors = [row['epoch_parameters']['magnificationFactor'] for _, row in df_epochs.iterrows()]
+    u_mag_factors = np.unique(mag_factors)
+    if len(u_mag_factors) > 1:
+        raise ValueError(f'Multiple magnification factors found: {u_mag_factors}. Please ensure all epochs have the same magnificationFactor.')
+    
+    # Get screen size in (rows, cols)
+    screen_size = np.array(d_epoch_params['canvasSize']).astype(int)[::-1]
+    print(f'Found screen size: {screen_size} (rows, cols).')
+    d_display_params = {
+        'screen_size': screen_size,
+        'magnification_factor': d_epoch_params['magnificationFactor'],
+        'mu_per_pix': d_epoch_params['micronsPerPixel'],
+        'ds_mu': ds_mu
+    }
+    d_display_params['ds_pix'] = int(d_display_params['ds_mu'] / d_display_params['mu_per_pix'])
+    d_display_params['ds_screen_size'] = (d_display_params['screen_size']/ d_display_params['ds_pix']).astype(int)
+
+    print(f'Using {ds_mu} um pixel size, {d_display_params["ds_pix"]} pixels per um, '
+          f'{d_display_params["ds_screen_size"]} resampled screen size')
+
+    all_images = []
+    for str_path in tqdm.tqdm(u_image_paths, desc='Loading images'):
+        str_full_path = os.path.join(str_parent_path, str_path)
+        img = load_and_process_img(str_full_path, 
+                                   screen_size=d_display_params['screen_size'], 
+                                   magnification_factor=d_display_params['magnification_factor'], 
+                                   ds_factor=d_display_params['ds_pix'])
+        all_images.append(img)
+    all_images = np.array(all_images)
+
+    d_output = {
+        'image_data': all_images,
+        'image_names': u_image_paths,
+        'd_display_params': d_display_params
+    }
+
+    return d_output

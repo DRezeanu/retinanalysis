@@ -11,6 +11,7 @@ from retinanalysis.analysis_chunk import get_noise_name_by_exp
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
     'manookinlab.protocols.SpatialNoise': regen.make_spatial_noise,
+    'manookinlab.protocols.PresentImages': regen.load_all_present_images,
     # 'manookinlab.protocols.DovesMovie'
 }
 
@@ -59,11 +60,12 @@ class StimBlock:
             ls_epochs = self.df_epochs.index.tolist()
         
         if self.protocol_name in D_REGEN_FXNS.keys():
-            print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.datafile_name}")
+            print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.block_id}")
             f_regen = D_REGEN_FXNS[self.protocol_name]
+            print(f"Using regeneration function: {f_regen.__name__}")
             stim_frames = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
             self.stim_frames = stim_frames
-            print(f"Made stimulus of shape: {stim_frames.shape}")
+            # print(f"Made stimulus of shape: {stim_frames.shape}")
             return
         else:
             print(f'Method for regenerating {self.protocol_name} is not implemented yet!')
