@@ -6,6 +6,7 @@ import pandas as pd
 from typing import List
 import retinanalysis.regen as regen
 import pickle
+from retinanalysis.analysis_chunk import get_noise_name_by_exp
 
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
@@ -40,6 +41,7 @@ class StimBlock:
         df = dju.get_exp_summary(exp_name)
         self.d_block_summary = df.query('block_id == @block_id').iloc[0].to_dict()
         self.protocol_name = self.d_block_summary['protocol_name']
+        self.prep_label = self.d_block_summary['prep_label']
         
         epoch_block = schema.EpochBlock() & {'id': block_id}
         self.d_epoch_block_params = epoch_block.fetch('parameters')[0]
@@ -71,6 +73,8 @@ class StimBlock:
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
@@ -109,17 +113,15 @@ class MEAStimBlock(StimBlock):
             return
 
         self.datafile_name = datafile_name
-        # We switched from FastNoise to SpatialNoise after 20230926
-        if int(exp_name[:8]) < 20230926:
-            self.noise_protocol_name = 'manookinlab.protocols.FastNoise'
-        else:
-            self.noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
-
+        self.noise_protocol_name = get_noise_name_by_exp(self.exp_name)
         self.nearest_noise_chunk = self.get_nearest_noise()
     
     def get_nearest_noise(self):
         # pull relevant information from datajoint
         experiment_summary = dju.get_exp_summary(self.exp_name)
+        # Keep only rows with same prep_label
+        experiment_summary = experiment_summary.query('prep_label == @self.prep_label')
+        
         exp_id = schema.Experiment() & {'exp_name' : self.exp_name}
         exp_id = exp_id.fetch('id')[0]
 
@@ -178,6 +180,8 @@ class MEAStimBlock(StimBlock):
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
         str_self += f"  chunk_name: {self.d_block_summary['chunk_name']}\n"
         str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
