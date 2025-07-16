@@ -70,10 +70,29 @@ class ResponseBlock:
 
         self.exp_name = exp_name
         self.block_id = block_id    
+        self.h5_file = h5_file
         self.d_timing = dju.get_epochblock_timing(self.exp_name, self.block_id)
-        frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id)    
+        frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
         self.frame_data = frame_data
         self.frame_sample_rate = frame_sample_rate
+    
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
+        str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
+        str_self += f"  frame_data shape: {self.frame_data.shape}\n"
+        if self.h5_file is not None:
+            str_self += f"  h5_file: {self.h5_file}\n"
+        return str_self
+
+    def export_to_pkl(self, file_path: str):
+        d_out = self.__dict__.copy()
+        with open(file_path, 'wb') as f:
+            pickle.dump(d_out, f)
+        print(f"ResponseBlock exported to {file_path}")
+
 
 
 class SCResponseBlock(ResponseBlock):
@@ -83,7 +102,6 @@ class SCResponseBlock(ResponseBlock):
         if pkl_file is not None:
             return
 
-        self.h5_file = h5_file
         self.b_spiking = b_spiking
         amp_data, sample_rate = dju.get_epochblock_amp_data(self.exp_name, self.block_id, str_h5=self.h5_file)
         self.amp_data = amp_data
@@ -92,21 +110,30 @@ class SCResponseBlock(ResponseBlock):
             self.get_spike_times(**detector_kwargs)
 
     def get_spike_times(self, **detector_kwargs):
-        spikes, amps, refs = spdet.detector(self.amp_data, self.amp_sample_rate, **detector_kwargs)
+        spikes, amps, refs = spdet.detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
         self.spikes = spikes
         self.amps = amps
         self.refs = refs
 
 class MEAResponseBlock(ResponseBlock):
-    def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
-        self.vcd = vu.get_protocol_vcd(exp_name, datafile_name, ss_version)
-        block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
-        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file)
+    def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
+                 pkl_file: str=None, h5_file: str=None):
+        block_id = None
+        if pkl_file is None:
+            if exp_name is None or datafile_name is None:
+                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+            else:
+                block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+                self.ss_version = ss_version
+                self.datafile_name = datafile_name
+        
+        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file)
+        self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
+
+        # If pkl_file is provided, everything else is already loaded in parent init.
         if pkl_file is not None:
             return
         
-        self.ss_version = ss_version
-        self.datafile_name = datafile_name
         self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_spike_times()
@@ -202,6 +229,10 @@ class MEAResponseBlock(ResponseBlock):
         str_self += f"  n_epochs: {self.n_epochs}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
         str_self += f"  df_spike_times with shape: {self.df_spike_times.shape}\n"
+        str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
+        str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
+        str_self += f"  frame_data shape: {self.frame_data.shape}\n"
         return str_self
 
     def export_to_pkl(self, file_path: str):
@@ -210,4 +241,4 @@ class MEAResponseBlock(ResponseBlock):
         d_out.pop('vcd', None)
         with open(file_path, 'wb') as f:
             pickle.dump(d_out, f)
-        print(f"ResponseBlock exported to {file_path}")
+        print(f"MEAResponseBlock exported to {file_path}")

@@ -10,6 +10,7 @@ import retinanalysis.analysis_chunk as ac
 from IPython.display import display
 import h5py
 NAS_ANALYSIS_DIR = mea_config['analysis']
+H5_DIR = mea_config['h5']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
     try:
@@ -510,11 +511,27 @@ def get_sc_response_query(exp_name: str, block_id: int):
     return r_q
 
 
-def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
+def get_h5_file(exp_name):
+    # First try h5 in config h5 dir
+    str_h5_in_config = os.path.join(H5_DIR, f'{exp_name}.h5')
+    if os.path.exists(str_h5_in_config):
+        return str_h5_in_config
+
+    # Otherwise try path from database
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    str_h5_from_db = ex_q.fetch1('data_file')
+    if os.path.exists(str_h5_from_db):
+        return str_h5_from_db
+    else:
+        raise FileNotFoundError(f'No h5 file found for experiment {exp_name}.\n'+\
+                                f'Tried {str_h5_in_config} and {str_h5_from_db}')
+
+
+
+def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
     if str_h5 is None:
-        str_h5 = ex_q.fetch1('data_file')
-    print(f'Loading frame monitor data...')
+        str_h5 = get_h5_file(exp_name)
+    print(f'Loading frame monitor data from {str_h5} ...')
     r_q = get_sc_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
     
@@ -533,18 +550,17 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
     frame_data = np.array(frame_data)
     print(f'Loaded {frame_data.shape} frame_data.')
 
-    sample_rate = df_frame['sample_rate'].unique()
-    if len(sample_rate) != 1:
+    sample_rates = df_frame['sample_rate'].unique().astype(float)
+    if len(sample_rates) != 1:
         raise ValueError(f'Expected single sample rate for Frame Monitor data, but found {len(sample_rate)}: {sample_rate}')
-    sample_rate = sample_rate[0]
+    sample_rate = sample_rates[0]
 
     return frame_data, sample_rate
 
 def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: str=None):
-    ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
     if str_h5 is None:
-        str_h5 = ex_q.fetch1('data_file')
-    print(f'Loading Amp1 data...')
+        str_h5 = get_h5_file(exp_name)
+    print(f'Loading Amp1 data from {str_h5} ...')
     r_q = get_sc_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
     
@@ -563,9 +579,9 @@ def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: str=None):
     amp_data = np.array(amp_data)
     print(f'Loaded {amp_data.shape} amp_data.')
 
-    sample_rate = df_amp['sample_rate'].unique()
-    if len(sample_rate) != 1:
+    sample_rates = df_amp['sample_rate'].unique().astype(float)
+    if len(sample_rates) != 1:
         raise ValueError(f'Expected single sample rate for Amp1 data, but found {len(sample_rate)}: {sample_rate}')
-    sample_rate = sample_rate[0]
+    sample_rate = sample_rates[0]
 
     return amp_data, sample_rate

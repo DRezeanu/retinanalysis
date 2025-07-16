@@ -88,10 +88,18 @@ class MEAStimBlock(StimBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
         if pkl_file is None and datafile_name is None:
             raise ValueError("For MEAStimBlock, datafile_name must be provided when not loading from pickle")
-        self.datafile_name = datafile_name
-        block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+        
+        # Get block_id from datafile_name for initializing parent StimBlock
+        block_id = None
+        if pkl_file is None:
+            block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
         super().__init__(exp_name=exp_name, block_id=block_id, ls_params=ls_params, pkl_file=pkl_file)
+        
+        # If pkl_file, everything is already loaded in parent init.
+        if pkl_file is not None:
+            return
 
+        self.datafile_name = datafile_name
         # We switched from FastNoise to SpatialNoise after 20230926
         if int(exp_name[:8]) < 20230926:
             self.noise_protocol_name = 'manookinlab.protocols.FastNoise'
@@ -170,17 +178,6 @@ class MEAStimBlock(StimBlock):
         str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
-
-    def export_to_pkl(self, file_path: str):
-        """
-        Export the StimBlock to a pickle file.
-        """
-        d_out = self.__dict__.copy()
-        # pop out vcd
-        d_out.pop('vcd', None) 
-        with open(file_path, 'wb') as f:
-            pickle.dump(d_out, f)
-        print(f"StimBlock exported to {file_path}")
 
 class MEAStimGroup:
     def __init__(self, ls_blocks: List[MEAStimBlock]):
