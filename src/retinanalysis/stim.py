@@ -14,6 +14,9 @@ D_REGEN_FXNS = {
 }
 
 class StimBlock:
+    """
+    Generic class for single cell or MEA stimulus blocks. 
+    """
     def __init__(self, exp_name: str=None, block_id: int=None, ls_params: list=None, pkl_file: str=None):
         print(f"Initializing StimBlock for {exp_name} block {block_id}")
         if pkl_file is None:
@@ -85,14 +88,20 @@ class StimBlock:
 
 
 class MEAStimBlock(StimBlock):
+    """
+    MEA stimulus block class that gets associated noise protocol and nearest noise chunk.
+    """
     def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
-        if pkl_file is None and datafile_name is None:
-            raise ValueError("For MEAStimBlock, datafile_name must be provided when not loading from pickle")
-        
-        # Get block_id from datafile_name for initializing parent StimBlock
+        # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
-            block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+            # Either pkl_file or exp_name and datafile_name must be provided
+            if exp_name is None or datafile_name is None:
+                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+            else:
+                # If exp_name and datafile_name are provided, get block_id from datafile_name
+                block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+        
         super().__init__(exp_name=exp_name, block_id=block_id, ls_params=ls_params, pkl_file=pkl_file)
         
         # If pkl_file, everything is already loaded in parent init.

@@ -118,12 +118,16 @@ class SCResponseBlock(ResponseBlock):
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
                  pkl_file: str=None, h5_file: str=None):
+        # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
+            # Either pkl_file or exp_name and datafile_name must be provided
             if exp_name is None or datafile_name is None:
                 raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
             else:
+                # If exp_name and datafile_name are provided, get block_id from datafile_name
                 block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+                # Set the ss_version and datafile_name for loading VCD.
                 self.ss_version = ss_version
                 self.datafile_name = datafile_name
         
