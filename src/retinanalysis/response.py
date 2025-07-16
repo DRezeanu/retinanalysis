@@ -110,10 +110,10 @@ class SCResponseBlock(ResponseBlock):
             self.get_spike_times(**detector_kwargs)
 
     def get_spike_times(self, **detector_kwargs):
-        spikes, amps, refs = spdet.detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
-        self.spikes = spikes
-        self.amps = amps
-        self.refs = refs
+        spike_times, amps, refs = spdet.detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
+        self.spike_times = spike_times
+        self.spike_amps = amps
+        self.spike_refs = refs
 
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
