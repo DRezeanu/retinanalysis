@@ -78,6 +78,14 @@ class ResponseBlock:
         d_spike_times = {'cell_id': [], 'spike_times': []}
         epoch_starts = self.d_timing['epoch_starts']
         epoch_ends = self.d_timing['epoch_ends']
+
+        #i think if symphony crashed during recording, there might be more 1 more start than end
+        #this ignores the partial epoch
+        if len(epoch_ends) == len(epoch_starts)-1:
+            epoch_starts = epoch_starts[:len(epoch_ends)]
+        elif len(epoch_ends) != len(epoch_starts):
+            raise ValueError("Mismatch in number of epoch starts and ends.")
+
         # n_samples = self.d_timing['n_samples']
         # frame_times_ms = self.d_timing['frame_times_ms']
 

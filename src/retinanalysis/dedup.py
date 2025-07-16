@@ -495,7 +495,7 @@ class DedupBlock:
             hists.append(np.histogram(amps[i], bins=bin_edges)[0])
             ax_histy.stairs(hists[i], bin_edges, fill=True, alpha=0.5, orientation='horizontal', label=f'ID {cell}')
 
-        axs.set_xlabel('Spike index')
+        axs.set_xlabel('Time (ms)')
         axs.set_ylabel('Amplitude')
         ax_histy.set_xlabel('Count')
         axs.legend(loc='upper left')
