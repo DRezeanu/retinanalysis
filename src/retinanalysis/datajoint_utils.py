@@ -503,7 +503,7 @@ def get_epochblock_timing(exp_name: str, block_id: int):
 
     return d_timing
 
-def get_sc_response_query(exp_name: str, block_id: int):
+def get_epochblock_response_query(exp_name: str, block_id: int):
     eb_q = get_epochblock_query(exp_name, block_id)
     p_q = eb_q * schema.Protocol.proj(protocol_name='name')
     e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
@@ -532,7 +532,7 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
     print(f'Loading frame monitor data from {str_h5} ...')
-    r_q = get_sc_response_query(exp_name, block_id)
+    r_q = get_epochblock_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
     
     df_frame = df[df['device_name']=='Frame Monitor']
@@ -561,7 +561,7 @@ def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: str=None):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
     print(f'Loading Amp1 data from {str_h5} ...')
-    r_q = get_sc_response_query(exp_name, block_id)
+    r_q = get_epochblock_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
     
     df_amp = df[df['device_name']=='Amp1']
