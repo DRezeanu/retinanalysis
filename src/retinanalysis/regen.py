@@ -316,7 +316,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     all_fix_indices_epochs = []
     for e_idx in range(n_epochs):
         seed = get_df_dict_vals(df_epochs, 'noiseSeed')[e_idx]
-        num_checks_x = get_df_dict_vals(df_epochs, 'numXChecks')[e_idx]
+        num_checks_x = get_df_dict_vals(df_epochs, 'numChecksX')[e_idx]
         background_intensity = get_df_dict_vals(df_epochs, 'backgroundIntensity')[e_idx]
         frame_dwell = get_df_dict_vals(df_epochs, 'frameDwell')[e_idx]
         binary_noise = get_df_dict_vals(df_epochs, 'binaryNoise')[e_idx]
