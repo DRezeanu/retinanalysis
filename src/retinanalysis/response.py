@@ -1,5 +1,6 @@
 import retinanalysis.datajoint_utils as dju
 import retinanalysis.vision_utils as vu
+import retinanalysis.spike_detector as spdet
 import numpy as np
 import pandas as pd
 import tqdm
@@ -49,10 +50,12 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
         return frame_times, transition_frames
 
 class ResponseBlock:
-    def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', pkl_file: str=None):
+    def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
+                 pkl_file: str=None):
+        print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
         if pkl_file is None:
-            if exp_name is None or datafile_name is None:
-                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+            if exp_name is None or block_id is None:
+                raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
@@ -62,20 +65,86 @@ class ResponseBlock:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
             print(f"ResponseBlock loaded from {pkl_file}")
             return
+
         self.exp_name = exp_name
-        self.datafile_name = datafile_name
-        self.ss_version = ss_version
-        self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
+        self.block_id = block_id    
+        self.h5_file = h5_file
+        self.d_timing = dju.get_epochblock_timing(self.exp_name, self.block_id)
+        frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
+        self.frame_data = frame_data
+        self.frame_sample_rate = frame_sample_rate
+    
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
+        str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
+        str_self += f"  frame_data shape: {self.frame_data.shape}\n"
+        if self.h5_file is not None:
+            str_self += f"  h5_file: {self.h5_file}\n"
+        return str_self
+
+    def export_to_pkl(self, file_path: str):
+        d_out = self.__dict__.copy()
+        with open(file_path, 'wb') as f:
+            pickle.dump(d_out, f)
+        print(f"ResponseBlock exported to {file_path}")
+
+
+
+class SCResponseBlock(ResponseBlock):
+    def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
+                 pkl_file: str=None, b_spiking: bool=False, **detector_kwargs):
+        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file)
+        if pkl_file is not None:
+            return
+
+        self.b_spiking = b_spiking
+        amp_data, sample_rate = dju.get_epochblock_amp_data(self.exp_name, self.block_id, str_h5=self.h5_file)
+        self.amp_data = amp_data
+        self.amp_sample_rate = sample_rate
+        if b_spiking:
+            self.get_spike_times(**detector_kwargs)
+
+    def get_spike_times(self, **detector_kwargs):
+        spikes, amps, refs = spdet.detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
+        self.spikes = spikes
+        self.amps = amps
+        self.refs = refs
+
+class MEAResponseBlock(ResponseBlock):
+    def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
+                 pkl_file: str=None, h5_file: str=None):
+        # If pkl_file is provided, block_id can be None.
+        block_id = None
+        if pkl_file is None:
+            # Either pkl_file or exp_name and datafile_name must be provided
+            if exp_name is None or datafile_name is None:
+                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+            else:
+                # If exp_name and datafile_name are provided, get block_id from datafile_name
+                block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+                # Set the ss_version and datafile_name for loading VCD.
+                self.ss_version = ss_version
+                self.datafile_name = datafile_name
+        
+        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file)
         self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
+
+        # If pkl_file is provided, everything else is already loaded in parent init.
+        if pkl_file is not None:
+            return
+        
+        self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_spike_times()
 
     def get_spike_times(self):
-        self.d_timing = dju.get_mea_epochblock_timing(self.exp_name, self.datafile_name)
         d_spike_times = {'cell_id': [], 'spike_times': []}
+
         epoch_starts = self.d_timing['epoch_starts']
         epoch_ends = self.d_timing['epoch_ends']
 
@@ -114,8 +183,8 @@ class ResponseBlock:
     def get_max_bins_for_rate(self, bin_rate: float):
         # bin_rate: float, in Hz
         # Returns the maximum number of bins for the given bin rate across all epochs.
-        epoch_starts = self.d_timing['epoch_starts']
-        epoch_ends = self.d_timing['epoch_ends']
+        epoch_starts = self.d_timing['epochStarts']
+        epoch_ends = self.d_timing['epochEnds']
         ls_bins = []
         for i in range(self.n_epochs):
             n_epoch_samples = epoch_ends[i] - epoch_starts[i]
@@ -125,7 +194,7 @@ class ResponseBlock:
         return n_max_bins
     
     def bin_spike_times_by_frames(self, stride: int=1):
-        frame_times_ms = self.d_timing['frame_times_ms']
+        frame_times_ms = self.d_timing['frameTimesMs']
         if int(self.exp_name[:8]) < 20230926:
             marginal_frame_rate = 60.31807657 # Upper bound on the frame rate to make sure that we don't miss any frames.
         else:
@@ -173,6 +242,10 @@ class ResponseBlock:
         str_self += f"  n_epochs: {self.n_epochs}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
         str_self += f"  df_spike_times with shape: {self.df_spike_times.shape}\n"
+        str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
+        str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
+        str_self += f"  frame_data shape: {self.frame_data.shape}\n"
         return str_self
 
     def export_to_pkl(self, file_path: str):
@@ -181,4 +254,4 @@ class ResponseBlock:
         d_out.pop('vcd', None)
         with open(file_path, 'wb') as f:
             pickle.dump(d_out, f)
-        print(f"ResponseBlock exported to {file_path}")
+        print(f"MEAResponseBlock exported to {file_path}")

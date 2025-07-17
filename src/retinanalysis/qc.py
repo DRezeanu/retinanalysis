@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from retinanalysis.response import ResponseBlock
+from retinanalysis.response import MEAResponseBlock
 from retinanalysis.analysis_chunk import AnalysisChunk
 import visionloader as vl
 
@@ -54,7 +54,7 @@ def get_ei_corr(vcd1: vl.VisionCellDataTable, vcd2: vl.VisionCellDataTable,
     return ei_corrs
 
 class MEAQC():
-    def __init__(self, rb: ResponseBlock, ac: AnalysisChunk, match_dict: dict,
+    def __init__(self, rb: MEAResponseBlock, ac: AnalysisChunk, match_dict: dict,
                  refractory_period_ms: float=1.5):
         self.rb = rb
         self.ac = ac

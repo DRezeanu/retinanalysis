@@ -1,6 +1,6 @@
 import numpy as np
-from retinanalysis.response import ResponseBlock
-from retinanalysis.stim import StimBlock
+from retinanalysis.response import MEAResponseBlock
+from retinanalysis.stim import MEAStimBlock
 from retinanalysis.analysis_chunk import AnalysisChunk
 import retinanalysis.vision_utils as vu
 import os
@@ -11,7 +11,7 @@ import pickle
 
 class MEAPipeline:
 
-    def __init__(self, stim_block: StimBlock=None, response_block: ResponseBlock=None, analysis_chunk: AnalysisChunk=None, pkl_file: str = None):
+    def __init__(self, stim_block: MEAStimBlock=None, response_block: MEAResponseBlock=None, analysis_chunk: AnalysisChunk=None, pkl_file: str = None):
         if pkl_file is None:
             if stim_block is None or response_block is None or analysis_chunk is None:
                 raise ValueError("Either stim_block, response_block, and analysis_chunk must be provided or pkl_file.")
@@ -19,8 +19,8 @@ class MEAPipeline:
             with open(pkl_file, 'rb') as f:
                 d_out = pickle.load(f)
             self.__dict__.update(d_out)
-            self.stim_block = StimBlock(pkl_file=self.stim_block)
-            self.response_block = ResponseBlock(pkl_file=self.response_block)
+            self.stim_block = MEAStimBlock(pkl_file=self.stim_block)
+            self.response_block = MEAResponseBlock(pkl_file=self.response_block)
             self.analysis_chunk = AnalysisChunk(pkl_file=self.analysis_chunk)
             print(f"MEAPipeline loaded from {pkl_file}")
             return
@@ -148,12 +148,12 @@ class MEAPipeline:
             pickle.dump(d_out, f)
         print(f"MEAPipeline exported to {file_path}")
 
-def create_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: str=None,
+def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: str=None,
                     ss_version: str='kilosort2.5', ls_params: list=None):
     # Helper function for initializing MEAPipeline from metadata
     # TODO StimGroup and ResponseGroup functionality
-    s = StimBlock(exp_name, datafile_name, ls_params)
-    r = ResponseBlock(exp_name, datafile_name, ss_version)
+    s = MEAStimBlock(exp_name, datafile_name, ls_params)
+    r = MEAResponseBlock(exp_name, datafile_name, ss_version)
     if analysis_chunk_name is None:
         analysis_chunk_name = s.nearest_noise_chunk
         print(f'Using {analysis_chunk_name} for AnalysisChunk')

@@ -6,6 +6,7 @@ import pandas as pd
 from typing import List
 import retinanalysis.regen as regen
 import pickle
+from retinanalysis.analysis_chunk import get_noise_name_by_exp
 
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
@@ -14,10 +15,14 @@ D_REGEN_FXNS = {
 }
 
 class StimBlock:
-    def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
+    """
+    Generic class for single cell or MEA stimulus blocks. 
+    """
+    def __init__(self, exp_name: str=None, block_id: int=None, ls_params: list=None, pkl_file: str=None):
+        print(f"Initializing StimBlock for {exp_name} block {block_id}")
         if pkl_file is None:
-            if exp_name is None or datafile_name is None:
-                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+            if exp_name is None or block_id is None:
+                raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
@@ -29,31 +34,94 @@ class StimBlock:
             self.__dict__.update(d_out)
             print(f"StimBlock loaded from {pkl_file}")
             return
-        self.exp_name = exp_name
-        self.datafile_name = datafile_name
-        self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
-
-        df = dju.get_mea_exp_summary(exp_name)
-        self.d_block_summary = df.query('datafile_name == @self.datafile_name').iloc[0].to_dict()
         
-        epoch_block = schema.EpochBlock() & {'experiment_id' : self.d_block_summary['experiment_id'], 'data_dir' : self.d_block_summary['data_dir']}
+        self.exp_name = exp_name
+        self.block_id = block_id
+
+        df = dju.get_exp_summary(exp_name)
+        self.d_block_summary = df.query('block_id == @block_id').iloc[0].to_dict()
+        self.protocol_name = self.d_block_summary['protocol_name']
+        self.prep_label = self.d_block_summary['prep_label']
+        
+        epoch_block = schema.EpochBlock() & {'id': block_id}
         self.d_epoch_block_params = epoch_block.fetch('parameters')[0]
 
-        df_e = dju.get_mea_epoch_data_from_exp(exp_name, datafile_name, ls_params=ls_params)
+        df_e = dju.get_epoch_data_from_exp(exp_name, block_id, ls_params=ls_params)
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
-        # We switched from FastNoise to SpatialNoise after 20230926
-        if int(exp_name[:8]) < 20230926:
-            self.noise_protocol_name = 'manookinlab.protocols.FastNoise'
+    def regenerate_stimulus(self, ls_epochs: list=None, **kwargs):
+        """
+        Regenerate the stimulus for the block based on the epochs provided.
+        If no epochs are provided, it regenerates for all epochs in the block.
+        """
+        if ls_epochs is None:
+            ls_epochs = self.df_epochs.index.tolist()
+        
+        if self.protocol_name in D_REGEN_FXNS.keys():
+            print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.datafile_name}")
+            f_regen = D_REGEN_FXNS[self.protocol_name]
+            stim_frames = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
+            self.stim_frames = stim_frames
+            print(f"Made stimulus of shape: {stim_frames.shape}")
+            return
         else:
-            self.noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
+            print(f'Method for regenerating {self.protocol_name} is not implemented yet!')
+            print('Please do so at your convenience in regen.py, and add function name to D_REGEN_FXNS.')
+            return
+    
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  prep_label: {self.prep_label}\n"
+        str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
+        str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
+        str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
+        str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        return str_self
 
+    def export_to_pkl(self, file_path: str):
+        """
+        Export the StimBlock to a pickle file.
+        """
+        d_out = self.__dict__.copy()
+        with open(file_path, 'wb') as f:
+            pickle.dump(d_out, f)
+        print(f"StimBlock exported to {file_path}")
+
+
+class MEAStimBlock(StimBlock):
+    """
+    MEA stimulus block class that gets associated noise protocol and nearest noise chunk.
+    """
+    def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
+        # If pkl_file is provided, block_id can be None.
+        block_id = None
+        if pkl_file is None:
+            # Either pkl_file or exp_name and datafile_name must be provided
+            if exp_name is None or datafile_name is None:
+                raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
+            else:
+                # If exp_name and datafile_name are provided, get block_id from datafile_name
+                block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+        
+        super().__init__(exp_name=exp_name, block_id=block_id, ls_params=ls_params, pkl_file=pkl_file)
+        
+        # If pkl_file, everything is already loaded in parent init.
+        if pkl_file is not None:
+            return
+
+        self.datafile_name = datafile_name
+        self.noise_protocol_name = get_noise_name_by_exp(self.exp_name)
         self.nearest_noise_chunk = self.get_nearest_noise()
     
     def get_nearest_noise(self):
         # pull relevant information from datajoint
-        experiment_summary = dju.get_mea_exp_summary(self.exp_name)
+        experiment_summary = dju.get_exp_summary(self.exp_name)
+        # Keep only rows with same prep_label
+        experiment_summary = experiment_summary.query('prep_label == @self.prep_label')
+        
         exp_id = schema.Experiment() & {'exp_name' : self.exp_name}
         exp_id = exp_id.fetch('id')[0]
 
@@ -108,32 +176,12 @@ class StimBlock:
         else:
             print(f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n")
         return nearest_noise_chunk
-
-    def regenerate_stimulus(self, ls_epochs: list=None, **kwargs):
-        """
-        Regenerate the stimulus for the block based on the epochs provided.
-        If no epochs are provided, it regenerates for all epochs in the block.
-        """
-        if ls_epochs is None:
-            ls_epochs = self.df_epochs.index.tolist()
         
-        if self.protocol_name in D_REGEN_FXNS.keys():
-            print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.datafile_name}")
-            f_regen = D_REGEN_FXNS[self.protocol_name]
-            stim_frames = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
-            self.stim_frames = stim_frames
-            print(f"Made stimulus of shape: {stim_frames.shape}")
-            return
-        else:
-            print(f'Method for regenerating {self.protocol_name} is not implemented yet!')
-            print('Please do so at your convenience in regen.py, and add function name to D_REGEN_FXNS.')
-            return
-        
-    
-    
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
         str_self += f"  chunk_name: {self.d_block_summary['chunk_name']}\n"
         str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
@@ -144,19 +192,8 @@ class StimBlock:
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
 
-    def export_to_pkl(self, file_path: str):
-        """
-        Export the StimBlock to a pickle file.
-        """
-        d_out = self.__dict__.copy()
-        # pop out vcd
-        d_out.pop('vcd', None) 
-        with open(file_path, 'wb') as f:
-            pickle.dump(d_out, f)
-        print(f"StimBlock exported to {file_path}")
-
-class StimGroup:
-    def __init__(self, ls_blocks: List[StimBlock]):
+class MEAStimGroup:
+    def __init__(self, ls_blocks: List[MEAStimBlock]):
         # Check that all StimBlocks have same exp_name, protocol_name, and chunk_name
         if not all(block.exp_name == ls_blocks[0].exp_name for block in ls_blocks):
             raise ValueError("All StimBlocks must have the same exp_name")
@@ -195,9 +232,9 @@ class StimGroup:
             pickle.dump(self, f)
         print(f"StimGroup exported to {file_path}")
 
-def make_stim_group(exp_name, ls_datafile_names, ls_params: list=None):
+def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: list=None):
     ls_blocks = []
     for datafile_name in ls_datafile_names:
-        block = StimBlock(exp_name, datafile_name, ls_params=ls_params)
+        block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params)
         ls_blocks.append(block)
-    return StimGroup(ls_blocks)
+    return MEAStimGroup(ls_blocks)

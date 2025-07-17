@@ -4,7 +4,7 @@ import numpy as np
 import retinanalysis.datajoint_utils as dju
 import visionloader as vl
 from retinanalysis.analysis_chunk import AnalysisChunk
-from retinanalysis.response import ResponseBlock
+from retinanalysis.response import MEAResponseBlock
 from typing import Union, List, Dict, Tuple
 from matplotlib.patches import Ellipse
 
@@ -39,7 +39,7 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
         print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.')
         return vcd
 
-def cluster_match(ref_object: Union[AnalysisChunk, ResponseBlock], test_object: Union[AnalysisChunk, ResponseBlock],
+def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_object: Union[AnalysisChunk, MEAResponseBlock],
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
                 use_timecourse: bool = False, n_removed_channels: int = 1):
         
@@ -68,7 +68,7 @@ def cluster_match(ref_object: Union[AnalysisChunk, ResponseBlock], test_object: 
             raise NameError("Method property must be 'all', 'full', 'space', or 'power'")
 
 
-        if isinstance(ref_object, ResponseBlock) or isinstance(test_object, ResponseBlock):
+        if isinstance(ref_object, MEAResponseBlock) or isinstance(test_object, MEAResponseBlock):
             if use_timecourse:
                 raise FileNotFoundError("Response blocks don't have .params files, can't use timecourse for cluster matching")
 
@@ -159,7 +159,7 @@ def cluster_match(ref_object: Union[AnalysisChunk, ResponseBlock], test_object: 
         return match_dict
 
 def get_protocol_from_datafile(exp_name, datafile_name):
-    exp_summary = dju.get_mea_exp_summary(exp_name)
+    exp_summary = dju.get_exp_summary(exp_name)
     protocol_name = exp_summary.query('datafile_name == @datafile_name').reset_index(drop = True)
     return protocol_name.loc[0,'protocol_name']
 
@@ -221,7 +221,7 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
 
     return d_timecourses_by_type
 
-def get_spike_dict(response_block: ResponseBlock, protocol_ids: List[int] = None, 
+def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = None, 
                          cell_types: List[str] = None) -> dict:
     
     spike_time_df = response_block.df_spike_times
@@ -254,7 +254,7 @@ def get_spike_dict(response_block: ResponseBlock, protocol_ids: List[int] = None
 
     return d_spike_times
 
-def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[AnalysisChunk, ResponseBlock],
+def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[AnalysisChunk, MEAResponseBlock],
                                  ss_version: str = None, input_typing_file: str = None, 
                                  output_typing_file: str = 'RA_autoClassification.txt', **kwargs):
 
@@ -340,7 +340,7 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
 
     return match_dict
 
-def ei_corr(ref_object: Union[AnalysisChunk, ResponseBlock], target_object: Union[AnalysisChunk, ResponseBlock],
+def ei_corr(ref_object: Union[AnalysisChunk, MEAResponseBlock], target_object: Union[AnalysisChunk, MEAResponseBlock],
             method: str = 'full', n_removed_channels: int = 1) -> np.ndarray:
 
 
