@@ -8,6 +8,7 @@ from .stim import *
 from .response import *
 from .qc import *
 from .mea_pipeline import *
+from .sc_pipeline import *
 
 from .database_pop import *
 from .ei_utils import *

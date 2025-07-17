@@ -220,16 +220,7 @@ def load_and_process_img(str_img,screen_size = np.array([1140, 1824]), # rows, c
     return frame
 
 
-def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str, 
-                        ds_mu: float=10.0):
-    # Given dataframe of epoch metadata, load all unique flashed images.
-    # Return dataarray of unique images with coords of image name.
-    # Or alternatively dictionary with 'unique_images' array and 'image_names' list.
-    # Let's start with dictionary.
-    # ds_mu = 10 => Downscale to 10x10 um pixels
-
-    # Get unique image paths
-    print('Loading flashed images...')
+def get_image_paths_across_epochs(df_epochs: pd.DataFrame):
     all_image_names = df_epochs['imageName'].values
     all_image_names = np.concatenate([x.split(',') for x in all_image_names])
 
@@ -241,8 +232,24 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
         str_path = os.path.join(folder, name)
         all_image_paths.append(str_path)
     all_image_paths = np.array(all_image_paths)
-    u_image_paths = np.unique(all_image_paths)
+    return all_image_paths
+
+
+def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str, 
+                        ds_mu: float=10.0):
+    # Given dataframe of epoch metadata, load all unique flashed images.
+    # Return dataarray of unique images with coords of image name.
+    # Or alternatively dictionary with 'unique_images' array and 'image_names' list.
+    # Let's start with dictionary.
+    # ds_mu = 10 => Downscale to 10x10 um pixels
+
+    # Get unique image paths
+    print('Loading flashed images...')
+    all_image_paths = get_image_paths_across_epochs(df_epochs)
+    u_image_paths, u_repeats = np.unique(all_image_paths, return_counts=True)
+    repeats = np.unique(u_repeats)
     print(f'Found {len(u_image_paths)} unique images to load.')
+    print(f'Found {repeats} repeats across all images.')
     print(f'These are named: {u_image_paths[0]} - {u_image_paths[-1]}')
 
     # Get display parameters.
@@ -280,7 +287,9 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
 
     d_output = {
         'image_data': all_images,
-        'image_names': u_image_paths,
+        'all_image_paths': all_image_paths,
+        'u_image_paths': u_image_paths,
+        'repeats': repeats,
         'd_display_params': d_display_params
     }
 

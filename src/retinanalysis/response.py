@@ -94,7 +94,6 @@ class ResponseBlock:
         print(f"ResponseBlock exported to {file_path}")
 
 
-
 class SCResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
                  pkl_file: str=None, b_spiking: bool=False, **detector_kwargs):
@@ -114,6 +113,7 @@ class SCResponseBlock(ResponseBlock):
         self.spike_times = spike_times
         self.spike_amps = amps
         self.spike_refs = refs
+
 
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
