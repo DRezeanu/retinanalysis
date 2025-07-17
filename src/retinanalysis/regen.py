@@ -4,6 +4,11 @@ import tqdm
 import pandas as pd
 import os
 import cv2
+import matlab.engine as engine
+
+def get_df_dict_vals(df, key, col_name='epoch_parameters'):
+    vals = np.array([d[key] for d in df[col_name].values])
+    return vals
 
 def make_spatial_noise(df_epochs: pd.DataFrame, center_row: int=None, center_col: int=None, n_pad: int=None):
     # Create noise movies by epochs
@@ -294,3 +299,76 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
     }
 
     return d_output
+
+def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
+    str_pkg_dir: str, b_noise_only: bool=True):
+    if not b_noise_only:
+        raise NotImplementedError('Noise + Doves not implemented yet.')
+    print('Starting matlab engine for stim regen.')
+    eng = engine.start_matlab()
+    eng.addpath(str_pkg_dir)
+    print('Started engine and added pkg to path.')
+
+    
+    
+    n_epochs = len(df_epochs)
+    noise_lines_epochs = []
+    all_fix_indices_epochs = []
+    for e_idx in range(n_epochs):
+        seed = get_df_dict_vals(df_epochs, 'noiseSeed')[e_idx]
+        num_checks_x = get_df_dict_vals(df_epochs, 'numXChecks')[e_idx]
+        background_intensity = get_df_dict_vals(df_epochs, 'backgroundIntensity')[e_idx]
+        frame_dwell = get_df_dict_vals(df_epochs, 'frameDwell')[e_idx]
+        binary_noise = get_df_dict_vals(df_epochs, 'binaryNoise')[e_idx]
+        paired_bars = get_df_dict_vals(df_epochs, 'pairedBars')[e_idx]
+        n_fixations = get_df_dict_vals(df_epochs, 'num_fixations')[e_idx]
+        # stixel_size = get_df_dict_vals(df_epochs, 'stixelSize')[e_idx]
+        # grid_size = get_df_dict_vals(df_epochs, 'gridSize')[e_idx]
+        # noise_std = get_df_dict_vals(df_epochs, 'noiseStd')[e_idx]
+        pre_time = get_df_dict_vals(df_epochs, 'preTime')[e_idx]
+        stim_time = get_df_dict_vals(df_epochs, 'stimTime')[e_idx]
+        tail_time = get_df_dict_vals(df_epochs, 'tailTime')[e_idx]
+
+        pre_frames = np.round(60 * pre_time/1e3).astype(int)
+        stim_frames = np.round(60 * stim_time/1e3).astype(int)
+        tail_frames = np.round(60 * tail_time/1e3).astype(int)
+        print(pre_frames, stim_frames, tail_frames)
+
+        all_fix_indices = np.arange(1, n_fixations + 1)
+        n_frames_per_fix = np.ceil(stim_frames / n_fixations).astype(int)
+        all_fix_indices = np.repeat(all_fix_indices, n_frames_per_fix)
+        all_fix_indices[all_fix_indices > n_fixations] = n_fixations
+        all_fix_indices[all_fix_indices < 1] = 1
+        pre_indices = np.ones(pre_frames, dtype=int)
+        tail_indices = np.ones(tail_frames, dtype=int)
+        all_fix_indices = np.concatenate([pre_indices, all_fix_indices, tail_indices])
+
+        # test = eng.util.getCheckerboardProjectLines(10,10,100.0,1000.0,100.0,0.5,2,1,0.5,0.1,1,1,0,0)
+        noise_lines = eng.util.getCheckerboardProjectLines(seed, num_checks_x, pre_time, stim_time, tail_time, 
+                                                    background_intensity, frame_dwell, binary_noise, 
+                                                    1, 0, 1, paired_bars, 0, 0, 
+                                                    nargout=1)
+        
+        noise_lines = np.array(noise_lines)
+        noise_lines_epochs.append(noise_lines)
+        all_fix_indices_epochs.append(all_fix_indices)
+    noise_lines_epochs = np.array(noise_lines_epochs)
+    all_fix_indices_epochs = np.array(all_fix_indices_epochs)
+    d_output = {
+        'noise_lines': noise_lines_epochs,
+        'all_fix_indices': all_fix_indices_epochs,
+        'd_stim_timing': {
+            'pre_time': pre_time,
+            'stim_time': stim_time,
+            'tail_time': tail_time,
+            'pre_frames': pre_frames,
+            'stim_frames': stim_frames,
+            'tail_frames': tail_frames
+        }
+    }
+
+    eng.quit()
+    print('Matlab engine stopped.')
+    return d_output
+
+

@@ -3,12 +3,9 @@ from retinanalysis.response import SCResponseBlock
 from retinanalysis.stim import StimBlock
 import os
 import matplotlib.pyplot as plt
-from retinanalysis.regen import get_image_paths_across_epochs
+from retinanalysis.regen import get_image_paths_across_epochs, get_df_dict_vals
+from retinanalysis import datajoint_utils as dju
 
-
-def get_df_dict_vals(df, key, col_name='epoch_parameters'):
-    vals = np.array([d[key] for d in df[col_name].values])
-    return vals
 
 class PresentImagesSplitter():
     def __init__(self, sb: StimBlock, rb: SCResponseBlock, **regen_kwargs):
@@ -141,6 +138,3 @@ class PresentImagesSplitter():
         ax.set_title(f'{self.u_image_paths[i_u_img]} - {n_sps} spikes')
         ax.set_xlabel('Time (s)')
         ax.set_ylabel('Amplitude')
-
-
-            
