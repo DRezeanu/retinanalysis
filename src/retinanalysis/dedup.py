@@ -558,7 +558,7 @@ class DedupBlock:
                         x = spike_times[idx]
                         y = self.spike_pcs[spike_idxs[idx], i%2, i//2]
                         axs[i, j].scatter(x, y, alpha=0.5, label=f'Cluster {cluster2}')
-                        axs[i, j].set_xlabel('Time (s)')
+                        axs[i, j].set_xlabel('Time (ms)')
                         axs[i, j].set_ylabel(f'Chan{i//2+1} PC{i%2+1}')
 
                 else:
