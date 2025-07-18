@@ -7,6 +7,7 @@ from retinanalysis.analysis_chunk import AnalysisChunk
 from retinanalysis.response import MEAResponseBlock
 from typing import Union, List, Dict, Tuple
 from matplotlib.patches import Ellipse
+import xarray as xr
 
 NAS_DATA_DIR = mea_config['data'] 
 NAS_ANALYSIS_DIR = mea_config['analysis']
@@ -158,13 +159,13 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
 
         return match_dict
 
-def get_protocol_from_datafile(exp_name, datafile_name):
+def get_protocol_from_datafile(exp_name: str, datafile_name: str) -> str:
     exp_summary = dju.get_exp_summary(exp_name)
     protocol_name = exp_summary.query('datafile_name == @datafile_name').reset_index(drop = True)
     return protocol_name.loc[0,'protocol_name']
 
 def get_classification_file_path(classification_file_name: str, exp_name: str, chunk_name: str, 
-                                 ss_version: str = 'kilosort2.5'):
+                                 ss_version: str = 'kilosort2.5') -> str:
     
     classification_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name)
     
@@ -220,6 +221,38 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
                             'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
 
     return d_timecourses_by_type
+
+def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = None,
+                   cell_types: List[str] = None) -> xr.DataArray:
+
+    spike_time_df = response_block.df_spike_times
+    num_epochs = response_block.n_epochs
+
+    if protocol_ids is None and cell_types is None:
+        filtered_df = spike_time_df
+        cell_types = filtered_df['cell_type'].unique()
+        
+    elif protocol_ids is None:
+        filtered_df = spike_time_df.query('cell_type == @cell_types')
+
+    elif cell_types is None:
+        filtered_df = spike_time_df.query('cell_id == @protocol_ids')
+        cell_types = filtered_df['cell_type'].unique()
+        
+    else:
+        filtered_df = spike_time_df.query('cell_id == @protocol_ids and cell_type == @cell_types')
+
+    d_spike_times = dict()
+    for ct in cell_types:
+        df_type = filtered_df.query('cell_type == @ct').reset_index(drop = True)
+        type_ids = df_type['cell_id'].values
+        xarrays = np.empty((len(type_ids), num_epochs), dtype = object)
+        xarrays[:,:] = np.array([df_type.loc[idx, 'spike_times'] for idx, id in enumerate(type_ids)], dtype = object)
+        xarr = xr.DataArray(xarrays, dims = ['cell', 'epoch'], coords = {'cell' : type_ids,
+                                                                         'epoch' : np.arange(1,num_epochs+1)})
+        d_spike_times[ct] = xarr
+
+    return d_spike_times
 
 def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = None, 
                          cell_types: List[str] = None) -> dict:
