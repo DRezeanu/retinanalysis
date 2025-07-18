@@ -6,7 +6,7 @@ import retinanalysis.vision_utils as vu
 from hdf5storage import loadmat
 import pickle
 import numpy as np
-from typing import List
+from typing import List, Dict
 import matplotlib.pyplot as plt
 import retinanalysis 
 import importlib.resources as ir
@@ -20,7 +20,9 @@ def get_noise_name_by_exp(exp_name):
     return noise_protocol_name
 
 class AnalysisChunk:
-
+    """
+    Class for storing data from an MEA sorting chunk created from spatial noise.
+    """
     def __init__(self, exp_name: str=None, chunk_name: str=None, 
                  ss_version: str = 'kilosort2.5', pkl_file: str=None, 
                  b_load_spatial_maps: bool=True, **vu_kwargs):
@@ -68,6 +70,10 @@ class AnalysisChunk:
             self.get_spatial_maps()
 
     def get_noise_params(self):
+        """
+        Method for accessing spatial noise and STA parameters, and correcting for any
+        discrepancy due to cropping.
+        """
         self.staXChecks = int(self.vcd.runtimemovie_params.width)
         self.staYChecks = int(self.vcd.runtimemovie_params.height)
 
@@ -102,6 +108,12 @@ class AnalysisChunk:
         self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
 
     def get_rf_params(self):
+        """
+        Method for pulling the receptive field parameters stored in the vision cell data table (VCD).
+        
+        This method also corrects for Y-flipping and any crop discrepancies between the size of the
+        spatial noise and the size of the STA.
+        """
         self.rf_params = dict()
         for id in self.cell_ids:
             center_x = self.vcd.main_datatable[id]['x0']
@@ -111,8 +123,53 @@ class AnalysisChunk:
                                 'std_x' : self.vcd.main_datatable[id]['SigmaX'],
                                 'std_y' : self.vcd.main_datatable[id]['SigmaY'],
                                 'rot' : self.vcd.main_datatable[id]['Theta']}
+            
+    def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
+        """
+        Method for pulling cell_ids by region of interest.
+        
+        Parameters:
+        roi (dict):                     roi definition as a dictionary with 4 values. 'x_min',
+                                        'x_max', 'y_min', 'y_max'. These define the vertical and
+                                        horizontal lines that define the region of interest. Units
+                                        of ROI definition must match the units parameter!
+                                        
+        units (str):                    units to use when defining the roi. Must be either 'pixels',
+                                        'microns', or 'stixels'. Default 'pixels'.
+
+        Returns:
+        arr_ids (ndarray):              returns a 1D array of cell ids whose center_x and center_y fall within the
+                                        defined roi.                                
+        """
+
+        if 'pixels' in units.lower():
+            unit_scaling = self.pixels_per_stixel
+        elif 'microns' in units.lower():
+            unit_scaling = self.microns_per_stixel
+        elif 'stixels' in units.lower():
+            unit_scaling = 1
+        else:
+            raise Exception("Units must be 'pixels', 'microns' or 'stixels'")
+        
+        bounding_box = dict()
+        for key, val in roi.items():
+            bounding_box[key] = val/unit_scaling
+
+        x_1 = 'center_x > @bounding_box["x_min"]'
+        x_2 = 'center_x < @bounding_box["x_max"]'
+        y_1 = 'center_y > @bounding_box["y_min"]'
+        y_2 = 'center_y < @bounding_box["y_max"]'
+
+        df_cell_params_filtered = self.df_cell_params.query(f'{x_1} and {x_2} and {y_1} and {y_2}')
+        arr_ids = df_cell_params_filtered['cell_id'].values
+
+        return arr_ids
               
     def get_df(self):
+        """
+        Internal method for generating the cell params dataframe accessible
+        as self.df_cell_params
+        """
         center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
         center_y = [self.rf_params[id]['center_y'] for id in self.cell_ids]
         std_x = [self.rf_params[id]['std_x'] for id in self.cell_ids]
@@ -182,12 +239,42 @@ class AnalysisChunk:
             
         self.d_spatial_maps = d_spatial_maps
         print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
-        print(f'Spatial maps have been padded to align with RF parameters.')
+        print(f'Spatial maps have been padded to align with RF parameters.\n')
         # TODO could also load convex hull fits too under 'hull_vertices'
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
                  typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 b_zoom: bool = False, n_pad = 6):
+                 b_zoom: bool = False, n_pad: int = 6, roi: Dict[str, float] = None):
+        """
+        Method for plotting the receptive fields for a given list of cell ids, cell types, 
+        or a union of both. If no cell_ids or cell types are given, all cells in the
+        analysis chunk are plotted by type.
+        
+        Parameters:
+        noise_ids (List[int]):  A list of cell_ids to plot. Default None.
+        cell_types (List[str]): A list of cell_type strings, (e.g. ['OnP', 'OffP']). Default None.
+        typing_fyle (str):      A typing file name which is used to determine the cell types for any
+                                given cell_ids. If none is given, the 0th typing file associated
+                                with the analysis chunk is used. Default None.
+        units (str):            Units to use when plotting the receptive fields. Must be either
+                                'pixels', 'microns', or 'stixels'. Default 'pixels'.
+        std_scaling (float):    Factor used to scale the standard deviation of the plotted
+                                receptive fields. Default 1.6
+        b_zoom (bool):          Boolean value indicating whether or not to zoom the plots in on 
+                                the cell mosaic. Default False
+        n_pad (int):            Padding value (in stixels) used with b_zoom. B_zoom will zoom
+                                into the min and max center_x and center_y values in the mosaic,
+                                and n_pad will zoom back out by the given number of stixels. Default 6
+        roi (dict):            roi definition as a dictionary with 4 values. 'x_min',
+                                'x_max', 'y_min', 'y_max'. These define the vertical and
+                                horizontal lines that define the region of interest
+        
+        Returns:
+        axs (axes):             Axes object that contains all of the axes used in the receptive field
+                                figure. There will be as many axes as there are cell_types represented
+                                in the plot.
+
+        """
 
         if typing_file is None:
             typing_file = self.typing_files[0]
@@ -202,13 +289,17 @@ class AnalysisChunk:
             noise_ids = filtered_df['cell_id'].values
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         elif noise_ids is None:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
             noise_ids = filtered_df['cell_id'].values
         elif cell_types is None:
-            filtered_df = self.df_cell_params.query(f'cell_id  == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'cell_id  in @noise_ids')
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+
+        if roi is not None:
+            roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
+            filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
 
         if len(filtered_df) == 0:
             print("No data found for the given noise_ids and cell_types.")
@@ -264,7 +355,36 @@ class AnalysisChunk:
         return axs
         
     def plot_timecourses(self, noise_ids: List[int]=None, cell_types: List[int]=None,
-                         typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
+                         typing_file: str = None, units: str = 'ms', std_scaling: float = 2,
+                         roi: Dict[str, float] = None, roi_units: str = 'pixels') -> np.ndarray:
+        """
+        Method for plotting the timecourses for a given list of cell ids, cell types, 
+        or a union of both. If no cell_ids or cell types are given, the timecourses for
+        all cells in the analysis chunk are plotted by type. The mean is plotted as a line
+        with a shaded region defined by the standard deviation * std_scaling.
+        
+        Parameters:
+        noise_ids (List[int]):  A list of cell_ids to plot. Default None.
+        cell_types (List[str]): A list of cell_type strings, (e.g. ['OnP', 'OffP']). Default None.
+        typing_fyle (str):      A typing file name which is used to determine the cell types for any
+                                given cell_ids. If none is given, the 0th typing file associated
+                                with the analysis chunk is used. Default None.
+        units (str):            Units to use when plotting the timecourse. Must be either
+                                'ms', 'milliseconds', 's', or 'seconds'. Default 'mss'.
+        std_scaling (float):    Factor used to scale the standard deviation used for plotting the
+                                shaded region around each timecourse. Default 2
+        roi (dict):             roi definition as a dictionary with 4 values. 'x_min',
+                                'x_max', 'y_min', 'y_max'. These define the vertical and
+                                horizontal lines that define the region of interest
+        roi_units (str):        Units to use when defining the region of interest. Must be 'pixels',
+                                'microns', or 'stixels'. Default 'pixels'.
+        
+        Returns:
+        axs (axes):             Axes object that contains all of the axes used in the timecourses
+                                figure. There will be as many axes as there are cell_types represented
+                                in the plot.
+
+        """
         
         if 'ms' in units.lower() or 'milliseconds' in units.lower():
             scale_factor = 1
@@ -286,16 +406,19 @@ class AnalysisChunk:
             noise_ids = filtered_df['cell_id'].values
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         elif noise_ids is None:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
             noise_ids = filtered_df['cell_id'].values
         elif cell_types is None:
-            filtered_df = self.df_cell_params.query(f'cell_id  == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids')
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         else:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
+        
+        if roi is not None:
+            roi_cell_ids = self.get_cells_by_region(roi = roi, units = roi_units)
+            filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
 
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
-
         d_timecourses_by_type = vu.get_timecourses(self, d_noise_ids_by_type)
 
         rows = int(np.ceil(len(cell_types)/4))
@@ -357,8 +480,6 @@ class AnalysisChunk:
         fig.tight_layout()
 
         return ax
-
-
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"

@@ -21,11 +21,13 @@ class StimBlock:
     Generic class for single cell or MEA stimulus blocks. 
     """
     def __init__(self, exp_name: str=None, block_id: int=None, ls_params: list=None, pkl_file: str=None):
-        print(f"Initializing StimBlock for {exp_name} block {block_id}")
+        
         if pkl_file is None:
+            print(f"Initializing StimBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
+            print(f"Initializing StimBlock for {exp_name} block {block_id} from pickle file")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
                 with open(pkl_file, 'rb') as f:
@@ -73,7 +75,7 @@ class StimBlock:
             return
         else:
             print(f'Method for regenerating {self.protocol_name} is not implemented yet!')
-            print('Please do so at your convenience in regen.py, and add function name to D_REGEN_FXNS.')
+            print('Please do so at your convenience in regen.py, and add function name to D_REGEN_FXNS.\n')
             return
     
     def __repr__(self):
@@ -94,7 +96,7 @@ class StimBlock:
         d_out = self.__dict__.copy()
         with open(file_path, 'wb') as f:
             pickle.dump(d_out, f)
-        print(f"StimBlock exported to {file_path}")
+        print(f"StimBlock exported to {file_path}\n")
 
 
 class MEAStimBlock(StimBlock):
@@ -123,6 +125,12 @@ class MEAStimBlock(StimBlock):
         self.nearest_noise_chunk = self.get_nearest_noise()
     
     def get_nearest_noise(self):
+        """
+        Method for pulling the nearest noise chunk to the given stimulus protocol based on
+        start and end times. Nearest noise is the chunk that ended closest to the protocol
+        start time or started closest to the protocol end time (lowest time delta of the two).
+        """
+
         # pull relevant information from datajoint
         experiment_summary = dju.get_exp_summary(self.exp_name)
         # Keep only rows with same prep_label

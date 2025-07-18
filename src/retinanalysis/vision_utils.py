@@ -7,6 +7,8 @@ from retinanalysis.analysis_chunk import AnalysisChunk
 from retinanalysis.response import MEAResponseBlock
 from typing import Union, List, Dict, Tuple
 from matplotlib.patches import Ellipse
+import xarray as xr
+from tqdm.auto import tqdm
 
 NAS_DATA_DIR = mea_config['data'] 
 NAS_ANALYSIS_DIR = mea_config['analysis']
@@ -26,7 +28,7 @@ def get_analysis_vcd(exp_name, chunk_name, ss_version, include_ei = True, includ
                                   include_neurons = include_neurons)
         
         if verbose:
-            print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.')
+            print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
         return vcd
 
 def get_protocol_vcd(exp_name, datafile_name, ss_version):
@@ -36,12 +38,22 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
             data_path, datafile_name, 
             include_ei = True, include_neurons = True
             )
-        print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.')
+        print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
         return vcd
+
+def get_roi_dict(location: List[float], distance_x: float, distance_y: float):
+    
+    roi = dict()
+    roi['x_min'] = location[0] - distance_x
+    roi['x_max'] = location[0] + distance_x
+    roi['y_min'] = location[1] - distance_y
+    roi['y_max'] = location[1] + distance_y
+    
+    return roi
 
 def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_object: Union[AnalysisChunk, MEAResponseBlock],
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
-                use_timecourse: bool = False, n_removed_channels: int = 1):
+                use_timecourse: bool = False, n_removed_channels: int = 1, verbose: bool = True):
         
         ref_vcd = ref_object.vcd
         test_vcd = test_object.vcd
@@ -77,6 +89,15 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
         bad_match_count = 0
         isi_corr = 1
         rgb_corr = 1
+
+        if verbose:
+            if isinstance(ref_object, AnalysisChunk):
+                if isinstance(test_object, AnalysisChunk):
+                    print(f"Cluster matching {ref_object.exp_name} {ref_object.chunk_name} with {os.path.splitext(test_object.chunk_name)[1][1:]} ...")
+                else:
+                    print(f"Cluster matching {ref_object.exp_name} {ref_object.chunk_name} with {os.path.splitext(test_object.protocol_name)[1][1:]} ...")
+            else:
+                print(f"Cluster matching {ref_object.exp_name} {ref_object.protocol_name} with {os.path.splittext(test_object.protocol_name)[1][1:]} ...")
 
         for idx, ref_cell in enumerate(ref_ids):
             sorted_full_corr = np.sort(arr_full_corr[idx,:])
@@ -146,25 +167,26 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
 
             else:
                 bad_match_count += 1
-        
-        percent_good = match_count/len(ref_ids)
-        percent_bad = bad_match_count/len(ref_ids)
 
-        print(f"\nRef clusters matched: {match_count}")
-        print(f"Ref clusters unmatched: {bad_match_count}")
-        print(f"{np.round(percent_good*100, 2)}% matched, {np.round(percent_bad*100, 2)}% unmatched.")
-        
+        if verbose:        
+            percent_good = match_count/len(ref_ids)
+            percent_bad = bad_match_count/len(ref_ids)
+
+            # print(f"\nRef clusters matched: {match_count}")
+            # print(f"Ref clusters unmatched: {bad_match_count}")
+            print(f"{np.round(percent_good*100, 2)}% matched, {np.round(percent_bad*100, 2)}% unmatched.\n")
+            
         match_dict = dict(sorted(match_dict.items()))
 
         return match_dict
 
-def get_protocol_from_datafile(exp_name, datafile_name):
+def get_protocol_from_datafile(exp_name: str, datafile_name: str) -> str:
     exp_summary = dju.get_exp_summary(exp_name)
     protocol_name = exp_summary.query('datafile_name == @datafile_name').reset_index(drop = True)
     return protocol_name.loc[0,'protocol_name']
 
 def get_classification_file_path(classification_file_name: str, exp_name: str, chunk_name: str, 
-                                 ss_version: str = 'kilosort2.5'):
+                                 ss_version: str = 'kilosort2.5') -> str:
     
     classification_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name)
     
@@ -205,21 +227,61 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
     d_timecourses_by_type = dict()
 
     for ct in d_cells_by_type.keys():
-
         rg_timecourses = [analysis_chunk.vcd.main_datatable[cell]['GreenTimeCourse'] for cell in d_cells_by_type[ct]]
         rg_timecourses = np.array(rg_timecourses)
-        rg_mean = np.mean(rg_timecourses, axis = 0)
-        rg_std = np.std(rg_timecourses, axis = 0)
+        if rg_timecourses.shape[0] > 1:
+            rg_mean = np.mean(rg_timecourses, axis = 0)
+            rg_std = np.std(rg_timecourses, axis = 0)
+        else:
+            rg_mean = rg_timecourses.squeeze()
+            rg_std = 0
 
         b_timecourses = [analysis_chunk.vcd.main_datatable[cell]['BlueTimeCourse'] for cell in d_cells_by_type[ct]]
         b_timecourses = np.array(b_timecourses)
-        b_mean = np.mean(b_timecourses, axis = 0)
-        b_std = np.std(b_timecourses, axis = 0)
+
+        if b_timecourses.shape[0] > 1:
+            b_mean = np.mean(b_timecourses, axis = 0)
+            b_std = np.std(b_timecourses, axis = 0)
+        else:
+            b_mean = b_timecourses.squeeze()
+            b_std = 0
 
         d_timecourses_by_type[ct] = {'rg_timecourses' : rg_timecourses, 'rg_mean' : rg_mean, 'rg_std' : rg_std,
                             'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
 
     return d_timecourses_by_type
+
+def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = None,
+                   cell_types: List[str] = None) -> xr.DataArray:
+
+    spike_time_df = response_block.df_spike_times
+    num_epochs = response_block.n_epochs
+
+    if protocol_ids is None and cell_types is None:
+        filtered_df = spike_time_df
+        cell_types = filtered_df['cell_type'].unique()
+        
+    elif protocol_ids is None:
+        filtered_df = spike_time_df.query('cell_type == @cell_types')
+
+    elif cell_types is None:
+        filtered_df = spike_time_df.query('cell_id == @protocol_ids')
+        cell_types = filtered_df['cell_type'].unique()
+        
+    else:
+        filtered_df = spike_time_df.query('cell_id == @protocol_ids and cell_type == @cell_types')
+
+    d_spike_times = dict()
+    for ct in cell_types:
+        df_type = filtered_df.query('cell_type == @ct').reset_index(drop = True)
+        type_ids = df_type['cell_id'].values
+        xarrays = np.empty((len(type_ids), num_epochs), dtype = object)
+        xarrays[:,:] = np.array([df_type.loc[idx, 'spike_times'] for idx, id in enumerate(type_ids)], dtype = object)
+        xarr = xr.DataArray(xarrays, dims = ['cell', 'epoch'], coords = {'cell' : type_ids,
+                                                                         'epoch' : np.arange(1,num_epochs+1)})
+        d_spike_times[ct] = xarr
+
+    return d_spike_times
 
 def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = None, 
                          cell_types: List[str] = None) -> dict:

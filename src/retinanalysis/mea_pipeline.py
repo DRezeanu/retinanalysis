@@ -5,7 +5,7 @@ from retinanalysis.analysis_chunk import AnalysisChunk
 import retinanalysis.vision_utils as vu
 import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR
-from typing import List
+from typing import List, Dict
 import pickle
 
 
@@ -73,22 +73,29 @@ class MEAPipeline:
             self.response_block.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
 
     def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
-                 typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6) -> np.ndarray:
+                 **kwargs) -> np.ndarray:
         
         noise_ids = self.get_noise_ids(protocol_ids, cell_types)
         ax = self.analysis_chunk.plot_rfs(noise_ids, cell_types = cell_types,
-                                          typing_file = typing_file, units = units,
-                                          std_scaling = std_scaling)
+                                          **kwargs)
 
         return ax
+    
+    def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
+
+        noise_ids = self.analysis_chunk.get_cells_by_region(roi = roi, units = units)
+        protocol_ids = [val for key, val in self.match_dict.items() if key in noise_ids]
+        arr_ids = np.array(protocol_ids)
+        
+        return arr_ids
+
 
     def plot_timecourses(self, protocol_ids: List[int] = None, cell_types: List[str] = None, 
-                        typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
+                        **kwargs) -> np.ndarray:
 
         noise_ids = self.get_noise_ids(protocol_ids, cell_types)
         ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
-                                             typing_file = typing_file, units = units,
-                                             std_scaling = std_scaling)
+                                             **kwargs)
         
         return ax
 
@@ -156,7 +163,7 @@ def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: 
     r = MEAResponseBlock(exp_name, datafile_name, ss_version)
     if analysis_chunk_name is None:
         analysis_chunk_name = s.nearest_noise_chunk
-        print(f'Using {analysis_chunk_name} for AnalysisChunk')
+        print(f'Using {analysis_chunk_name} for AnalysisChunk\n')
     ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version)
     mp = MEAPipeline(s, r, ac)
     return mp
