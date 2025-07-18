@@ -389,7 +389,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
         np.random.seed(seed)
 
         # (stixel, frames)
-        noise_lines = noise_line_epochs[e_idx]
+        noise_lines = noise_lines_epochs[e_idx]
         # Upsample by steps_per_stixel
         upsample_size = (noise_lines.shape[0] * steps_per_stixel, noise_lines.shape[1])
         print(f'Upsampling noise lines to {upsample_size}')
