@@ -308,31 +308,42 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     eng = engine.start_matlab()
     eng.addpath(str_pkg_dir)
     print('Started engine and added pkg to path.')
-
-    
     
     n_epochs = len(df_epochs)
     noise_lines_epochs = []
     all_fix_indices_epochs = []
     for e_idx in range(n_epochs):
         seed = get_df_dict_vals(df_epochs, 'noiseSeed')[e_idx]
-        num_checks_x = get_df_dict_vals(df_epochs, 'numChecksX')[e_idx]
-        background_intensity = get_df_dict_vals(df_epochs, 'backgroundIntensity')[e_idx]
-        frame_dwell = get_df_dict_vals(df_epochs, 'frameDwell')[e_idx]
-        binary_noise = get_df_dict_vals(df_epochs, 'binaryNoise')[e_idx]
-        paired_bars = get_df_dict_vals(df_epochs, 'pairedBars')[e_idx]
-        n_fixations = get_df_dict_vals(df_epochs, 'num_fixations')[e_idx]
-        # stixel_size = get_df_dict_vals(df_epochs, 'stixelSize')[e_idx]
-        # grid_size = get_df_dict_vals(df_epochs, 'gridSize')[e_idx]
+        seed = int(seed)
+        # Noise std only used for opacity, not needed for noise generation
         # noise_std = get_df_dict_vals(df_epochs, 'noiseStd')[e_idx]
+        # noise_std = float(noise_std)
+        
+        # num_checks_x needs to be float bc floor(x/2) in matlab, if int it can be wrong eg-103/2 can give 52, when we want 51.
+        num_checks_x = get_df_dict_vals(df_epochs, 'numChecksX')[e_idx]
+        num_checks_x = float(num_checks_x)
+        
+        # Also load and type cast other parameters.
+        background_intensity = get_df_dict_vals(df_epochs, 'backgroundIntensity')[e_idx]
+        background_intensity = float(background_intensity)
+        frame_dwell = get_df_dict_vals(df_epochs, 'frameDwell')[e_idx]
+        frame_dwell = int(frame_dwell)
+        binary_noise = get_df_dict_vals(df_epochs, 'binaryNoise')[e_idx]
+        binary_noise = int(binary_noise)
+        paired_bars = get_df_dict_vals(df_epochs, 'pairedBars')[e_idx]
+        paired_bars = int(paired_bars)
+        n_fixations = get_df_dict_vals(df_epochs, 'num_fixations')[e_idx]
         pre_time = get_df_dict_vals(df_epochs, 'preTime')[e_idx]
+        pre_time = float(pre_time)
         stim_time = get_df_dict_vals(df_epochs, 'stimTime')[e_idx]
+        stim_time = float(stim_time)
         tail_time = get_df_dict_vals(df_epochs, 'tailTime')[e_idx]
+        tail_time = float(tail_time)
 
         pre_frames = np.round(60 * pre_time/1e3).astype(int)
         stim_frames = np.round(60 * stim_time/1e3).astype(int)
         tail_frames = np.round(60 * tail_time/1e3).astype(int)
-        print(pre_frames, stim_frames, tail_frames)
+        # print(pre_frames, stim_frames, tail_frames)
 
         all_fix_indices = np.arange(1, n_fixations + 1)
         n_frames_per_fix = np.ceil(stim_frames / n_fixations).astype(int)
@@ -343,15 +354,58 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
         tail_indices = np.ones(tail_frames, dtype=int)
         all_fix_indices = np.concatenate([pre_indices, all_fix_indices, tail_indices])
 
-        # test = eng.util.getCheckerboardProjectLines(10,10,100.0,1000.0,100.0,0.5,2,1,0.5,0.1,1,1,0,0)
-        noise_lines = eng.util.getCheckerboardProjectLines(seed, num_checks_x, pre_time, stim_time, tail_time, 
-                                                    background_intensity, frame_dwell, binary_noise, 
-                                                    1, 0, 1, paired_bars, 0, 0, 
-                                                    nargout=1)
-        
+        ls_input = [seed, num_checks_x, pre_time, stim_time, tail_time,
+                    background_intensity, frame_dwell, binary_noise,
+                    1.0, 0.0, 1, paired_bars, 0, 0]
+        print(f'Calling matlab function with inputs: {ls_input}')
+        noise_lines = eng.util.getCheckerboardProjectLines(*ls_input, nargout=1)
+
         noise_lines = np.array(noise_lines)
         noise_lines_epochs.append(noise_lines)
         all_fix_indices_epochs.append(all_fix_indices)
+    
+    
+    eng.quit()
+    print('Matlab engine stopped.')
+
+    # Apply jitter
+    for e_idx in range(n_epochs):
+        mu_per_pix = get_df_dict_vals[df_epochs, 'micronsPerPixel'][e_idx]
+        stixel_size_um = get_df_dict_vals[df_epochs, 'stixelSize'][e_idx]
+        stixel_size_pix = stixel_size_um / mu_per_pix
+        grid_size_um = get_df_dict_vals[df_epochs, 'gridSize'][e_idx]
+        grid_size_pix = grid_size_um / mu_per_pix
+        steps_per_stixel = np.max([np.round(stixel_size_pix/grid_size_pix), 1]).astype(int)
+        stixel_shift_pix = np.round(stixel_size_pix / steps_per_stixel).astype(int)
+        print(f'Stixel size: {stixel_size_um} um, grid size: {grid_size_um} um, steps per stixel: {steps_per_stixel}, stixel shift: {stixel_shift_pix} pix')
+        if steps_per_stixel <= 1:
+            continue
+            
+        frame_dwell = get_df_dict_vals(df_epochs, 'frameDwell')[e_idx]
+        frame_dwell = int(frame_dwell)
+
+        seed = get_df_dict_vals(df_epochs, 'noiseSeed')[e_idx]
+        seed = int(seed)
+        np.random.seed(seed)
+
+        # (stixel, frames)
+        noise_lines = noise_line_epochs[e_idx]
+        # Upsample by steps_per_stixel
+        upsample_size = (noise_lines.shape[0] * steps_per_stixel, noise_lines.shape[1])
+        print(f'Upsampling noise lines to {upsample_size}')
+        noise_lines = cv2.resize(noise_lines, upsample_size[::-1], interpolation=cv2.INTER_NEAREST)
+        
+        n_frames = noise_lines.shape[1]
+        for f_count in range(1,n_frames+1):
+            if f_count % frame_dwell == 0:
+                x_shift_stix = np.round(np.random.rand() * (steps_per_stixel-1)) 
+                # If in pixel space, would multiply by stixel_shift_pix
+                # We're in stixel space, so just shift by stixel index
+                if x_shift_stix == 0:
+                    continue
+                noise_lines[x_shift_stix:, f_count-1] = noise_lines[:-x_shift_stix, f_count-1]
+
+
     noise_lines_epochs = np.array(noise_lines_epochs)
     all_fix_indices_epochs = np.array(all_fix_indices_epochs)
     d_output = {
@@ -367,8 +421,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
         }
     }
 
-    eng.quit()
-    print('Matlab engine stopped.')
+    
     return d_output
 
 
