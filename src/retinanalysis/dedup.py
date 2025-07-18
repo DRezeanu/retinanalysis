@@ -1,6 +1,6 @@
 import numpy as np
 from retinanalysis.response import MEAResponseBlock
-from retinanalysis.stim import MEAStimBlock
+from retinanalysis.stim import StimBlock
 from retinanalysis.analysis_chunk import AnalysisChunk
 import visionloader as vl
 import retinanalysis.vision_utils as vu
@@ -15,237 +15,8 @@ import copy
 from typing import Union
 from itertools import combinations
 import pandas as pd
-
-def load_ks_amplitudes(block: Union[AnalysisChunk, MEAResponseBlock]):
-    amps = np.load(os.path.join(NAS_DATA_DIR, block.exp_name, block.chunk_name, block.ss_version, 'amplitudes.npy'))
-    temps = np.load(os.path.join(NAS_DATA_DIR, block.exp_name, block.chunk_name, block.ss_version, 'spike_templates.npy'))
-
-    vision_temps = temps+1
-
-    amplitudes = np.vstack((np.squeeze(amps), np.squeeze(vision_temps)))
-    return amplitudes
-
-def get_sm_autocorrelation(ac: AnalysisChunk, threshold: float = 0.80):
-    '''
-    Computes the autocorrelation of spatial maps in an AnalysisChunk.
-    Args:
-        - ac: AnalysisChunk object.
-        - threshold: float, the autocorrelation threshold above which pairs of spatial maps are considered highly correlated.
-    Returns:
-        - sm_autocorr: 2D numpy array of autocorrelation values for spatial maps.
-        - high_sm_pairs: set of tuples containing cell IDs of spatial maps with autocorrelation above the specified threshold.
-    '''
-    # assert hasattr(ac, 'chunk_name'), "Must use AnalysisChunk for spatial maps."
-    assert isinstance(ac, AnalysisChunk), "Input must be an AnalysisChunk."
-
-    sm_flat = [sm.flatten() for sm in ac.d_spatial_maps.values()]
-    sm_flat = np.array(sm_flat)
-
-    sm_autocorr = np.corrcoef(sm_flat)
-    np.nan_to_num(sm_autocorr, copy=False, nan = 0, posinf = 0, neginf = 0)
-
-    sm_upper_tri = np.triu(copy.deepcopy(sm_autocorr), k=1)
-    high_sm_idx = np.where(sm_upper_tri > threshold)
-    high_sm_pairs = set([(ac.cell_ids[high_sm_idx[0][i]], ac.cell_ids[high_sm_idx[1][i]]) for i in range(len(high_sm_idx[0]))])
-
-    return sm_autocorr, high_sm_pairs
-
-def get_ei_autocorrelation(block: Union[AnalysisChunk, MEAResponseBlock], ei_method: str = 'full', threshold: float = 0.80):
-    '''
-    Computes the autocorrelation of EI maps in a ResponseBlock or AnalysisChunk.
-    Args:
-        - block: ResponseBlock or AnalysisChunk object.
-        - ei_method: str, method for computing EI maps. Options are 'full', 'space', or 'power'.
-        - threshold: float, the autocorrelation threshold above which pairs of EI maps are considered highly correlated.
-    Returns:
-        - ei_autocorr: 2D numpy array of autocorrelation values for EI maps.
-        - high_ei_pairs: set of tuples containing cell IDs of EI maps with autocorrelation above the specified threshold.
-    '''
-
-    assert isinstance(block, AnalysisChunk) or isinstance(block, MEAResponseBlock), "Input must be a ResponseBlock or AnalysisChunk."
-
-    ei_corr = vu.ei_corr(block, block, method=ei_method)
-
-    ei_upper_tri = np.triu(copy.deepcopy(ei_corr), k=1)
-    high_ei_idx = np.where(ei_upper_tri > threshold)
-    high_ei_pairs = set([(block.cell_ids[high_ei_idx[0][i]], block.cell_ids[high_ei_idx[1][i]]) for i in range(len(high_ei_idx[0]))])
-
-    return ei_corr, high_ei_pairs
-
-def isolate_problem_cells(block: Union[AnalysisChunk, MEAResponseBlock], ei_method: str = 'full', sm_threshold: float = 0.80, ei_threshold: float = 0.80):
-    '''
-    Isolates problem cells based on spatial map and EI autocorrelation.
-    Args:
-        - block: ResponseBlock or AnalysisChunk object.
-        - ei_method: str, method for computing EI maps. Options are 'full', 'space', or 'power'.
-        - sm_threshold: float, the autocorrelation threshold for spatial maps.
-        - ei_threshold: float, the autocorrelation threshold for EI maps.
-    Returns:
-        - problem_cells: set of cell IDs that are problematic based on spatial map and EI correlations.
-        - all_ei_cells: set of all cell IDs with high EI autocorrelation.
-        - all_sm_cells: set of all cell IDs with high spatial map autocorrelation (if available).
-    '''
-    
-    # Compute autocorrelation for spatial maps
-    if isinstance(block, AnalysisChunk):
-        sm_autocorr, high_sm_pairs = get_sm_autocorrelation(block, threshold=sm_threshold)
-    elif isinstance(block, MEAResponseBlock):
-        sm_autocorr, high_sm_pairs = None, None
-    else:
-        raise ValueError("Input block must be either an AnalysisChunk or a ResponseBlock.")
-
-    # Compute autocorrelation for EI maps
-    ei_autocorr, high_ei_pairs = get_ei_autocorrelation(block, ei_method=ei_method, threshold=ei_threshold)
-
-    # Identify problematic cells based on spatial map if available and EI correlations
-    if sm_autocorr is not None:
-        problem_cells = {cell for pair in high_sm_pairs.union(high_ei_pairs) for cell in pair}
-        all_sm_cells = {cell for pair in high_sm_pairs for cell in pair}
-        all_ei_cells = {cell for pair in high_ei_pairs for cell in pair}
-
-        return problem_cells, all_ei_cells, all_sm_cells
-    else:
-        problem_cells = {cell for pair in high_ei_pairs for cell in pair}
-        all_ei_cells = {cell for pair in high_ei_pairs for cell in pair}
-
-        return problem_cells, all_ei_cells
-    
-def plotRFs_dedup(ac: AnalysisChunk, ei_method: str = 'full', sm_threshold: float = 0.80, ei_threshold: float = 0.80, axs=None):
-    '''
-    Plots RFs of cells in an AnalysisChunk to visualize potential duplicates.
-    Args:
-        - ac: AnalysisChunk object.
-    Returns:
-        - fig, ax: matplotlib figure and axis objects.
-    '''
-
-    # assert hasattr(ac, 'chunk_name'), "Must use AnalysisChunk for plotting RFs."
-    assert isinstance(ac, AnalysisChunk), "Input must be an AnalysisChunk."
-
-    problem_cells, all_ei_cells, all_sm_cells = isolate_problem_cells(ac, ei_method=ei_method, sm_threshold=sm_threshold, ei_threshold=ei_threshold)
-
-    rf_params = ac.rf_params
-    cell_ids = ac.cell_ids
-    if axs is None:
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-    for cell in cell_ids:
-        ell1 = Ellipse(xy=(rf_params[cell]['center_x'], rf_params[cell]['center_y']),
-                width=rf_params[cell]['std_x']*2, height=rf_params[cell]['std_y']*2,
-                angle=rf_params[cell]['rot'], 
-                edgecolor='None', facecolor='None', lw=1, alpha=0.8)
-        if cell in all_ei_cells and cell in all_sm_cells:
-            ell1.set_edgecolor('red')
-            color = 'red'
-            axs[1].add_patch(ell1)
-            axs[1].annotate(f'{cell}', xy=(rf_params[cell]['center_x'], rf_params[cell]['center_y']),
-                        color='black', fontsize=10, ha='center', va='center')
-        elif cell in all_ei_cells:
-            ell1.set_edgecolor('orange')
-            color = 'orange'
-            axs[1].add_patch(ell1)
-            axs[1].annotate(f'{cell}', xy=(rf_params[cell]['center_x'], rf_params[cell]['center_y']),
-                        color='black', fontsize=10, ha='center', va='center')
-        elif cell in all_sm_cells:
-            ell1.set_edgecolor('magenta')
-            color = 'magenta'
-            axs[1].add_patch(ell1)
-            axs[1].annotate(f'{cell}', xy=(rf_params[cell]['center_x'], rf_params[cell]['center_y']),
-                        color='black', fontsize=10, ha='center', va='center')
-        else:
-            color = 'black'
-
-        ell = Ellipse(xy=(rf_params[cell]['center_x'], rf_params[cell]['center_y']),
-                width=rf_params[cell]['std_x']*2, height=rf_params[cell]['std_y']*2,
-                angle=rf_params[cell]['rot'], 
-                edgecolor=color, facecolor='None', lw=1, alpha=0.5)
-        axs[0].add_patch(ell)
-    axs[0].set_xlim(0, ac.numXChecks)
-    axs[0].set_ylim(ac.numYChecks, 0)
-    axs[1].set_xlim(0, ac.numXChecks)
-    axs[1].set_ylim(ac.numYChecks, 0)
-    axs[0].set_title('All cells')
-    axs[1].set_title('Cells with high correlations')
-
-    custom_lines = [Line2D([0], [0], color='red', lw=1, label='Both'),
-                    Line2D([0], [0], color='orange', lw=1, label='EI only'),
-                    Line2D([0], [0], color='magenta', lw=1, label='RF only')]
-
-    axs[1].legend(handles=custom_lines, loc='upper right')
-
-    return axs
-
-def plot_correlations(block: Union[AnalysisChunk, MEAResponseBlock], ei_method: str = 'full', sm_threshold: float = 0.80, ei_threshold: float = 0.80, axs=None):
-    '''
-    Plots histograms of spatial map and EI autocorrelation values for an AnalysisChunk or ResponseBlock.
-    Args:
-        - block: AnalysisChunk or ResponseBlock object.
-        - ei_method: str, method for computing EI maps. Options are 'full', 'space', or 'power'.
-        - sm_threshold: float, the autocorrelation threshold for spatial maps.
-        - ei_threshold: float, the autocorrelation threshold for EI maps.
-    Returns:
-        - fig, ax: matplotlib figure and axis objects.
-    '''
-
-    # Compute autocorrelation for spatial maps
-    if isinstance(block, AnalysisChunk):
-        sm_autocorr, high_sm_pairs = get_sm_autocorrelation(block, threshold=sm_threshold)
-        sm_corr_values = sm_autocorr[np.triu_indices_from(sm_autocorr, k=1)]
-    elif isinstance(block, MEAResponseBlock):
-        sm_corr_values = None
-    else:
-        raise ValueError("Input block must be either an AnalysisChunk or a ResponseBlock.")
-
-    # Compute autocorrelation for EI maps
-    ei_autocorr, high_ei_pairs = get_ei_autocorrelation(block, ei_method=ei_method, threshold=ei_threshold)
-    ei_corr_values = ei_autocorr[np.triu_indices_from(ei_autocorr, k=1)]
-
-    if sm_corr_values is not None:
-        if axs is None:
-            fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-
-        axs[0,0].imshow(ei_autocorr, cmap='viridis', interpolation='nearest')
-        axs[0,0].set_title('EI Autocorrelation Matrix')
-        axs[0,1].imshow(sm_autocorr, cmap='viridis', interpolation='nearest')
-        axs[0,1].set_title('Spatial Map Autocorrelation Matrix')
-        axs[0,0].set_xlabel('Cell ID')
-        axs[0,1].set_xlabel('Cell ID')
-        axs[0,0].set_ylabel('Cell ID')
-        axs[0,1].set_ylabel('Cell ID')
-
-        axs[1,0].hist(ei_corr_values, bins=50, color='blue', alpha=0.7)
-        axs[1,0].set_title('EI Autocorrelation Histogram')
-        axs[1,0].set_xlabel('R')
-        axs[1,0].set_ylabel('Count')
-        axs[1,0].semilogy()
-        axs[1,0].axvline(ei_threshold, color='red', linestyle='--', label=f'Threshold: {ei_threshold}')
-        axs[1,0].legend()
-        axs[1,1].hist(sm_corr_values, bins=50, color='green', alpha=0.7)
-        axs[1,1].set_title('Spatial Map Autocorrelation Histogram')
-        axs[1,1].set_xlabel('R')
-        axs[1,1].set_ylabel('Count')
-        axs[1,1].semilogy()
-        axs[1,1].axvline(sm_threshold, color='red', linestyle='--', label=f'Threshold: {sm_threshold}')
-        axs[1,1].legend()
-    else:
-        if axs is None:
-            fig, axs = plt.subplots(2,1,figsize=(6, 5))
-        axs[0].imshow(ei_autocorr, cmap='hot', interpolation='nearest')
-        axs[0].set_title('EI Autocorrelation Matrix')
-        axs[0].set_xlabel('Cell ID')
-        axs[0].set_ylabel('Cell ID')
-        
-        axs[1].hist(ei_corr_values, bins=50, color='blue', alpha=0.7)
-        axs[1].set_title('EI Autocorrelation Histogram')
-        axs[1].set_xlabel('R')
-        axs[1].set_ylabel('Count')
-        axs[1].semilogy()
-        axs[1].axvline(ei_threshold, color='red', linestyle='--', label=f'Threshold: {ei_threshold}')
-        axs[1].legend()
-
-    plt.tight_layout()
-    plt.subplots_adjust(top=0.95)
-    
-    return axs
+import pickle
+from matplotlib_venn import venn3, venn2
 
 def generate_extended_pairings(pairs: set):
     '''
@@ -276,25 +47,8 @@ def generate_extended_pairings(pairs: set):
 
     return extended
 
-def visualize_groups(group: tuple, block: Union[AnalysisChunk, MEAResponseBlock], ei_threshold, axs=None, detailed=False):
-    '''
-    Generates plots for groups of potentially duplicated clusters.
-    Args:
-        - group: tuple of duplicates
-        - block: AnalysisChunk or ResponseBlock object.
-    Returns:
-        - fig, axs: matplotlib figure and axis objects.
-    '''
-    cluster_to_index = dict(zip(block.cell_ids, range(len(block.cell_ids))))
 
-    if isinstance(block, AnalysisChunk):
-        plot_sm = True
-        sm_autocorr, high_sm_pairs = get_sm_autocorrelation(block, threshold=0.80)
-    elif isinstance(block, MEAResponseBlock):
-        plot_sm = False
-        sm_autocorr, high_sm_pairs = None, None
-    else:
-        raise ValueError("Input block must be either an AnalysisChunk or a ResponseBlock.")
+def compare_ei_methods(block: Union[AnalysisChunk,MEAResponseBlock], ei_threshold: float=0.8, axs=None):
     
     methods = ['full', 'space', 'power']
     full_ei_autocorr, ei_full_pairs = get_ei_autocorrelation(block,ei_method=methods[0], ei_threshold=ei_threshold)
@@ -313,17 +67,9 @@ def visualize_groups(group: tuple, block: Union[AnalysisChunk, MEAResponseBlock]
     # space_thresh = np.quantile(ig_zero_space, 0.9999)
     # power_thresh = np.quantile(ig_zero_power, 0.9999)
 
-def plot_amplitude_histograms(block: Union[AnalysisChunk, MEAResponseBlock], group: tuple, axs=None, amplitudes=None):
-    '''
-    Plots histograms of amplitudes for a group of cells.
-    Args:
-        - amps: kilsort output of amplitudes and corresponding templates (optional, will load if set to none)
-        - group: group of associated cells
-    Returns:
-        - axs: matplotlib axis objects with histograms
-    '''
-    if amplitudes is None:
-        amplitudes = load_ks_amplitudes(block)
+    # full_ei_autocorr, ei_full_pairs = get_ei_autocorrelation(block,ei_method=methods[0], ei_threshold=full_thresh)
+    # space_ei_autocorr, ei_space_pairs = get_ei_autocorrelation(block,ei_method=methods[1], ei_threshold=space_thresh)
+    # power_ei_autocorr, ei_power_pairs = get_ei_autocorrelation(block,ei_method=methods[2], ei_threshold=power_thresh)
 
     if axs is None:
         fig, axs  = plt.subplots(2,4, figsize=(20,15))
@@ -370,7 +116,7 @@ def plot_amplitude_histograms(block: Union[AnalysisChunk, MEAResponseBlock], gro
     plt.subplots_adjust(top=0.98)
     return axs, ei_full_pairs, ei_space_pairs, ei_power_pairs
 
-def get_amplitude_overlap(block: Union[MEAResponseBlock, AnalysisChunk], pair:tuple, amplitudes=None):
+def get_sm_autocorrelation(ac: AnalysisChunk, sm_threshold: float):
     '''
     Computes the autocorrelation of spatial maps in an AnalysisChunk.
     Args:
@@ -394,7 +140,8 @@ def get_amplitude_overlap(block: Union[MEAResponseBlock, AnalysisChunk], pair:tu
     high_sm_pairs = set([(ac.cell_ids[high_sm_idx[0][i]], ac.cell_ids[high_sm_idx[1][i]]) for i in range(len(high_sm_idx[0]))])
     return sm_autocorr, high_sm_pairs
 
-def get_summary_stats(block: Union[AnalysisChunk, MEAResponseBlock], ei_method: str = 'full', ei_threshold: float = 0.80, sm_threshold: float = 0.80):
+
+def get_ei_autocorrelation(block: Union[AnalysisChunk,MEAResponseBlock], ei_method, ei_threshold: float):
     '''
     Computes the autocorrelation of EI maps in a ResponseBlock or AnalysisChunk.
     Args:
@@ -406,14 +153,7 @@ def get_summary_stats(block: Union[AnalysisChunk, MEAResponseBlock], ei_method: 
         - high_ei_pairs: set of tuples containing cell IDs of EI maps with autocorrelation above the specified threshold.
     '''
 
-    cluster_to_index = dict(zip(block.cell_ids, range(len(block.cell_ids))))
-    if isinstance(block, AnalysisChunk):
-        sm_autocorr, high_sm_pairs = get_sm_autocorrelation(block, threshold=sm_threshold)
-    elif isinstance(block, MEAResponseBlock):
-        sm_autocorr, high_sm_pairs = None, None
-    else:
-        raise ValueError("Input block must be either an AnalysisChunk or a ResponseBlock.")
-    ei_autocorr, high_ei_pairs = get_ei_autocorrelation(block, ei_method=ei_method, threshold=ei_threshold)
+    ei_corr = vu.ei_corr(block, block, method=ei_method)
 
     ei_upper_tri = np.triu(copy.deepcopy(ei_corr), k=1)
     high_ei_idx = np.where(ei_upper_tri > ei_threshold)
@@ -441,8 +181,8 @@ class DedupBlock:
                                                 ss_version=ss_version, pkl_file=pkl_file, b_load_spatial_maps=True, **vu_kwargs)
             self.cluster_to_index = dict(zip(self.AnalysisChunk.cell_ids, range(len(self.AnalysisChunk.cell_ids))))
         else:
-            self.ResponseBlock = MEAResponseBlock(exp_name=exp_name, datafile_name=datafile_name, ss_version=ss_version, pkl_file=pkl_file)
-            self.cluster_to_index = dict(zip(self.ResponseBlock.cell_ids, range(len(self.ResponseBlock.cell_ids))))
+            self.MEAResponseBlock = MEAResponseBlock(exp_name=exp_name, datafile_name=datafile_name, ss_version=ss_version, pkl_file=pkl_file)
+            self.cluster_to_index = dict(zip(self.MEAResponseBlock.cell_ids, range(len(self.MEAResponseBlock.cell_ids))))
 
         #We want to spit out various sets that describe possible duplicate clusters by different metrics
         #organize in a dict
@@ -457,7 +197,7 @@ class DedupBlock:
             extended_sm_pairs = generate_extended_pairings(high_sm_pairs)
             problem_cells, all_ei_cells, all_sm_cells = self.isolate_problem_cells(high_ei_pairs, high_sm_pairs)
         else:
-            self.ei_autocorr, high_ei_pairs = get_ei_autocorrelation(self.ResponseBlock,self.ei_method, ei_threshold=self.ei_threshold)
+            self.ei_autocorr, high_ei_pairs = get_ei_autocorrelation(self.MEAResponseBlock,self.ei_method, ei_threshold=self.ei_threshold)
             extended_ei_pairs = generate_extended_pairings(high_ei_pairs)
             problem_cells, all_ei_cells = self.isolate_problem_cells(high_ei_pairs)
 
@@ -491,9 +231,9 @@ class DedupBlock:
             temps = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'spike_templates.npy'))
             times = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'spike_times.npy'))
         else:
-            amps = np.load(os.path.join(NAS_DATA_DIR, self.ResponseBlock.exp_name, self.ResponseBlock.datafile_name, self.ResponseBlock.ss_version, 'amplitudes.npy'))
-            temps = np.load(os.path.join(NAS_DATA_DIR, self.ResponseBlock.exp_name, self.ResponseBlock.datafile_name, self.ResponseBlock.ss_version, 'spike_templates.npy'))
-            times = np.load(os.path.join(NAS_DATA_DIR, self.ResponseBlock.exp_name, self.ResponseBlock.datafile_name, self.ResponseBlock.ss_version, 'spike_times.npy'))
+            amps = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'amplitudes.npy'))
+            temps = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'spike_templates.npy'))
+            times = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'spike_times.npy'))
         
         vision_temps = temps+1
 
@@ -661,7 +401,7 @@ class DedupBlock:
         if self.is_noise:
             block = self.AnalysisChunk
         else:
-            block = self.ResponseBlock
+            block = self.MEAResponseBlock
         
         n_clusters = len(group)
         if self.is_noise:
@@ -755,7 +495,7 @@ class DedupBlock:
             hists.append(np.histogram(amps[i], bins=bin_edges)[0])
             ax_histy.stairs(hists[i], bin_edges, fill=True, alpha=0.5, orientation='horizontal', label=f'ID {cell}')
 
-        axs.set_xlabel('Time (ms)')
+        axs.set_xlabel('Spike index')
         axs.set_ylabel('Amplitude')
         ax_histy.set_xlabel('Count')
         axs.legend(loc='upper left')
@@ -795,8 +535,8 @@ class DedupBlock:
                 self.spike_pcs = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'pc_features.npy'), mmap_mode='r')
                 self.spike_pc_idx = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
             else: 
-                self.spike_pcs = np.load(os.path.join(NAS_DATA_DIR, self.ResponseBlock.exp_name, self.ResponseBlock.datafile_name, self.ResponseBlock.ss_version, 'pc_features.npy'), mmap_mode='r')
-                self.spike_pc_idx = np.load(os.path.join(NAS_DATA_DIR, self.ResponseBlock.exp_name, self.ResponseBlock.datafile_name, self.ResponseBlock.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
+                self.spike_pcs = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'pc_features.npy'), mmap_mode='r')
+                self.spike_pc_idx = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
         spike_idxs = []
         feat_chan_ids = []
         channels = []
@@ -818,7 +558,7 @@ class DedupBlock:
                         x = spike_times[idx]
                         y = self.spike_pcs[spike_idxs[idx], i%2, i//2]
                         axs[i, j].scatter(x, y, alpha=0.5, label=f'Cluster {cluster2}')
-                        axs[i, j].set_xlabel('Time (ms)')
+                        axs[i, j].set_xlabel('Time (s)')
                         axs[i, j].set_ylabel(f'Chan{i//2+1} PC{i%2+1}')
 
                 else:
@@ -871,7 +611,7 @@ class DedupBlock:
         if self.is_noise:
             str_self += f"  cell_ids of length: {len(self.AnalysisChunk.cell_ids)}\n"
         else:
-            str_self += f"  cell_ids of length: {len(self.ResponseBlock.cell_ids)}\n"
+            str_self += f"  cell_ids of length: {len(self.MEAResponseBlock.cell_ids)}\n"
         str_self += f"  ei_threshold: {self.ei_threshold}\n"
         str_self += f"  sm_threshold: {self.sm_threshold}\n"
         str_self += f"  ei_method: {self.ei_method}\n"

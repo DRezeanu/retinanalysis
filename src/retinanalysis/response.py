@@ -145,8 +145,8 @@ class MEAResponseBlock(ResponseBlock):
     def get_spike_times(self):
         d_spike_times = {'cell_id': [], 'spike_times': []}
 
-        epoch_starts = self.d_timing['epoch_starts']
-        epoch_ends = self.d_timing['epoch_ends']
+        epoch_starts = self.d_timing['epochStarts']
+        epoch_ends = self.d_timing['epochEnds']
 
         #i think if symphony crashed during recording, there might be more 1 more start than end
         #this ignores the partial epoch
