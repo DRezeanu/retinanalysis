@@ -37,7 +37,8 @@ dependencies = [
   "pandas",
   "seaborn",
   "datajoint"
-  "ipywidgets"]
+  "ipywidgets"
+  "matplotlib_venn"]
 
 [project.urls]
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
