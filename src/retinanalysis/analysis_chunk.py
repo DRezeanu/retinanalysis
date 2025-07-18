@@ -6,7 +6,7 @@ import retinanalysis.vision_utils as vu
 from hdf5storage import loadmat
 import pickle
 import numpy as np
-from typing import List, Tuple
+from typing import List, Dict
 import matplotlib.pyplot as plt
 import retinanalysis
 import importlib.resources as ir
@@ -123,14 +123,15 @@ class AnalysisChunk:
                                 'std_y' : self.vcd.main_datatable[id]['SigmaY'],
                                 'rot' : self.vcd.main_datatable[id]['Theta']}
             
-    def get_cells_by_region(self, roi: Tuple[np.ndarray, np.ndarray], units: str = 'pixels'):
+    def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
         """
         Method for pulling cell_ids by region of interest.
         
         Parameters:
-        roi (Tuple[ndarray, ndarray]):  roi definition as a tuple of arrays. The first array describes
-                                        an (x,y) location and the second array describes the distance
-                                        in (x,y) from that location that defines the roi box.
+        roi (dict):                     roi definition as a dictionary with 4 values. 'x_min',
+                                        'x_max', 'y_min', 'y_max'. These define the vertical and
+                                        horizontal lines that define the region of interest. Units
+                                        of ROI definition must match the units parameter!
                                         
         units (str):                    units to use when defining the roi. Must be either 'pixels',
                                         'microns', or 'stixels'. Default 'pixels'.
@@ -149,19 +150,14 @@ class AnalysisChunk:
         else:
             raise Exception("Units must be 'pixels', 'microns' or 'stixels'")
         
-        if type(roi[0]) is not np.ndarray:
-            location = np.array(roi[0])
-        
-        if type(roi[0]) is not np.ndarray:
-            distance = np.array(roi[1])
-        
-        location = roi[0] / unit_scaling
-        distance = roi[1] / unit_scaling
+        bounding_box = dict()
+        for key, val in roi.items():
+            bounding_box[key] = val/unit_scaling
 
-        x_1 = 'center_x > @location[0] - @distance[0]'
-        x_2 = 'center_x < @location[0] + @distance[0]'
-        y_1 = 'center_y > @location[1] - @distance[1]'
-        y_2 = 'center_y < @location[1] + @distance[1]'
+        x_1 = 'center_x > @bounding_box["x_min"]'
+        x_2 = 'center_x < @bounding_box["x_max"]'
+        y_1 = 'center_y > @bounding_box["y_min"]'
+        y_2 = 'center_y < @bounding_box["y_max"]'
 
         df_cell_params_filtered = self.df_cell_params.query(f'{x_1} and {x_2} and {y_1} and {y_2}')
         arr_ids = df_cell_params_filtered['cell_id'].values
@@ -247,7 +243,7 @@ class AnalysisChunk:
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
                  typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 b_zoom: bool = False, n_pad: int = 6, roi: Tuple[np.ndarray, np.ndarray] = None):
+                 b_zoom: bool = False, n_pad: int = 6, roi: Dict[str, float] = None):
         """
         Method for plotting the receptive fields for a given list of cell ids, cell types, 
         or a union of both. If no cell_ids or cell types are given, all cells in the
@@ -268,9 +264,9 @@ class AnalysisChunk:
         n_pad (int):            Padding value (in stixels) used with b_zoom. B_zoom will zoom
                                 into the min and max center_x and center_y values in the mosaic,
                                 and n_pad will zoom back out by the given number of stixels. Default 6
-        roi (tuple):            A tuple of ndarrays that defines a region of interest. roi[0]
-                                defines an (x,y) location of interest, and roi[1] defines the
-                                distance_x and distance_y used to define the roi bounding box. Default None
+        roi (dict):            roi definition as a dictionary with 4 values. 'x_min',
+                                'x_max', 'y_min', 'y_max'. These define the vertical and
+                                horizontal lines that define the region of interest
         
         Returns:
         axs (axes):             Axes object that contains all of the axes used in the receptive field
@@ -292,17 +288,17 @@ class AnalysisChunk:
             noise_ids = filtered_df['cell_id'].values
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         elif noise_ids is None:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
             noise_ids = filtered_df['cell_id'].values
         elif cell_types is None:
-            filtered_df = self.df_cell_params.query(f'cell_id  == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'cell_id  in @noise_ids')
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
 
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
-            filtered_df = filtered_df.query('cell_id == @roi_cell_ids')
+            filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
 
         if len(filtered_df) == 0:
             print("No data found for the given noise_ids and cell_types.")
@@ -358,7 +354,8 @@ class AnalysisChunk:
         return axs
         
     def plot_timecourses(self, noise_ids: List[int]=None, cell_types: List[int]=None,
-                         typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
+                         typing_file: str = None, units: str = 'ms', std_scaling: float = 2,
+                         roi: Dict[str, float] = None, roi_units: str = 'pixels') -> np.ndarray:
         """
         Method for plotting the timecourses for a given list of cell ids, cell types, 
         or a union of both. If no cell_ids or cell types are given, the timecourses for
@@ -375,6 +372,11 @@ class AnalysisChunk:
                                 'ms', 'milliseconds', 's', or 'seconds'. Default 'mss'.
         std_scaling (float):    Factor used to scale the standard deviation used for plotting the
                                 shaded region around each timecourse. Default 2
+        roi (dict):             roi definition as a dictionary with 4 values. 'x_min',
+                                'x_max', 'y_min', 'y_max'. These define the vertical and
+                                horizontal lines that define the region of interest
+        roi_units (str):        Units to use when defining the region of interest. Must be 'pixels',
+                                'microns', or 'stixels'. Default 'pixels'.
         
         Returns:
         axs (axes):             Axes object that contains all of the axes used in the timecourses
@@ -403,16 +405,19 @@ class AnalysisChunk:
             noise_ids = filtered_df['cell_id'].values
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         elif noise_ids is None:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
             noise_ids = filtered_df['cell_id'].values
         elif cell_types is None:
-            filtered_df = self.df_cell_params.query(f'cell_id  == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids')
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         else:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
+        
+        if roi is not None:
+            roi_cell_ids = self.get_cells_by_region(roi = roi, units = roi_units)
+            filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
 
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
-
         d_timecourses_by_type = vu.get_timecourses(self, d_noise_ids_by_type)
 
         rows = int(np.ceil(len(cell_types)/4))

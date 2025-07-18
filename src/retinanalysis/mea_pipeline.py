@@ -5,7 +5,7 @@ from retinanalysis.analysis_chunk import AnalysisChunk
 import retinanalysis.vision_utils as vu
 import os
 from retinanalysis.settings import NAS_ANALYSIS_DIR
-from typing import List, Tuple
+from typing import List, Dict
 import pickle
 
 
@@ -81,7 +81,8 @@ class MEAPipeline:
 
         return ax
     
-    def get_cells_by_region(self, roi: Tuple[np.ndarray, np.ndarray], units: str = 'pixels'):
+    def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
+
         noise_ids = self.analysis_chunk.get_cells_by_region(roi = roi, units = units)
         protocol_ids = [val for key, val in self.match_dict.items() if key in noise_ids]
         arr_ids = np.array(protocol_ids)
@@ -90,12 +91,11 @@ class MEAPipeline:
 
 
     def plot_timecourses(self, protocol_ids: List[int] = None, cell_types: List[str] = None, 
-                        typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
+                        **kwargs) -> np.ndarray:
 
         noise_ids = self.get_noise_ids(protocol_ids, cell_types)
         ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
-                                             typing_file = typing_file, units = units,
-                                             std_scaling = std_scaling)
+                                             **kwargs)
         
         return ax
 

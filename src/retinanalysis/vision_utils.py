@@ -41,6 +41,16 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
         print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
         return vcd
 
+def get_roi_dict(location: List[float], distance_x: float, distance_y: float):
+    
+    roi = dict()
+    roi['x_min'] = location[0] - distance_x
+    roi['x_max'] = location[0] + distance_x
+    roi['y_min'] = location[1] - distance_y
+    roi['y_max'] = location[1] + distance_y
+    
+    return roi
+
 def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_object: Union[AnalysisChunk, MEAResponseBlock],
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
                 use_timecourse: bool = False, n_removed_channels: int = 1, verbose: bool = True):
@@ -217,16 +227,24 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
     d_timecourses_by_type = dict()
 
     for ct in d_cells_by_type.keys():
-
         rg_timecourses = [analysis_chunk.vcd.main_datatable[cell]['GreenTimeCourse'] for cell in d_cells_by_type[ct]]
         rg_timecourses = np.array(rg_timecourses)
-        rg_mean = np.mean(rg_timecourses, axis = 0)
-        rg_std = np.std(rg_timecourses, axis = 0)
+        if rg_timecourses.shape[0] > 1:
+            rg_mean = np.mean(rg_timecourses, axis = 0)
+            rg_std = np.std(rg_timecourses, axis = 0)
+        else:
+            rg_mean = rg_timecourses.squeeze()
+            rg_std = 0
 
         b_timecourses = [analysis_chunk.vcd.main_datatable[cell]['BlueTimeCourse'] for cell in d_cells_by_type[ct]]
         b_timecourses = np.array(b_timecourses)
-        b_mean = np.mean(b_timecourses, axis = 0)
-        b_std = np.std(b_timecourses, axis = 0)
+
+        if b_timecourses.shape[0] > 1:
+            b_mean = np.mean(b_timecourses, axis = 0)
+            b_std = np.std(b_timecourses, axis = 0)
+        else:
+            b_mean = b_timecourses.squeeze()
+            b_std = 0
 
         d_timecourses_by_type[ct] = {'rg_timecourses' : rg_timecourses, 'rg_mean' : rg_mean, 'rg_std' : rg_std,
                             'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
