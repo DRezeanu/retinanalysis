@@ -400,7 +400,8 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
             if f_count % frame_dwell == 0:
                 x_shift_stix = np.round(np.random.rand() * (steps_per_stixel-1)).astype(int)
                 # If in pixel space, would multiply by stixel_shift_pix
-                # We're in stixel space, so just shift by stixel index
+                # We're in stixel space, we'll mupltiply by the upsample factor
+                x_shift_stix = int(x_shift_stix * steps_per_stixel)
                 if x_shift_stix == 0:
                     continue
                 noise_lines[x_shift_stix:, f_count-1] = noise_lines[:-x_shift_stix, f_count-1]
