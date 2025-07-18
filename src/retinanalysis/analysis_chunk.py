@@ -6,7 +6,7 @@ import retinanalysis.vision_utils as vu
 from hdf5storage import loadmat
 import pickle
 import numpy as np
-from typing import List
+from typing import List, Tuple
 import matplotlib.pyplot as plt
 import retinanalysis
 import importlib.resources as ir
@@ -110,6 +110,36 @@ class AnalysisChunk:
                                 'std_x' : self.vcd.main_datatable[id]['SigmaX'],
                                 'std_y' : self.vcd.main_datatable[id]['SigmaY'],
                                 'rot' : self.vcd.main_datatable[id]['Theta']}
+            
+    def get_cells_by_region(self, roi: Tuple[np.ndarray, np.ndarray], units: str = 'pixels'):
+
+        if 'pixels' in units.lower():
+            unit_scaling = self.pixels_per_stixel
+        elif 'microns' in units.lower():
+            unit_scaling = self.microns_per_stixel
+        elif 'stixels' in units.lower():
+            unit_scaling = 1
+        else:
+            raise Exception("Units must be 'pixels', 'microns' or 'stixels'")
+        
+        if type(roi[0]) is not np.ndarray:
+            location = np.array(roi[0])
+        
+        if type(roi[0]) is not np.ndarray:
+            distance = np.array(roi[1])
+        
+        location = roi[0] / unit_scaling
+        distance = roi[1] / unit_scaling
+
+        x_1 = 'center_x > @location[0] - @distance[0]'
+        x_2 = 'center_x < @location[0] + @distance[0]'
+        y_1 = 'center_y > @location[1] - @distance[1]'
+        y_2 = 'center_y < @location[1] + @distance[1]'
+
+        df_cell_params_filtered = self.df_cell_params.query(f'{x_1} and {x_2} and {y_1} and {y_2}')
+        arr_ids = df_cell_params_filtered['cell_id'].values
+
+        return arr_ids
               
     def get_df(self):
         center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
@@ -186,7 +216,7 @@ class AnalysisChunk:
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
                  typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 b_zoom: bool = False, n_pad = 6):
+                 b_zoom: bool = False, n_pad = 6, roi: Tuple[np.ndarray, np.ndarray] = None):
 
         if typing_file is None:
             typing_file = self.typing_files[0]
@@ -208,6 +238,10 @@ class AnalysisChunk:
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+
+        if roi is not None:
+            roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
+            filtered_df = filtered_df.query('cell_id == @roi_cell_ids')
 
         if len(filtered_df) == 0:
             print("No data found for the given noise_ids and cell_types.")
