@@ -404,7 +404,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
                 if x_shift_stix == 0:
                     continue
                 noise_lines[x_shift_stix:, f_count-1] = noise_lines[:-x_shift_stix, f_count-1]
-
+        noise_lines_epochs[e_idx] = noise_lines
 
     noise_lines_epochs = np.array(noise_lines_epochs)
     all_fix_indices_epochs = np.array(all_fix_indices_epochs)
