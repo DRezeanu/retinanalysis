@@ -4,7 +4,6 @@ import tqdm
 import pandas as pd
 import os
 import cv2
-import matlab.engine as engine
 
 def get_df_dict_vals(df, key, col_name='epoch_parameters'):
     vals = np.array([d[key] for d in df[col_name].values])
@@ -302,6 +301,7 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
 
 def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     str_pkg_dir: str, b_noise_only: bool=True):
+    import matlab.engine as engine
     if not b_noise_only:
         raise NotImplementedError('Noise + Doves not implemented yet.')
     print('Starting matlab engine for stim regen.')
