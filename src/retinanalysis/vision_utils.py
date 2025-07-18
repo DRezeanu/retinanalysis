@@ -8,6 +8,7 @@ from retinanalysis.response import MEAResponseBlock
 from typing import Union, List, Dict, Tuple
 from matplotlib.patches import Ellipse
 import xarray as xr
+from tqdm.auto import tqdm
 
 NAS_DATA_DIR = mea_config['data'] 
 NAS_ANALYSIS_DIR = mea_config['analysis']
@@ -27,7 +28,7 @@ def get_analysis_vcd(exp_name, chunk_name, ss_version, include_ei = True, includ
                                   include_neurons = include_neurons)
         
         if verbose:
-            print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.')
+            print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
         return vcd
 
 def get_protocol_vcd(exp_name, datafile_name, ss_version):
@@ -37,12 +38,12 @@ def get_protocol_vcd(exp_name, datafile_name, ss_version):
             data_path, datafile_name, 
             include_ei = True, include_neurons = True
             )
-        print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.')
+        print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
         return vcd
 
 def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_object: Union[AnalysisChunk, MEAResponseBlock],
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
-                use_timecourse: bool = False, n_removed_channels: int = 1):
+                use_timecourse: bool = False, n_removed_channels: int = 1, verbose: bool = True):
         
         ref_vcd = ref_object.vcd
         test_vcd = test_object.vcd
@@ -78,6 +79,15 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
         bad_match_count = 0
         isi_corr = 1
         rgb_corr = 1
+
+        if verbose:
+            if isinstance(ref_object, AnalysisChunk):
+                if isinstance(test_object, AnalysisChunk):
+                    print(f"Cluster matching {ref_object.exp_name} {ref_object.chunk_name} with {os.path.splitext(test_object.chunk_name)[1][1:]} ...")
+                else:
+                    print(f"Cluster matching {ref_object.exp_name} {ref_object.chunk_name} with {os.path.splitext(test_object.protocol_name)[1][1:]} ...")
+            else:
+                print(f"Cluster matching {ref_object.exp_name} {ref_object.protocol_name} with {os.path.splittext(test_object.protocol_name)[1][1:]} ...")
 
         for idx, ref_cell in enumerate(ref_ids):
             sorted_full_corr = np.sort(arr_full_corr[idx,:])
@@ -147,14 +157,15 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
 
             else:
                 bad_match_count += 1
-        
-        percent_good = match_count/len(ref_ids)
-        percent_bad = bad_match_count/len(ref_ids)
 
-        print(f"\nRef clusters matched: {match_count}")
-        print(f"Ref clusters unmatched: {bad_match_count}")
-        print(f"{np.round(percent_good*100, 2)}% matched, {np.round(percent_bad*100, 2)}% unmatched.")
-        
+        if verbose:        
+            percent_good = match_count/len(ref_ids)
+            percent_bad = bad_match_count/len(ref_ids)
+
+            # print(f"\nRef clusters matched: {match_count}")
+            # print(f"Ref clusters unmatched: {bad_match_count}")
+            print(f"{np.round(percent_good*100, 2)}% matched, {np.round(percent_bad*100, 2)}% unmatched.\n")
+            
         match_dict = dict(sorted(match_dict.items()))
 
         return match_dict

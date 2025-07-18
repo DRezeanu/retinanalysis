@@ -165,7 +165,7 @@ def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: 
     r = MEAResponseBlock(exp_name, datafile_name, ss_version)
     if analysis_chunk_name is None:
         analysis_chunk_name = s.nearest_noise_chunk
-        print(f'Using {analysis_chunk_name} for AnalysisChunk')
+        print(f'Using {analysis_chunk_name} for AnalysisChunk\n')
     ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version)
     mp = MEAPipeline(s, r, ac)
     return mp

@@ -19,11 +19,13 @@ class StimBlock:
     Generic class for single cell or MEA stimulus blocks. 
     """
     def __init__(self, exp_name: str=None, block_id: int=None, ls_params: list=None, pkl_file: str=None):
-        print(f"Initializing StimBlock for {exp_name} block {block_id}")
+        
         if pkl_file is None:
+            print(f"Initializing StimBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
+            print(f"Initializing StimBlock for {exp_name} block {block_id} from pickle file")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
                 with open(pkl_file, 'rb') as f:
@@ -63,11 +65,11 @@ class StimBlock:
             f_regen = D_REGEN_FXNS[self.protocol_name]
             stim_frames = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
             self.stim_frames = stim_frames
-            print(f"Made stimulus of shape: {stim_frames.shape}")
+            print(f"Made stimulus of shape: {stim_frames.shape}\n")
             return
         else:
             print(f'Method for regenerating {self.protocol_name} is not implemented yet!')
-            print('Please do so at your convenience in regen.py, and add function name to D_REGEN_FXNS.')
+            print('Please do so at your convenience in regen.py, and add function name to D_REGEN_FXNS.\n')
             return
     
     def __repr__(self):
@@ -88,7 +90,7 @@ class StimBlock:
         d_out = self.__dict__.copy()
         with open(file_path, 'wb') as f:
             pickle.dump(d_out, f)
-        print(f"StimBlock exported to {file_path}")
+        print(f"StimBlock exported to {file_path}\n")
 
 
 class MEAStimBlock(StimBlock):

@@ -3,7 +3,7 @@ import retinanalysis.vision_utils as vu
 import retinanalysis.spike_detector as spdet
 import numpy as np
 import pandas as pd
-import tqdm
+from tqdm.auto import tqdm
 import pickle
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
@@ -52,11 +52,12 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
 class ResponseBlock:
     def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
                  pkl_file: str=None):
-        print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
         if pkl_file is None:
+            print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
+            print(f"Initializing ResponseBlock for {exp_name} block {block_id} from pickle file.")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
                 with open(pkl_file, 'rb') as f:
@@ -197,7 +198,7 @@ class MEAResponseBlock(ResponseBlock):
         
         binned_spikes = np.zeros((n_cells, self.n_epochs, n_max_bins))
         ls_diff_frames = []
-        for i_cell in tqdm.tqdm(self.df_spike_times.index, desc='Binning spikes for cells'):
+        for i_cell in tqdm(self.df_spike_times.index, desc='Binning spikes for cells'):
             sts = self.df_spike_times.at[i_cell, 'spike_times']
             for j_epoch in range(self.n_epochs):
                 e_sts = sts[j_epoch]
@@ -218,7 +219,7 @@ class MEAResponseBlock(ResponseBlock):
         ls_diff_frames = np.concatenate(ls_diff_frames)
         ls_diff_frames = ls_diff_frames[ls_diff_frames < 20.0]
         mean_frame_rate = 1000.0 / np.mean(ls_diff_frames)
-        print(f'Mean frame rate: {mean_frame_rate:.2f} Hz')
+        print(f'Mean frame rate: {mean_frame_rate:.2f} Hz\n')
         self.mean_frame_rate = mean_frame_rate
         self.bin_rate = bin_rate
         self.binned_time = np.arange(0, n_max_bins) / self.bin_rate * 1000 # in ms

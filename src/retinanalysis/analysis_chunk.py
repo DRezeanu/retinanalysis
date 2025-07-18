@@ -211,7 +211,7 @@ class AnalysisChunk:
             
         self.d_spatial_maps = d_spatial_maps
         print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
-        print(f'Spatial maps have been padded to align with RF parameters.')
+        print(f'Spatial maps have been padded to align with RF parameters.\n')
         # TODO could also load convex hull fits too under 'hull_vertices'
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,

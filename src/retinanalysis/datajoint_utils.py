@@ -548,7 +548,7 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
             frame_data.append(trace)
     
     frame_data = np.array(frame_data)
-    print(f'Loaded {frame_data.shape} frame_data.')
+    print(f'Loaded {frame_data.shape} frame_data.\n')
 
     sample_rates = df_frame['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:
@@ -577,7 +577,7 @@ def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: str=None):
             amp_data.append(trace)
     
     amp_data = np.array(amp_data)
-    print(f'Loaded {amp_data.shape} amp_data.')
+    print(f'Loaded {amp_data.shape} amp_data.\n')
 
     sample_rates = df_amp['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:
