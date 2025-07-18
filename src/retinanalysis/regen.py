@@ -393,9 +393,9 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
         # (stixel, frames)
         noise_lines = noise_lines_epochs[e_idx]
         # Upsample by steps_per_stixel
-        # upsample_size = (int(num_checks_x * steps_per_stixel), noise_lines.shape[1])
+        upsample_size = (int(num_checks_x * steps_per_stixel), noise_lines.shape[1])
         # Upsample to pixel space
-        upsample_size = (int(np.round(num_checks_x * stixel_size_pix)), noise_lines.shape[1])
+        # upsample_size = (int(np.round(num_checks_x * stixel_size_pix)), noise_lines.shape[1])
         print(f'Upsampling noise lines to {upsample_size}')
         noise_lines = cv2.resize(noise_lines, upsample_size[::-1], interpolation=cv2.INTER_NEAREST)
         
@@ -404,7 +404,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
             if f_count % frame_dwell == 0:
                 x_shift_stix = np.round(np.random.rand() * (steps_per_stixel-1)).astype(int)
                 # If in pixel space, would multiply by stixel_shift_pix
-                x_shift_stix = int(x_shift_stix * stixel_shift_pix)
+                # x_shift_stix = int(x_shift_stix * stixel_shift_pix)
                 if x_shift_stix == 0:
                     continue
                 noise_lines[x_shift_stix:, f_count-1] = noise_lines[:-x_shift_stix, f_count-1]
