@@ -50,6 +50,9 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
         return frame_times, transition_frames
 
 class ResponseBlock:
+    """
+    Generic class for single cell or MEA response blocks. 
+    """
     def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
                  pkl_file: str=None):
         if pkl_file is None:

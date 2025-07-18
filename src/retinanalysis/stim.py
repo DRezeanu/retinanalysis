@@ -119,6 +119,12 @@ class MEAStimBlock(StimBlock):
         self.nearest_noise_chunk = self.get_nearest_noise()
     
     def get_nearest_noise(self):
+        """
+        Method for pulling the nearest noise chunk to the given stimulus protocol based on
+        start and end times. Nearest noise is the chunk that ended closest to the protocol
+        start time or started closest to the protocol end time (lowest time delta of the two).
+        """
+
         # pull relevant information from datajoint
         experiment_summary = dju.get_exp_summary(self.exp_name)
         # Keep only rows with same prep_label

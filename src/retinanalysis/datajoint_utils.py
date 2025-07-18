@@ -5,14 +5,28 @@ import os
 import pandas as pd
 from retinanalysis.settings import mea_config
 import json
-import tqdm
+from tqdm.auto import tqdm
 import retinanalysis.analysis_chunk as ac
 from IPython.display import display
 import h5py
+
 NAS_ANALYSIS_DIR = mea_config['analysis']
 H5_DIR = mea_config['h5']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
+    """
+    Connect to local datajoint database container active inside docker.
+    Note: The docker database container MUST be running.
+    
+    Parameters:
+    host_address (str): IP address of mysql/datajoint server. Default '127.0.0.1'
+    user (str): username to log onto server. Default 'root'
+    password (str): password to log onto server. Default 'simple'
+
+    Default parameters should not be changed unless you have created a custom
+    config of the mysql/datajoint docker image and database container.
+    """
+
     try:
         dj.config["database.host"] = f"{host_address}"
         dj.config["database.user"] = f"{user}"
@@ -121,6 +135,14 @@ def get_block_id_from_datafile(exp_name: str, datafile_name: str):
 
 
 def search_protocol(str_search: str):
+    """Search for symphony protocols by name.
+    
+    Parmeters:
+    str_search (str): a string contained somewhere inside the protocol name (e.g., PresentImages)
+    
+    Returns:
+    matches (List[str]): a list of full protocol names as strings (e.g., manookinlab.protocols.PresentImages)"""
+    
     str_search = str_search.lower()
     protocols = schema.Protocol().fetch('name')
     protocols = np.unique(protocols)
@@ -269,7 +291,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
                 'ss_version': [], 'noise_datafile_names': [],
                 'typing_file_name': [], 'typing_file_path': [], 'typing_file_id': [],
                 'n_cells_of_interest': []}
-    for exp_name in tqdm.tqdm(df['exp_name'].unique(), desc="Finding typing files for unique experiments"):
+    for exp_name in tqdm(df['exp_name'].unique(), desc="Finding typing files for unique experiments"):
         df_q = df.query('exp_name==@exp_name')
         df_exp = get_exp_summary(exp_name)
         noise_protocol_name = ac.get_noise_name_by_exp(exp_name)

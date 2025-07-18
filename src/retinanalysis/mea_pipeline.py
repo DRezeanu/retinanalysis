@@ -73,13 +73,11 @@ class MEAPipeline:
             self.response_block.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
 
     def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
-                 typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 roi: Tuple[np.ndarray, np.ndarray] = None) -> np.ndarray:
+                 **kwargs) -> np.ndarray:
         
         noise_ids = self.get_noise_ids(protocol_ids, cell_types)
         ax = self.analysis_chunk.plot_rfs(noise_ids, cell_types = cell_types,
-                                          typing_file = typing_file, units = units,
-                                          std_scaling = std_scaling, roi = roi)
+                                          **kwargs)
 
         return ax
     

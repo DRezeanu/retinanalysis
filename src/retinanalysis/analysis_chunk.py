@@ -20,7 +20,9 @@ def get_noise_name_by_exp(exp_name):
     return noise_protocol_name
 
 class AnalysisChunk:
-
+    """
+    Class for storing data from an MEA sorting chunk created from spatial noise.
+    """
     def __init__(self, exp_name: str=None, chunk_name: str=None, 
                  ss_version: str = 'kilosort2.5', pkl_file: str=None, 
                  b_load_spatial_maps: bool=True, **vu_kwargs):
@@ -67,6 +69,10 @@ class AnalysisChunk:
             self.get_spatial_maps()
 
     def get_noise_params(self):
+        """
+        Method for accessing spatial noise and STA parameters, and correcting for any
+        discrepancy due to cropping.
+        """
         self.staXChecks = int(self.vcd.runtimemovie_params.width)
         self.staYChecks = int(self.vcd.runtimemovie_params.height)
 
@@ -101,6 +107,12 @@ class AnalysisChunk:
         self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
 
     def get_rf_params(self):
+        """
+        Method for pulling the receptive field parameters stored in the vision cell data table (VCD).
+        
+        This method also corrects for Y-flipping and any crop discrepancies between the size of the
+        spatial noise and the size of the STA.
+        """
         self.rf_params = dict()
         for id in self.cell_ids:
             center_x = self.vcd.main_datatable[id]['x0']
@@ -112,6 +124,21 @@ class AnalysisChunk:
                                 'rot' : self.vcd.main_datatable[id]['Theta']}
             
     def get_cells_by_region(self, roi: Tuple[np.ndarray, np.ndarray], units: str = 'pixels'):
+        """
+        Method for pulling cell_ids by region of interest.
+        
+        Parameters:
+        roi (Tuple[ndarray, ndarray]):  roi definition as a tuple of arrays. The first array describes
+                                        an (x,y) location and the second array describes the distance
+                                        in (x,y) from that location that defines the roi box.
+                                        
+        units (str):                    units to use when defining the roi. Must be either 'pixels',
+                                        'microns', or 'stixels'. Default 'pixels'.
+
+        Returns:
+        arr_ids (ndarray):              returns a 1D array of cell ids whose center_x and center_y fall within the
+                                        defined roi.                                
+        """
 
         if 'pixels' in units.lower():
             unit_scaling = self.pixels_per_stixel
@@ -142,6 +169,10 @@ class AnalysisChunk:
         return arr_ids
               
     def get_df(self):
+        """
+        Internal method for generating the cell params dataframe accessible
+        as self.df_cell_params
+        """
         center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
         center_y = [self.rf_params[id]['center_y'] for id in self.cell_ids]
         std_x = [self.rf_params[id]['std_x'] for id in self.cell_ids]
@@ -216,7 +247,37 @@ class AnalysisChunk:
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
                  typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 b_zoom: bool = False, n_pad = 6, roi: Tuple[np.ndarray, np.ndarray] = None):
+                 b_zoom: bool = False, n_pad: int = 6, roi: Tuple[np.ndarray, np.ndarray] = None):
+        """
+        Method for plotting the receptive fields for a given list of cell ids, cell types, 
+        or a union of both. If no cell_ids or cell types are given, all cells in the
+        analysis chunk are plotted by type.
+        
+        Parameters:
+        noise_ids (List[int]):  A list of cell_ids to plot. Default None.
+        cell_types (List[str]): A list of cell_type strings, (e.g. ['OnP', 'OffP']). Default None.
+        typing_fyle (str):      A typing file name which is used to determine the cell types for any
+                                given cell_ids. If none is given, the 0th typing file associated
+                                with the analysis chunk is used. Default None.
+        units (str):            Units to use when plotting the receptive fields. Must be either
+                                'pixels', 'microns', or 'stixels'. Default 'pixels'.
+        std_scaling (float):    Factor used to scale the standard deviation of the plotted
+                                receptive fields. Default 1.6
+        b_zoom (bool):          Boolean value indicating whether or not to zoom the plots in on 
+                                the cell mosaic. Default False
+        n_pad (int):            Padding value (in stixels) used with b_zoom. B_zoom will zoom
+                                into the min and max center_x and center_y values in the mosaic,
+                                and n_pad will zoom back out by the given number of stixels. Default 6
+        roi (tuple):            A tuple of ndarrays that defines a region of interest. roi[0]
+                                defines an (x,y) location of interest, and roi[1] defines the
+                                distance_x and distance_y used to define the roi bounding box. Default None
+        
+        Returns:
+        axs (axes):             Axes object that contains all of the axes used in the receptive field
+                                figure. There will be as many axes as there are cell_types represented
+                                in the plot.
+
+        """
 
         if typing_file is None:
             typing_file = self.typing_files[0]
@@ -298,6 +359,29 @@ class AnalysisChunk:
         
     def plot_timecourses(self, noise_ids: List[int]=None, cell_types: List[int]=None,
                          typing_file: str = None, units: str = 'ms', std_scaling: float = 2) -> np.ndarray:
+        """
+        Method for plotting the timecourses for a given list of cell ids, cell types, 
+        or a union of both. If no cell_ids or cell types are given, the timecourses for
+        all cells in the analysis chunk are plotted by type. The mean is plotted as a line
+        with a shaded region defined by the standard deviation * std_scaling.
+        
+        Parameters:
+        noise_ids (List[int]):  A list of cell_ids to plot. Default None.
+        cell_types (List[str]): A list of cell_type strings, (e.g. ['OnP', 'OffP']). Default None.
+        typing_fyle (str):      A typing file name which is used to determine the cell types for any
+                                given cell_ids. If none is given, the 0th typing file associated
+                                with the analysis chunk is used. Default None.
+        units (str):            Units to use when plotting the timecourse. Must be either
+                                'ms', 'milliseconds', 's', or 'seconds'. Default 'mss'.
+        std_scaling (float):    Factor used to scale the standard deviation used for plotting the
+                                shaded region around each timecourse. Default 2
+        
+        Returns:
+        axs (axes):             Axes object that contains all of the axes used in the timecourses
+                                figure. There will be as many axes as there are cell_types represented
+                                in the plot.
+
+        """
         
         if 'ms' in units.lower() or 'milliseconds' in units.lower():
             scale_factor = 1
@@ -390,8 +474,6 @@ class AnalysisChunk:
         fig.tight_layout()
 
         return ax
-
-
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
