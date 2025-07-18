@@ -1,0 +1,140 @@
+import numpy as np
+from retinanalysis.response import SCResponseBlock
+from retinanalysis.stim import StimBlock
+import os
+import matplotlib.pyplot as plt
+from retinanalysis.regen import get_image_paths_across_epochs, get_df_dict_vals
+from retinanalysis import datajoint_utils as dju
+
+
+class PresentImagesSplitter():
+    def __init__(self, sb: StimBlock, rb: SCResponseBlock, **regen_kwargs):
+        self.sb = sb
+        if not hasattr(sb, 'stim_frames'):
+            self.sb.regenerate_stimulus(**regen_kwargs)
+        self.rb = rb
+        
+
+        stage_frame_rates = get_df_dict_vals(self.sb.df_epochs, 'frameRate')
+        if len(np.unique(stage_frame_rates)) > 1:
+            raise ValueError(f'Multiple stage frame rates found: {np.unique(stage_frame_rates)}. Please ensure all epochs have the same stage_frame_rate.')
+        self.stage_frame_rate = stage_frame_rates[0]
+        self.split_responses_by_u_img()
+
+    def split_responses_by_u_img(self):
+        df_epochs = self.sb.df_epochs
+
+        # Get timing info
+        pre_time = get_df_dict_vals(df_epochs, 'preTime')[0]
+        imgs_per_epoch = get_df_dict_vals(df_epochs, 'imagesPerEpoch')[0]
+        imgs_per_epoch = int(imgs_per_epoch)
+        
+        epoch_flash_frames = get_df_dict_vals(df_epochs, 'flashFrames')
+        epoch_gap_frames = get_df_dict_vals(df_epochs, 'gapFrames')
+        print(f'Using {imgs_per_epoch} images per epoch, {epoch_flash_frames.mean()} flash frames, {epoch_gap_frames.mean()} gap frames.')
+
+        pre_frames = np.floor(pre_time * 1e-3 * self.stage_frame_rate).astype(int)
+
+        n_epochs = len(df_epochs)
+        all_image_paths = get_image_paths_across_epochs(df_epochs)
+        u_image_paths, u_repeats = np.unique(all_image_paths, return_counts=True)
+        repeats = np.unique(u_repeats)
+        if len(repeats) > 1:
+            raise NotImplementedError(f'Found images with different number of repeats: {repeats}. Please ensure all images have the same number of repeats.')
+        repeats = repeats[0]
+
+        # Ensure alignment with loaded u_image_paths
+        if np.any(u_image_paths != self.sb.stim_frames['u_image_paths']):
+            raise ValueError('u_image_paths in StimBlock does not match the u_image_paths generated from the epochs. Please check the StimBlock.')
+        
+        # Convert frame times ms to samples
+        frame_times = []
+        avg_frame_rates = []
+        for i in range(n_epochs):
+            e_fts = self.rb.d_timing['frameTimesMs'][i] 
+            e_fts = np.array(e_fts)
+            e_fts *= self.rb.amp_sample_rate / 1000
+            e_fts = np.round(e_fts).astype(int)
+            frame_times.append(e_fts)
+
+            avg_frame_rate = self.rb.frame_sample_rate / np.mean(np.diff(e_fts))
+            avg_frame_rates.append(avg_frame_rate)
+            
+        
+        # Compute average frame rate
+        avg_frame_rate = np.mean(avg_frame_rates)
+        print(f'Average frame rate: {avg_frame_rate} Hz')
+        avg_flash_time = epoch_flash_frames.mean() / avg_frame_rate
+        avg_flash_samples = int(np.round(avg_flash_time * self.rb.amp_sample_rate))
+        avg_gap_time = epoch_gap_frames.mean() / avg_frame_rate
+        avg_gap_samples = int(np.round(avg_gap_time * self.rb.amp_sample_rate))
+        avg_img_samples = avg_flash_samples + avg_gap_samples
+        print(f'Average flash time: {avg_flash_time} s, gap time: {avg_gap_time} s, img samples: {avg_img_samples} samples')
+
+        split_raw = []
+        split_sts = []
+        split_image_paths = []
+        split_n_sps = []
+        for i in range(n_epochs):
+            sts = self.rb.spike_times[i]
+            flash_frames = epoch_flash_frames[i].astype(int)
+            gap_frames = epoch_gap_frames[i].astype(int)
+            for j in range(imgs_per_epoch):
+                t_onset = frame_times[i][pre_frames - 1 + j * (flash_frames + gap_frames)]
+                t_offset = frame_times[i][pre_frames - 1 + j * (flash_frames + gap_frames) + flash_frames]
+                t_p_end = frame_times[i][pre_frames - 1 + (j + 1) * (flash_frames + gap_frames)]
+                
+                img_sts = sts[(sts >= t_onset) & (sts < t_p_end)]
+                n_sps = len(img_sts[img_sts <= t_offset]) 
+                img_sts = img_sts - t_onset
+                
+                img_raw = self.rb.amp_data[i][t_onset:t_onset + avg_img_samples]
+                
+                split_raw.append(img_raw)
+                split_sts.append(img_sts)
+                split_n_sps.append(n_sps)
+                split_image_paths.append(all_image_paths[i * imgs_per_epoch + j])
+
+        split_raw = np.array(split_raw)
+        split_sts = np.array(split_sts, dtype=object)
+        split_n_sps = np.array(split_n_sps).astype(int)
+        split_image_paths = np.array(split_image_paths)
+        
+
+        # Make (u_img_idx, repeat, data) array
+        u_image_paths = self.sb.stim_frames['u_image_paths']
+        reshaped_raw = np.zeros((len(u_image_paths), repeats, avg_img_samples))
+        reshaped_sts = np.zeros((len(u_image_paths), repeats), dtype=object)
+        reshaped_n_sps = np.zeros((len(u_image_paths), repeats), dtype=int)
+        for i, u_img_path in enumerate(u_image_paths):
+            img_indices = np.where(split_image_paths == u_img_path)[0]
+            reshaped_raw[i] = split_raw[img_indices].reshape((repeats, avg_img_samples))
+            reshaped_sts[i] = split_sts[img_indices]
+            reshaped_n_sps[i] = split_n_sps[img_indices]
+
+        self.split_sts = reshaped_sts
+        self.split_n_sps = reshaped_n_sps
+        self.split_raw = reshaped_raw
+        self.u_image_paths = u_image_paths
+        self.d_avg_timing = {
+            'avg_flash_samples': avg_flash_samples,
+            'avg_gap_samples': avg_gap_samples,
+            'avg_img_samples': avg_img_samples,
+            'avg_frame_rate': avg_frame_rate,
+            'pre_frames': pre_frames,
+            'avg_flash_time': avg_flash_time,
+            'avg_gap_time': avg_gap_time,
+        }
+
+    def plot_eg_trace(self, i_u_img, i_repeat=0):
+        f, ax = plt.subplots(1, 1, figsize=(10, 5))
+        raw = self.split_raw[i_u_img, i_repeat]
+        sts = self.split_sts[i_u_img, i_repeat]
+        n_sps = self.split_n_sps[i_u_img, i_repeat]
+        time = np.arange(len(raw)) / self.rb.amp_sample_rate
+        ax.plot(time, raw, label='Raw trace')
+        ax.scatter(sts/self.rb.amp_sample_rate, raw[sts], color='r')
+        ax.axvline(self.d_avg_timing['avg_flash_time'], c='grey' )
+        ax.set_title(f'{self.u_image_paths[i_u_img]} - {n_sps} spikes')
+        ax.set_xlabel('Time (s)')
+        ax.set_ylabel('Amplitude')

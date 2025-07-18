@@ -4,3 +4,4 @@ databases
 src/retinanalysis/assets/images/
 src/retinanalysis/assets/resources/
 *.DS_Store
+.DS_Store

@@ -8,7 +8,7 @@ import pickle
 import numpy as np
 from typing import List, Dict
 import matplotlib.pyplot as plt
-import retinanalysis
+import retinanalysis 
 import importlib.resources as ir
 
 def get_noise_name_by_exp(exp_name):
@@ -39,6 +39,7 @@ class AnalysisChunk:
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
             self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
+            # self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
             print(f"AnalysisChunk loaded from {pkl_file}")
             return
         

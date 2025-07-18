@@ -14,7 +14,7 @@ USER = mea_config['user']
 def populate_database(username = USER, h5_dir = H5_DIR, 
                         meta_dir = META_DIR, tags_dir = TAGS_DIR):
     
-    db = dj.VirtualModule('schema.py', 'schema')
+    db = dj.VirtualModule('schema.py', 'schema', create_schema=True)
 
     database_pop.append_data(h5_dir, meta_dir, tags_dir, username, db)
 

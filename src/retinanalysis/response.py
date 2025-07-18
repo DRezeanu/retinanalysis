@@ -98,7 +98,6 @@ class ResponseBlock:
         print(f"ResponseBlock exported to {file_path}")
 
 
-
 class SCResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
                  pkl_file: str=None, b_spiking: bool=False, **detector_kwargs):
@@ -114,10 +113,11 @@ class SCResponseBlock(ResponseBlock):
             self.get_spike_times(**detector_kwargs)
 
     def get_spike_times(self, **detector_kwargs):
-        spikes, amps, refs = spdet.detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
-        self.spikes = spikes
-        self.amps = amps
-        self.refs = refs
+        spike_times, amps, refs = spdet.detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
+        self.spike_times = spike_times
+        self.spike_amps = amps
+        self.spike_refs = refs
+
 
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
@@ -148,8 +148,17 @@ class MEAResponseBlock(ResponseBlock):
 
     def get_spike_times(self):
         d_spike_times = {'cell_id': [], 'spike_times': []}
+
         epoch_starts = self.d_timing['epochStarts']
         epoch_ends = self.d_timing['epochEnds']
+
+        #i think if symphony crashed during recording, there might be more 1 more start than end
+        #this ignores the partial epoch
+        if len(epoch_ends) == len(epoch_starts)-1:
+            epoch_starts = epoch_starts[:len(epoch_ends)]
+        elif len(epoch_ends) != len(epoch_starts):
+            raise ValueError("Mismatch in number of epoch starts and ends.")
+
         # n_samples = self.d_timing['n_samples']
         # frame_times_ms = self.d_timing['frame_times_ms']
 
