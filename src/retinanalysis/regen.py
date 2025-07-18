@@ -370,10 +370,10 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
 
     # Apply jitter
     for e_idx in range(n_epochs):
-        mu_per_pix = get_df_dict_vals[df_epochs, 'micronsPerPixel'][e_idx]
-        stixel_size_um = get_df_dict_vals[df_epochs, 'stixelSize'][e_idx]
+        mu_per_pix = get_df_dict_vals(df_epochs, 'micronsPerPixel')[e_idx]
+        stixel_size_um = get_df_dict_vals(df_epochs, 'stixelSize')[e_idx]
         stixel_size_pix = stixel_size_um / mu_per_pix
-        grid_size_um = get_df_dict_vals[df_epochs, 'gridSize'][e_idx]
+        grid_size_um = get_df_dict_vals(df_epochs, 'gridSize')[e_idx]
         grid_size_pix = grid_size_um / mu_per_pix
         steps_per_stixel = np.max([np.round(stixel_size_pix/grid_size_pix), 1]).astype(int)
         stixel_shift_pix = np.round(stixel_size_pix / steps_per_stixel).astype(int)
