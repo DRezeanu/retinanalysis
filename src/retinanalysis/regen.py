@@ -357,7 +357,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
         ls_input = [seed, num_checks_x, pre_time, stim_time, tail_time,
                     background_intensity, frame_dwell, binary_noise,
                     1.0, 0.0, 1, paired_bars, 0, 0]
-        print(f'Calling matlab function with inputs: {ls_input}')
+        # print(f'Calling matlab function with inputs: {ls_input}')
         noise_lines = eng.util.getCheckerboardProjectLines(*ls_input, nargout=1)
 
         noise_lines = np.array(noise_lines)
