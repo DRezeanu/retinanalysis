@@ -1,16 +1,12 @@
 import datajoint as dj
-from retinanalysis.settings import mea_config
-import retinanalysis.schema as schema
-import retinanalysis.database_pop as database_pop
+from retinanalysis.utils import (USER,
+                                 H5_DIR,
+                                 META_DIR,
+                                 TAGS_DIR,
+                                 database_pop,
+                                 schema)
+
     
-
-NAS_DATA_DIR = mea_config['data']
-NAS_ANALYSIS_DIR = mea_config['analysis']
-META_DIR = mea_config['meta']
-TAGS_DIR = mea_config['tags']
-H5_DIR = mea_config['h5']
-USER = mea_config['user']
-
 def populate_database(username = USER, h5_dir = H5_DIR, 
                         meta_dir = META_DIR, tags_dir = TAGS_DIR):
     

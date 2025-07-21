@@ -1,44 +1,60 @@
-from retinanalysis.settings import mea_config
+from __future__ import annotations
+from typing import (Union,
+                    List,
+                    Dict,
+                    Tuple,
+                    TYPE_CHECKING)
+
+if TYPE_CHECKING:
+    from retinanalysis.classes.analysis_chunk import AnalysisChunk
+    from retinanalysis.classes.response import MEAResponseBlock
+    from visionloader import VisionCellDataTable
+    
+from retinanalysis.utils import (NAS_DATA_DIR,
+                                 NAS_ANALYSIS_DIR,
+                                 get_exp_summary)
+
 import os
 import numpy as np
-import retinanalysis.datajoint_utils as dju
-import visionloader as vl
-from retinanalysis.analysis_chunk import AnalysisChunk
-from retinanalysis.response import MEAResponseBlock
-from typing import Union, List, Dict, Tuple
+# from retinanalysis.utils.datajoint_utils import get_exp_summary
+from visionloader import load_vision_data
+
 from matplotlib.patches import Ellipse
 import xarray as xr
-from tqdm.auto import tqdm
 
-NAS_DATA_DIR = mea_config['data'] 
-NAS_ANALYSIS_DIR = mea_config['analysis']
-META_DIR = mea_config['meta']
-TAGS_DIR = mea_config['tags']
-H5_DIR = mea_config['h5']
-USER = mea_config['user']
-
-def get_analysis_vcd(exp_name, chunk_name, ss_version, include_ei = True, include_neurons = True, verbose=True):
+def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
+                    include_ei: bool = True, include_neurons: bool = True,
+                    verbose: bool = True) -> VisionCellDataTable:
         data_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, chunk_name, ss_version)
+        
         if verbose:
             print(f'Loading VCD from {data_path} ...')
 
-        vcd = vl.load_vision_data(data_path, ss_version, include_ei = include_ei,
+        vcd = load_vision_data(data_path, ss_version, include_ei = include_ei,
                                   include_noise = False, include_sta = False,
                                   include_params = True, include_runtimemovie_params = True,
                                   include_neurons = include_neurons)
         
         if verbose:
             print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
+
         return vcd
 
-def get_protocol_vcd(exp_name, datafile_name, ss_version):
+def get_protocol_vcd(exp_name: str, datafile_name: str, ss_version: str,
+                     verbose: bool = True) -> VisionCellDataTable:
+        
         data_path = os.path.join(NAS_DATA_DIR, exp_name, datafile_name, ss_version)
-        print(f'Loading VCD from {data_path} ...')
-        vcd = vl.load_vision_data(
+        
+        if verbose:
+            print(f'Loading VCD from {data_path} ...')
+            
+        vcd = load_vision_data(
             data_path, datafile_name, 
             include_ei = True, include_neurons = True
             )
-        print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
+        if verbose:
+            print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
+
         return vcd
 
 def get_roi_dict(location: List[float], distance_x: float, distance_y: float):
@@ -54,6 +70,8 @@ def get_roi_dict(location: List[float], distance_x: float, distance_y: float):
 def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_object: Union[AnalysisChunk, MEAResponseBlock],
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
                 use_timecourse: bool = False, n_removed_channels: int = 1, verbose: bool = True):
+
+
         
         ref_vcd = ref_object.vcd
         test_vcd = test_object.vcd
@@ -79,7 +97,9 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
         else:
             raise NameError("Method property must be 'all', 'full', 'space', or 'power'")
 
-
+        # to avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
+        # this is just an issue with python
+        from retinanalysis.classes.response import MEAResponseBlock
         if isinstance(ref_object, MEAResponseBlock) or isinstance(test_object, MEAResponseBlock):
             if use_timecourse:
                 raise FileNotFoundError("Response blocks don't have .params files, can't use timecourse for cluster matching")
@@ -91,6 +111,7 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
         rgb_corr = 1
 
         if verbose:
+            from retinanalysis.classes.analysis_chunk import AnalysisChunk
             if isinstance(ref_object, AnalysisChunk):
                 if isinstance(test_object, AnalysisChunk):
                     print(f"Cluster matching {ref_object.exp_name} {ref_object.chunk_name} with {os.path.splitext(test_object.chunk_name)[1][1:]} ...")
@@ -181,7 +202,7 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
         return match_dict
 
 def get_protocol_from_datafile(exp_name: str, datafile_name: str) -> str:
-    exp_summary = dju.get_exp_summary(exp_name)
+    exp_summary = get_exp_summary(exp_name)
     protocol_name = exp_summary.query('datafile_name == @datafile_name').reset_index(drop = True)
     return protocol_name.loc[0,'protocol_name']
 
@@ -356,6 +377,9 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
     if ss_version is None:
         ss_version = ss_version
 
+    # To avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
+    # this is just an issue with python
+    from retinanalysis.classes.analysis_chunk import AnalysisChunk
     if isinstance(target_object, AnalysisChunk):
         print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n")
         destination_file_path = os.path.join(NAS_ANALYSIS_DIR, analysis_chunk.exp_name,

@@ -1,6 +1,13 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from visionloader import VisionCellDataTable
+
 import numpy as np
 import matplotlib.pyplot as plt
-import visionloader as vl
+
+
 
 def sort_electrode_map(electrode_map: np.ndarray) -> np.ndarray:
     """
@@ -48,7 +55,7 @@ def reshape_ei(ei: np.ndarray, sorted_electrodes: np.ndarray,
 
     return reshaped_ei
 
-def get_top_electrodes(n_ID: int, vcd: vl.VisionCellDataTable, n_interval=2, n_markers=5, b_sort=True):
+def get_top_electrodes(n_ID: int, vcd: VisionCellDataTable, n_interval=2, n_markers=5, b_sort=True):
     # Reshape EI timeseries
     ei = vcd.get_ei_for_cell(n_ID).ei
     sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
@@ -76,7 +83,7 @@ def get_top_electrodes(n_ID: int, vcd: vl.VisionCellDataTable, n_interval=2, n_m
     return top_idx
 
 
-def plot_ei_map(n_ID: int, vcd: vl.VisionCellDataTable, top_idx=None, 
+def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None, 
                 axs=None, label=None):
     if top_idx is None:
         # Get top electrodes if not provided

@@ -1,12 +1,13 @@
-import retinanalysis.schema as schema
+import retinanalysis.config.schema as schema
 import numpy as np
-import retinanalysis.vision_utils as vu
-import retinanalysis.datajoint_utils as dju
+from retinanalysis.utils.datajoint_utils import (get_exp_summary,
+                                                 get_epoch_data_from_exp,
+                                                 get_block_id_from_datafile)
 import pandas as pd
 from typing import List
-import retinanalysis.regen as regen
+import retinanalysis.utils.regen as regen
 import pickle
-from retinanalysis.analysis_chunk import get_noise_name_by_exp
+from retinanalysis.classes.analysis_chunk import get_noise_name_by_exp
 
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
@@ -42,7 +43,7 @@ class StimBlock:
         self.exp_name = exp_name
         self.block_id = block_id
 
-        df = dju.get_exp_summary(exp_name)
+        df = get_exp_summary(exp_name)
         self.d_block_summary = df.query('block_id == @block_id').iloc[0].to_dict()
         self.protocol_name = self.d_block_summary['protocol_name']
         self.prep_label = self.d_block_summary['prep_label']
@@ -50,7 +51,7 @@ class StimBlock:
         epoch_block = schema.EpochBlock() & {'id': block_id}
         self.d_epoch_block_params = epoch_block.fetch('parameters')[0]
 
-        df_e = dju.get_epoch_data_from_exp(exp_name, block_id, ls_params=ls_params)
+        df_e = get_epoch_data_from_exp(exp_name, block_id, ls_params=ls_params)
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
@@ -112,7 +113,7 @@ class MEAStimBlock(StimBlock):
                 raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
             else:
                 # If exp_name and datafile_name are provided, get block_id from datafile_name
-                block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+                block_id = get_block_id_from_datafile(exp_name, datafile_name)
         
         super().__init__(exp_name=exp_name, block_id=block_id, ls_params=ls_params, pkl_file=pkl_file)
         
@@ -132,7 +133,7 @@ class MEAStimBlock(StimBlock):
         """
 
         # pull relevant information from datajoint
-        experiment_summary = dju.get_exp_summary(self.exp_name)
+        experiment_summary = get_exp_summary(self.exp_name)
         # Keep only rows with same prep_label
         experiment_summary = experiment_summary.query('prep_label == @self.prep_label')
         

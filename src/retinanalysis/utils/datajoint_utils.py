@@ -1,17 +1,22 @@
-import retinanalysis.schema as schema
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from retinanalysis.classes.analysis_chunk import AnalysisChunk
+
+from retinanalysis.utils import (NAS_ANALYSIS_DIR,
+                                 H5_DIR)
+from retinanalysis.utils import schema
+
 import numpy as np
 import datajoint as dj
 import os
 import pandas as pd
-from retinanalysis.settings import mea_config
 import json
 from tqdm.auto import tqdm
-import retinanalysis.analysis_chunk as ac
 from IPython.display import display
 import h5py
 
-NAS_ANALYSIS_DIR = mea_config['analysis']
-H5_DIR = mea_config['h5']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
     """
@@ -274,6 +279,13 @@ def get_n_cells_of_interest(str_file, ls_cell_types: list = ['OffP', 'OffM', 'On
         n_cells += len(ls_match)
     return n_cells
 
+def get_noise_name_by_exp(exp_name):
+    # Pull appropriate noise protocol for cell typing
+    if int(exp_name[:8]) < 20230926:
+            noise_protocol_name = 'manookinlab.protocols.FastNoise'
+    else:
+        noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
+    return noise_protocol_name
 
 def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM'],
                                   verbose: bool = False):
@@ -294,7 +306,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
     for exp_name in tqdm(df['exp_name'].unique(), desc="Finding typing files for unique experiments"):
         df_q = df.query('exp_name==@exp_name')
         df_exp = get_exp_summary(exp_name)
-        noise_protocol_name = ac.get_noise_name_by_exp(exp_name)
+        noise_protocol_name = get_noise_name_by_exp(exp_name)
         
         for datafile_name in df_q['datafile_name'].values:
             noise_chunk_names, noise_chunk_distances = get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose)
@@ -373,7 +385,7 @@ def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP',
         ss_version = row['ss_version']
         typing_file = row['typing_file_name']
         try:    
-            ac1 = ac.AnalysisChunk(exp_name, chunk_name, ss_version, b_load_spatial_maps=False,
+            ac1 = AnalysisChunk(exp_name, chunk_name, ss_version, b_load_spatial_maps=False,
                                 include_ei=False, include_neurons=False, verbose=False)
 
             axs = ac1.plot_rfs(typing_file=typing_file,

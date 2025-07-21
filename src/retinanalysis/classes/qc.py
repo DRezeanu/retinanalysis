@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
-from retinanalysis.response import MEAResponseBlock
-from retinanalysis.analysis_chunk import AnalysisChunk
-import visionloader as vl
+from retinanalysis.classes.response import MEAResponseBlock
+from retinanalysis.classes.analysis_chunk import AnalysisChunk
+from visionloader import VisionCellDataTable
 
-def get_nsps(vcd: vl.VisionCellDataTable, cell_ids: list):
+def get_nsps(vcd: VisionCellDataTable, cell_ids: list):
     ls_nsps = []
     for n_ID in cell_ids:
         if 'SpikeTimes' in vcd.main_datatable[n_ID].keys():
@@ -14,7 +14,7 @@ def get_nsps(vcd: vl.VisionCellDataTable, cell_ids: list):
             print(f'No SpikeTimes for {n_ID}.')
     return ls_nsps
 
-def get_isi(vcd: vl.VisionCellDataTable, cell_ids: list, bin_edges: np.array):
+def get_isi(vcd: VisionCellDataTable, cell_ids: list, bin_edges: np.array):
     isi_dict = dict()
     for n_ID in cell_ids:
         try:
@@ -40,7 +40,7 @@ def get_pct_refractory(isi_dict, n_bin_max):
     pct_refractory = np.sum(isi[:,:n_bin_max], axis=1) * 100
     return pct_refractory
 
-def get_ei_corr(vcd1: vl.VisionCellDataTable, vcd2: vl.VisionCellDataTable, 
+def get_ei_corr(vcd1: VisionCellDataTable, vcd2: VisionCellDataTable, 
                 match_dict: dict, method: str='full'):
     if method != 'full':
         raise NotImplementedError("Only 'full' method is implemented for now in QC EI correlation.")

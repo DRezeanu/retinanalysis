@@ -1,22 +1,17 @@
 import numpy as np
-from retinanalysis.response import MEAResponseBlock
-from retinanalysis.stim import StimBlock
-from retinanalysis.analysis_chunk import AnalysisChunk
-import visionloader as vl
-import retinanalysis.vision_utils as vu
-import retinanalysis.ei_utils as eu
+from retinanalysis.classes.response import MEAResponseBlock
+from retinanalysis.classes.analysis_chunk import AnalysisChunk
+import retinanalysis.utils.vision_utils as vu
+import retinanalysis.utils.ei_utils as eu
 import os
-from retinanalysis.settings import NAS_ANALYSIS_DIR
-from retinanalysis.settings import NAS_DATA_DIR
+from retinanalysis.config.settings import NAS_DATA_DIR
 from matplotlib.patches import Ellipse
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import copy
 from typing import Union
-from itertools import combinations
 import pandas as pd
-import pickle
-from matplotlib_venn import venn3, venn2
+from matplotlib_venn import venn3
 
 def generate_extended_pairings(pairs: set):
     '''
