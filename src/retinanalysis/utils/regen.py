@@ -75,7 +75,7 @@ def get_spatial_noise_frames(numXStixels: int,
     frames: 4D array of frames (n_frames, x, y, n_colors).
     """
     # Seed the random number generator.
-    np.random.seed( seed )
+    np.random.seed( int(seed) )
 
     # First, generate the larger grid of stixels.
     if (chromaticClass == 'BY'):
@@ -96,14 +96,14 @@ def get_spatial_noise_frames(numXStixels: int,
         rsize += 1
     
     # Generate the random grid of stixels.
-    gridValues = np.zeros((tsize, numXStixels*numYStixels), dtype=np.float32)
-    gridValues[:usize,:] = np.random.rand(usize, numXStixels*numYStixels)
+    gridValues = np.zeros((tsize, int(numXStixels*numYStixels)), dtype=np.float32)
+    gridValues[:usize,:] = np.random.rand(usize, int(numXStixels*numYStixels))
     # Repeating sequence.
     if repeat_frames > 0:
         # Reseed the generator.
         np.random.seed( 1 )
-        gridValues[usize:,:] = np.random.rand(rsize, numXStixels*numYStixels)
-    gridValues = np.reshape(gridValues, (tsize, numXStixels, numYStixels))
+        gridValues[usize:,:] = np.random.rand(rsize, int(numXStixels*numYStixels))
+    gridValues = np.reshape(gridValues, (tsize, int(numXStixels), int(numYStixels)))
     gridValues = np.transpose(gridValues, (0, 2, 1))
     gridValues = np.round(gridValues)
     gridValues = (2*gridValues-1).astype(np.float32) # Convert to contrast
@@ -118,17 +118,17 @@ def get_spatial_noise_frames(numXStixels: int,
         gridValues[gridValues < -1.0] = -1.0
 
     # Translate to the full grid
-    fullGrid = np.zeros((tsize,numYStixels*stepsPerStixel,numXStixels*stepsPerStixel), dtype=np.float32)
+    fullGrid = np.zeros((tsize,int(numYStixels*stepsPerStixel),int(numXStixels*stepsPerStixel)), dtype=np.float32)
     # fullGrid = np.zeros((tsize,numYStixels*stepsPerStixel,numXStixels*stepsPerStixel), dtype=np.uint8)
 
-    for k in range(numYStixels*stepsPerStixel):
+    for k in range(int(numYStixels*stepsPerStixel)):
         yindex = np.floor(k/stepsPerStixel).astype(int)
-        for m in range(numXStixels*stepsPerStixel):
+        for m in range(int(numXStixels*stepsPerStixel)):
             xindex = np.floor(m/stepsPerStixel).astype(int)
             fullGrid[:, k, m] = gridValues[:, yindex, xindex]
 
     # Generate the motion trajectory of the larger stixels.
-    np.random.seed( seed ) # Re-seed the number generator
+    np.random.seed( int(seed) ) # Re-seed the number generator
 
     # steps = np.round( (stepsPerStixel-1) * np.random.rand(tsize, 2) )
     steps = np.round( (stepsPerStixel-1) * np.random.rand(tsize, 2) )
@@ -136,14 +136,14 @@ def get_spatial_noise_frames(numXStixels: int,
     # steps = (stepsPerStixel-1) - np.round( (stepsPerStixel-1) * np.random.rand(tsize, 2) )
     # Get the frame values for the finer grid.
     # frameValues = np.zeros((tsize,numYChecks,numXChecks),dtype=np.uint8)
-    frameValues = np.zeros((tsize,numYChecks,numXChecks),dtype=np.float32)
+    frameValues = np.zeros((tsize,int(numYChecks),int(numXChecks)),dtype=np.float32)
     for k in range(tsize):
         x_offset = steps[np.floor(k/tfactor).astype(int), 0].astype(int)
         y_offset = steps[np.floor(k/tfactor).astype(int), 1].astype(int)
-        frameValues[k,:,:] = fullGrid[k, y_offset : numYChecks+y_offset, x_offset : numXChecks+x_offset]
+        frameValues[k,:,:] = fullGrid[k, y_offset : int(numYChecks)+y_offset, x_offset : int(numXChecks)+x_offset]
 
     # Create your output stimulus. (t, y, x, color)
-    stimulus = np.zeros((np.ceil(tsize/tfactor).astype(int),numYChecks,numXChecks,3), dtype=np.float32)
+    stimulus = np.zeros((np.ceil(tsize/tfactor).astype(int),int(numYChecks),int(numXChecks),3), dtype=np.float32)
 
     # Get the pixel values into the proper color channels
     if (chromaticClass == 'BY'):
@@ -162,7 +162,7 @@ def get_spatial_noise_frames(numXStixels: int,
 
     # Deal with the frame dwell.
     if frameDwell > 1:
-        stim = np.zeros((numFrames,numYChecks,numXChecks,3), dtype=np.float32)
+        stim = np.zeros((numFrames,int(numYChecks),int(numXChecks),3), dtype=np.float32)
         for k in range(numFrames):
             idx = np.floor(k / frameDwell).astype(int)
             stim[k,:,:,:] = stimulus[idx,:,:,:]
