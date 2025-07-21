@@ -1,11 +1,8 @@
 import numpy as np
-from retinanalysis.response import SCResponseBlock
-from retinanalysis.stim import StimBlock
-import os
+from retinanalysis.classes.response import SCResponseBlock
+from retinanalysis.classes.stim import StimBlock
 import matplotlib.pyplot as plt
-from retinanalysis.regen import get_image_paths_across_epochs, get_df_dict_vals
-from retinanalysis import datajoint_utils as dju
-
+from retinanalysis.utils.regen import get_image_paths_across_epochs, get_df_dict_vals
 
 class PresentImagesSplitter():
     def __init__(self, sb: StimBlock, rb: SCResponseBlock, **regen_kwargs):

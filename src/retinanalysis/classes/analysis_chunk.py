@@ -1,23 +1,26 @@
-import retinanalysis.schema as schema
+import retinanalysis 
+import retinanalysis.config.schema as schema
 import os
-from retinanalysis.settings import NAS_ANALYSIS_DIR, NAS_DATA_DIR
+from retinanalysis.config.settings import (NAS_ANALYSIS_DIR,
+                                           NAS_DATA_DIR)
 import pandas as pd
-import retinanalysis.vision_utils as vu
+# import retinanalysis.utils.vision_utils as vu
+from retinanalysis.utils.vision_utils import (get_analysis_vcd,
+                                              get_ells,
+                                              get_timecourses)
 from hdf5storage import loadmat
 import pickle
 import numpy as np
-from typing import List, Dict
+from typing import (List,
+                    Dict)
 import matplotlib.pyplot as plt
-import retinanalysis 
-import importlib.resources as ir
 
-def get_noise_name_by_exp(exp_name):
-    # Pull appropriate noise protocol for cell typing
-    if int(exp_name[:8]) < 20230926:
-            noise_protocol_name = 'manookinlab.protocols.FastNoise'
-    else:
-        noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
-    return noise_protocol_name
+try:
+    import importlib.resources as ir
+except:
+    import importlib_resources as ir # type: ignore
+
+from retinanalysis.utils.datajoint_utils import get_noise_name_by_exp
 
 class AnalysisChunk:
     """
@@ -38,8 +41,7 @@ class AnalysisChunk:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
-            # self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
+            self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
             print(f"AnalysisChunk loaded from {pkl_file}")
             return
         
@@ -61,7 +63,7 @@ class AnalysisChunk:
         protocol_id = schema.Protocol() & {'name' : self.noise_protocol}
         self.protocol_id = protocol_id.fetch('protocol_id')[0]
 
-        self.vcd = vu.get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
+        self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
         self.get_noise_params()
         self.cell_ids = self.vcd.get_cell_ids()
         self.get_rf_params()
@@ -307,7 +309,7 @@ class AnalysisChunk:
 
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
 
-        d_ells_by_type, scale_factor = vu.get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)
+        d_ells_by_type, scale_factor = get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)
 
         rows = int(np.ceil(len(cell_types)/4))
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
@@ -419,7 +421,7 @@ class AnalysisChunk:
             filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
 
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
-        d_timecourses_by_type = vu.get_timecourses(self, d_noise_ids_by_type)
+        d_timecourses_by_type = get_timecourses(self, d_noise_ids_by_type)
 
         rows = int(np.ceil(len(cell_types)/4))
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])

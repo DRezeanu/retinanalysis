@@ -1,6 +1,6 @@
-import retinanalysis.datajoint_utils as dju
-import retinanalysis.vision_utils as vu
-import retinanalysis.spike_detector as spdet
+import retinanalysis.utils.datajoint_utils as dju
+import retinanalysis.utils.vision_utils as vu
+from retinanalysis.utils.spike_detector import detector
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
@@ -113,7 +113,7 @@ class SCResponseBlock(ResponseBlock):
             self.get_spike_times(**detector_kwargs)
 
     def get_spike_times(self, **detector_kwargs):
-        spike_times, amps, refs = spdet.detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
+        spike_times, amps, refs = detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
         self.spike_times = spike_times
         self.spike_amps = amps
         self.spike_refs = refs

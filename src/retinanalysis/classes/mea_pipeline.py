@@ -1,11 +1,11 @@
 import numpy as np
-from retinanalysis.response import MEAResponseBlock
-from retinanalysis.stim import MEAStimBlock
-from retinanalysis.analysis_chunk import AnalysisChunk
-import retinanalysis.vision_utils as vu
+from retinanalysis.classes.response import MEAResponseBlock
+from retinanalysis.classes.stim import MEAStimBlock
+from retinanalysis.classes.analysis_chunk import AnalysisChunk
+from retinanalysis.utils.vision_utils import cluster_match
 import os
-from retinanalysis.settings import NAS_ANALYSIS_DIR
-from typing import List, Dict
+from typing import (List,
+                    Dict)
 import pickle
 
 
@@ -29,7 +29,7 @@ class MEAPipeline:
         self.response_block = response_block
         self.analysis_chunk = analysis_chunk
 
-        self.match_dict = vu.cluster_match(self.analysis_chunk, self.response_block)
+        self.match_dict = cluster_match(self.analysis_chunk, self.response_block)
         
         self.add_matches_to_protocol()
         self.add_types_to_protocol()
