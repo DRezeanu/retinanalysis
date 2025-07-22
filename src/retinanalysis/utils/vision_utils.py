@@ -522,7 +522,16 @@ def create_dictionary_from_file(file_path, delimiter=' '):
     
     return result_dict
 
-def get_presentation_times(frame_times, preFrames, flashFrames, gapFrames, images_per_epoch):
+def get_presentation_times(frame_times: np.ndarray, preFrames:int, flashFrames: int,
+                           gapFrames: int, images_per_epoch: int):
+
+    # Ensure frame times are in integers
+    preFrames = int(preFrames)
+    flashFrames = int(flashFrames)
+    gapFrames = int(gapFrames)
+    images_per_epoch = int(images_per_epoch)
+
+
     flash_times = []
     gap_times = []
 
