@@ -375,7 +375,7 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
 
     # If no spike sorting version is given, use same ss_version as analysis chunk
     if ss_version is None:
-        ss_version = ss_version
+        ss_version = analysis_chunk.ss_version
 
     # To avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
     # this is just an issue with python

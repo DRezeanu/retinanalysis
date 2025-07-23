@@ -3,8 +3,8 @@ from retinanalysis.utils import (USER,
                                  H5_DIR,
                                  META_DIR,
                                  TAGS_DIR,
-                                 database_pop,
-                                 schema)
+                                 database_pop)
+import retinanalysis.config.schema as schema
 
     
 def populate_database(username = USER, h5_dir = H5_DIR, 
