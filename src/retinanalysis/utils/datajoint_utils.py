@@ -5,8 +5,8 @@ if TYPE_CHECKING:
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
 
 from retinanalysis.utils import (NAS_ANALYSIS_DIR,
-                                 H5_DIR)
-from retinanalysis.utils import schema
+                                 H5_DIR,
+                                 schema)
 
 import numpy as np
 import datajoint as dj
@@ -74,12 +74,11 @@ def get_exp_summary(exp_name: str):
         )
     pr_q = schema.Preparation.proj(prep_label='label', prep_id='id')
     eg_q = eg_q * c_q * pr_q
-    
     eb_q = schema.EpochBlock.proj(
         'chunk_id', 'protocol_id','data_dir', 
         'start_time', 'end_time',
         group_id='parent_id', block_id='id'
-        )  
+        )
     eb_q = eg_q * eb_q
     # If MEA experiment, get sorting chunk information
     if is_mea:

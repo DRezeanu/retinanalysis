@@ -1,6 +1,7 @@
 from retinanalysis.utils import (NAS_DATA_DIR, 
                                  NAS_ANALYSIS_DIR,
                                  USER)
+
 import datajoint as dj
 import json
 import os
@@ -267,7 +268,7 @@ def get_block_chunk(experiment_id: int, data_dir: str) -> int:
     possible_chunks = (SortingChunk & f"experiment_id={experiment_id}").fetch()['chunk_name']
     exp_name = (Experiment & f"id={experiment_id}").fetch1('exp_name')
     # exp_name = os.path.basename(exp_name)[:-3]
-    experiment_dir = os.path.join(data_dir, exp_name)
+    experiment_dir = os.path.join(NAS_DATA_DIR, exp_name)
     for chunk_name in possible_chunks:
         f = os.path.join(experiment_dir, f"{exp_name}_{chunk_name}.txt")
         if not os.path.exists(f):
@@ -384,7 +385,7 @@ def append_epoch_block(experiment_id: int, parent_id: int, epoch_block: dict, us
         chunk_id = ''
         if is_mea:
             # Check that spike sorted outputs exist for this Experiment
-            if os.path.exists(os.path.join(data_dir, exp_name)):
+            if os.path.exists(os.path.join(NAS_DATA_DIR, exp_name)):
                 chunk_id = get_block_chunk(experiment_id, data_dir)
     except Exception as e:
         print(f"Error getting chunk_id for {experiment_id}, {data_dir}: {e}")
@@ -562,13 +563,13 @@ def gen_meta_list(data_dir: str, meta_dir: str, tags_dir: str) -> list:
             if not os.path.exists(tags_file):
                 gen_tags(item[:-5] + '.json', tags_dir)
             # Check that NAS directory exists
-            if not os.path.exists(data_dir):
-                print(f"Could not find NAS_DATA_DIR: {data_dir}")
+            if not os.path.exists(NAS_DATA_DIR):
+                print(f"Could not find NAS_DATA_DIR: {NAS_DATA_DIR}")
                 print('Make sure you are connected and that api/helpers/utils.py has the correct path.')
                 continue
             
             # find the right directory in NAS_DATA_DIR
-            if item[:-5] not in os.listdir(data_dir):
+            if item[:-5] not in os.listdir(NAS_DATA_DIR):
                 print(f"Could not find data directory for {item}")
                 continue
             meta_list.append([os.path.join(meta_dir, item), item[:-5], tags_file])
