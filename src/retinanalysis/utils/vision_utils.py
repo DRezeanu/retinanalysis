@@ -71,8 +71,6 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
                 use_timecourse: bool = False, n_removed_channels: int = 1, verbose: bool = True):
 
-
-        
         ref_vcd = ref_object.vcd
         test_vcd = test_object.vcd
         ref_ids = ref_object.cell_ids
@@ -114,11 +112,23 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
             from retinanalysis.classes.analysis_chunk import AnalysisChunk
             if isinstance(ref_object, AnalysisChunk):
                 if isinstance(test_object, AnalysisChunk):
-                    print(f"Cluster matching {ref_object.exp_name} {ref_object.chunk_name} with {os.path.splitext(test_object.chunk_name)[1][1:]} ...")
+                    ref_name = ref_object.chunk_name
+                    test_name = test_object.chunk_name
+                    print(f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ...")
                 else:
-                    print(f"Cluster matching {ref_object.exp_name} {ref_object.chunk_name} with {os.path.splitext(test_object.protocol_name)[1][1:]} ...")
+                    ref_name = ref_object.chunk_name
+                    test_name = os.path.splitext(test_object.protocol_name)[1][1:]
+                    print(f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ...")
             else:
-                print(f"Cluster matching {ref_object.exp_name} {ref_object.protocol_name} with {os.path.splittext(test_object.protocol_name)[1][1:]} ...")
+                if isinstance(test_object, AnalysisChunk):
+                    ref_name = os.path.splitext(ref_object.protocol_name)[1][1:]
+                    test_name = test_object.chunk_name
+                    print(f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ...")
+
+                else:
+                    ref_name = os.path.splitext(ref_object.protocol_name)[1][1:]
+                    test_name = os.path.splitext(test_object.protocol_name)[1][1:]
+                    print(f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ...")
 
         for idx, ref_cell in enumerate(ref_ids):
             sorted_full_corr = np.sort(arr_full_corr[idx,:])

@@ -19,11 +19,18 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
     Returns:
         frame_times: 1D array of frame times with dropped frames fixed.
     """
+    # check that frame_times is an array not a list. Conver to array if not.
+    if not isinstance(frame_times, np.ndarray):
+        frame_times = np.array(frame_times)
+
     # Get the frame durations in milliseconds.
     frame_interval = 1000/frame_rate
     d_frames = np.diff(frame_times)
     # Get the number of frames between transitions/check for drops.
-    transition_frames = np.round( frame_interval / d_frames ).astype(np.int32)
+    transition_frames = np.round( d_frames / frame_interval).astype(np.int32)   # this was backwards... frame_interval/d_frames
+                                                                                # prints 1 wherever there is a missing frame and
+                                                                                # a zero everywhere else...
+
     # Check for frame drops.
     if np.amax(transition_frames) > 1:
         n_frames = np.sum(transition_frames)+1
