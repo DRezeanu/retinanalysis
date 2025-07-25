@@ -51,7 +51,8 @@ from .classes.stim import (StimBlock,
 from .classes import response
 from .classes.response import (ResponseBlock,
                                MEAResponseBlock,
-                               SCResponseBlock)
+                               SCResponseBlock,
+                               check_frame_times)
 
 from .classes import qc
 from .classes.qc import MEAQC
