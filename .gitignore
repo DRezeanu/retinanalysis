@@ -6,4 +6,4 @@ src/retinanalysis/assets/resources/
 *.DS_Store
 .DS_Store
 src/.DS_Store
-srd/retinanalysis/.DS_Store
+src/retinanalysis/.DS_Store
