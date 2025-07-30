@@ -36,8 +36,8 @@ dependencies = [
   "numpy==2.2.6",
   "pandas",
   "seaborn",
-  "datajoint"
-  "ipywidgets"
+  "datajoint",
+  "ipywidgets",
   "matplotlib_venn"]
 
 [project.urls]
