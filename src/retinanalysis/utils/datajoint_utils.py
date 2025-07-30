@@ -12,11 +12,13 @@ import numpy as np
 import datajoint as dj
 import os
 import pandas as pd
+from retinanalysis.settings import NAS_CONFIG
 import json
 from tqdm.auto import tqdm
 from IPython.display import display
-import h5py
-
+import h5py 
+NAS_ANALYSIS_DIR = NAS_CONFIG['analysis']
+H5_DIR = NAS_CONFIG['h5']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
     """
@@ -363,11 +365,12 @@ def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP',
     display(df_not_typed)
     print(f'Found {df_typed.shape[0]} datasets with typing files.')
 
-    df_u = df_typed[['exp_name', 'typed_noise_chunk', 'n_cells_of_interest']].drop_duplicates()
     # Keep only those with n_cells_of_interest > 0
-    df_u = df_u.query('n_cells_of_interest > 0')
+    df_u = df_typed.query('n_cells_of_interest > 0')
     # Sort by n_cells_of_interest
     df_u = df_u.sort_values('n_cells_of_interest', ascending=False)
+    df_u = df_typed[['exp_name', 'typed_noise_chunk']].drop_duplicates()
+    
     if n_top is None:
         n_top = 20
     print(f'Found {df_u.shape[0]} unique datasets with typing files and > 0  cells of interest.')
@@ -378,7 +381,7 @@ def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP',
         df_q = df_typed.query(f'exp_name == "{exp_name}" and typed_noise_chunk == "{chunk_name}"')
         df_q = df_q.reset_index(drop=True)
         datafile_names = df_q['datafile_name'].unique()
-        # for i, row in df_q.iterrows():
+
         # Find row with max n_cells_of_interest
         row = df_q.loc[df_q['n_cells_of_interest'].idxmax()]
         ss_version = row['ss_version']
