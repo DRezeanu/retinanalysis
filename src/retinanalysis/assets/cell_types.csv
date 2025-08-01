@@ -2,6 +2,7 @@ cell_types
 OnP
 OffP
 OnM
+BlueOffM
 OffM
 OnS
 OffS
@@ -22,6 +23,7 @@ Contaminated
 BlueMystery
 Edge
 Partial
+A1
 Amacrine
 InterestingIfTrue
 Pieces
