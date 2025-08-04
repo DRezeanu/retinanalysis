@@ -12,7 +12,7 @@ import numpy as np
 import datajoint as dj
 import os
 import pandas as pd
-from retinanalysis.settings import NAS_CONFIG
+from retinanalysis.config.settings import NAS_CONFIG
 import json
 from tqdm.auto import tqdm
 from IPython.display import display
