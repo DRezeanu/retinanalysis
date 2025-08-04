@@ -92,7 +92,7 @@ class ResponseBlock:
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
-        str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
+        str_self += f"  frame_sample_rate: {self.frame_sample_rate} Hz\n"
         str_self += f"  frame_data shape: {self.frame_data.shape}\n"
         if self.h5_file is not None:
             str_self += f"  h5_file: {self.h5_file}\n"
@@ -124,6 +124,17 @@ class SCResponseBlock(ResponseBlock):
         self.spike_times = spike_times
         self.spike_amps = amps
         self.spike_refs = refs
+
+    def __repr__(self):
+        str_self = super().__repr__()
+        str_self += f"  b_spiking: {self.b_spiking}\n"
+        str_self += f"  amp_data shape: {self.amp_data.shape}\n"
+        str_self += f"  amp_sample_rate: {self.amp_sample_rate} Hz\n"
+        if self.b_spiking:
+            str_self += f"  spike_times length: {len(self.spike_times)}\n"
+            str_self += f"  spike_amps length: {len(self.spike_amps)}\n"
+            str_self += f"  spike_refs length: {len(self.spike_refs)}\n"
+        return str_self
 
 
 class MEAResponseBlock(ResponseBlock):
