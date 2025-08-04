@@ -27,7 +27,7 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
     frame_interval = 1000/frame_rate
     d_frames = np.diff(frame_times)
     # Get the number of frames between transitions/check for drops.
-    transition_frames = np.round( d_frames / frame_interval).astype(np.int32)   # this was backwards... frame_interval/d_frames
+    transition_frames = np.round( d_frames / frame_interval ).astype(np.int32)   # this was backwards... frame_interval/d_frames
                                                                                 # prints 1 wherever there is a missing frame and
                                                                                 # a zero everywhere else...
 
