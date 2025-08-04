@@ -14,6 +14,7 @@ D_REGEN_FXNS = {
     'manookinlab.protocols.SpatialNoise': regen.make_spatial_noise,
     'manookinlab.protocols.PresentImages': regen.load_all_present_images,
     'edu.washington.riekelab.rachel.protocols.DovesPerturbationAlpha': regen.make_doves_perturbation_alpha,
+    'edu.washington.riekelab.turner.protocols.ExpandingSpots': regen.make_expanding_spots,
     # 'manookinlab.protocols.DovesMovie'
 }
 

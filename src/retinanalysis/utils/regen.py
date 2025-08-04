@@ -429,3 +429,54 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     return d_output
 
 
+def make_spot_image(ht, wt, center_row, center_col, diam, background, intensity):
+    Y, X = np.ogrid[:ht, :wt]
+    dist_from_center = np.sqrt((X - center_col) ** 2 + (Y - center_row) ** 2)
+    mask = dist_from_center <= diam / 2
+    img = np.zeros((ht, wt), dtype=np.float32) + background
+    img[mask] = intensity
+    # Scale to (-1, 1)
+    img = (img - 0.5) * 2
+    return img
+
+
+def make_expanding_spots(df_epochs: pd.DataFrame, ds_mu: float=10.0):
+    # Get display parameters
+    d_epoch_params = df_epochs.iloc[0]['epoch_parameters']
+    # Get screen size in (rows, cols)
+    screen_size = np.array(d_epoch_params['canvasSize']).astype(int)[::-1]
+    d_display_params = {
+        'screen_size': screen_size,
+        'mu_per_pix': d_epoch_params['micronsPerPixel'],
+        'ds_mu': ds_mu
+    }
+    d_display_params['ds_pix'] = int(d_display_params['ds_mu'] / d_display_params['mu_per_pix'])
+    d_display_params['ds_screen_size'] = (d_display_params['screen_size']/ d_display_params['ds_pix']).astype(int)
+    img_size = d_display_params['ds_screen_size']
+
+    # Generate images for all epochs
+    all_images = []
+    for e_idx in tqdm.tqdm(df_epochs.index, desc='Generating images'):
+        spot_diam_um = get_df_dict_vals(df_epochs, 'currentSpotSize')[e_idx]
+        spot_diam_ds = int(np.round(spot_diam_um / d_display_params['ds_mu']))
+        # Center offset is in x, y pixels. Get in row, col format.
+        center_offset_pix = get_df_dict_vals(df_epochs, 'centerOffset')[e_idx][::-1]
+        center_offset_ds = (center_offset_pix / d_display_params['ds_pix']).astype(int)
+        center_row = int(np.round(img_size[0] / 2 + center_offset_ds[0]))
+        center_col = int(np.round(img_size[1] / 2 + center_offset_ds[1]))
+
+        background = get_df_dict_vals(df_epochs, 'backgroundIntensity')[e_idx]
+        intensity = get_df_dict_vals(df_epochs, 'spotIntensity')[e_idx]
+
+        img = make_spot_image(img_size[0], img_size[1], center_row, center_col, spot_diam_ds, background, intensity)
+        all_images.append(img)
+    all_images = np.array(all_images)
+
+    d_output = {
+        'image_data': all_images,
+        'd_display_params': d_display_params
+    }
+
+    return d_output
+
+

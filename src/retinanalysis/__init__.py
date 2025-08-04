@@ -62,7 +62,7 @@ from .classes.qc import MEAQC
 from .classes import mea_pipeline
 from .classes.mea_pipeline import (MEAPipeline,
                                    create_mea_pipeline)
-
+from .classes import sc_pipeline
 from .classes import dedup
 from .classes.dedup import DedupBlock
 
