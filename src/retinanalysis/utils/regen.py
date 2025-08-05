@@ -300,7 +300,12 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
     return d_output
 
 def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
-    str_pkg_dir: str, b_noise_only: bool=True):
+    str_pkg_dir: str, exp_name: str, b_noise_only: bool=True):
+    # This protocol was basically bugged before 20250805,
+    # So regen only for experiments after that date.
+    if int(exp_name[:8]) < 20250805:
+        raise ValueError('Regen for DovesPerturbationAlpha only valid for experiments after 20250805.')
+
     import matlab.engine as engine #type: ignore
     if not b_noise_only:
         raise NotImplementedError('Noise + Doves not implemented yet.')
