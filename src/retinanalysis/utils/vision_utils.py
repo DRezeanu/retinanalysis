@@ -103,6 +103,7 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
                 raise FileNotFoundError("Response blocks don't have .params files, can't use timecourse for cluster matching")
 
         match_dict = dict()
+        corr_dict = dict()
         match_count = 0
         bad_match_count = 0
         isi_corr = 1
@@ -147,24 +148,44 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
             max_inds = np.array([np.argmax(arr_full_corr[idx,:]),
                                  np.argmax(arr_space_corr[idx,:]),
                                  np.argmax(arr_power_corr[idx,:])])
-
+            
             max_rev_inds = np.array([np.argmax(arr_full_corr[:, max_inds[0]]),
                                      np.argmax(arr_space_corr[:, max_inds[1]]),
                                      np.argmax(arr_power_corr[:, max_inds[2]])])
-
+            
             if any(corr_filter):
                 max_corrs = max_corrs[corr_filter]
                 max_inds = max_inds[corr_filter]
-                max_rev_inds = max_rev_inds[corr_filter]
             else:
                 bad_match_count += 1
                 continue
-
+                
             best_match = np.argmax(max_corrs)
             max_corr = max_corrs[best_match]
-
             max_ind = max_inds[best_match]
-            max_rev_ind = max_rev_inds[best_match]
+
+            # Pull best and next best correlations for the best match
+            sorted_rev_full_corr = np.sort(arr_full_corr[max_rev_inds[0], :])
+            sorted_rev_full_corr = np.flip(sorted_rev_full_corr)
+
+            sorted_rev_space_corr = np.sort(arr_space_corr[max_rev_inds[1], :])
+            sorted_rev_space_corr = np.flip(sorted_rev_space_corr)
+
+            sorted_rev_power_corr = np.sort(arr_power_corr[max_rev_inds[2], :])
+            sorted_rev_power_corr = np.flip(sorted_rev_power_corr)
+            
+            max_rev_corrs = np.array([sorted_rev_full_corr[0], sorted_rev_space_corr[0], sorted_rev_power_corr[0]])
+            next_max_rev_corrs = np.array([sorted_rev_full_corr[1], sorted_rev_space_corr[1], sorted_rev_power_corr[1]])
+            rev_corr_filter = next_max_rev_corrs < max_rev_corrs*0.9
+
+            if any(rev_corr_filter):
+                max_rev_corrs = max_rev_corrs[rev_corr_filter]
+                max_rev_inds = max_rev_inds[rev_corr_filter] 
+            else:
+                pass
+            
+            best_rev_match = np.argmax(max_rev_corrs)
+            max_rev_ind = max_rev_inds[best_rev_match]
 
             if max_corr > corr_cutoff:
                 if use_timecourse:
@@ -175,8 +196,8 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
                     
                     ref_rgb = np.concatenate([ref_rg, ref_b])
                     test_rgb = np.concatenate([test_rg, test_b])
-                    np.nan_to_num(ref_rgb, copy=False, nan=0, neginf=0, posinf=0)
-                    np.nan_to_num(test_rgb, copy = False, nan=0, neginf=0, posinf=0)
+                    np.nan_to_num(ref_rgb, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
+                    np.nan_to_num(test_rgb, copy = False, nan=0.001, neginf=0.001, posinf=0.001)
                     
                     rgb_corr = np.corrcoef(ref_rgb, test_rgb)[0,1]
 
@@ -195,6 +216,7 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
                 else:
                     match_dict[ref_cell] = test_ids[max_ind]
                     match_count += 1    
+                    corr_dict[ref_cell] = max_corr
 
             else:
                 bad_match_count += 1
@@ -208,8 +230,9 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
             print(f"{np.round(percent_good*100, 2)}% matched, {np.round(percent_bad*100, 2)}% unmatched.\n")
             
         match_dict = dict(sorted(match_dict.items()))
+        corr_dict = dict(sorted(corr_dict.items()))
 
-        return match_dict
+        return match_dict, corr_dict
 
 def get_protocol_from_datafile(exp_name: str, datafile_name: str) -> str:
     exp_summary = get_exp_summary(exp_name)
@@ -293,14 +316,14 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = N
         cell_types = filtered_df['cell_type'].unique()
         
     elif protocol_ids is None:
-        filtered_df = spike_time_df.query('cell_type == @cell_types')
+        filtered_df = spike_time_df.query('cell_type in @cell_types')
 
     elif cell_types is None:
-        filtered_df = spike_time_df.query('cell_id == @protocol_ids')
+        filtered_df = spike_time_df.query('cell_id in @protocol_ids')
         cell_types = filtered_df['cell_type'].unique()
         
     else:
-        filtered_df = spike_time_df.query('cell_id == @protocol_ids and cell_type == @cell_types')
+        filtered_df = spike_time_df.query('cell_id in @protocol_ids and cell_type in @cell_types')
 
     d_spike_times = dict()
     for ct in cell_types:
@@ -324,14 +347,14 @@ def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = N
         cell_types = filtered_df['cell_type'].unique()
     
     elif protocol_ids is None:
-        filtered_df = spike_time_df.query('cell_type == @cell_types')
+        filtered_df = spike_time_df.query('cell_type in @cell_types')
 
     elif cell_types is None:
-        filtered_df = spike_time_df.query('cell_id == @protocol_ids')
+        filtered_df = spike_time_df.query('cell_id in @protocol_ids')
         cell_types = filtered_df['cell_type'].unique()
         
     else:
-        filtered_df = spike_time_df.query('cell_id == @protocol_ids and cell_type == @cell_types')
+        filtered_df = spike_time_df.query('cell_id in @protocol_ids and cell_type in @cell_types')
 
     d_spike_times = dict()
     for ct in cell_types:
@@ -405,7 +428,7 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
     # Cluster Match
     target_ids = target_object.cell_ids
 
-    match_dict = cluster_match(analysis_chunk, target_object, **kwargs)
+    match_dict, _ = cluster_match(analysis_chunk, target_object, **kwargs)
     
     # Create classification file and drop it in the destination path
     input_file_path = os.path.join(NAS_ANALYSIS_DIR, analysis_chunk.exp_name,
