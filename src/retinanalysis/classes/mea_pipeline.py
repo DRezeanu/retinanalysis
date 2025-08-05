@@ -29,7 +29,7 @@ class MEAPipeline:
         self.response_block = response_block
         self.analysis_chunk = analysis_chunk
 
-        self.match_dict = cluster_match(self.analysis_chunk, self.response_block)
+        self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
         
         self.add_matches_to_protocol()
         self.add_types_to_protocol()
@@ -136,6 +136,7 @@ class MEAPipeline:
         str_self += f"  stim_block and response_block from: {os.path.splitext(self.stim_block.protocol_name)[1][1:]}\n"
         str_self += f"  analysis_chunk: {self.analysis_chunk.chunk_name}\n"
         str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.stim_block.protocol_name)[1][1:]}_id"
+        str_self += f"  corr_dict: with {self.analysis_chunk.chunk_name}_id : calculated ei correlations"
         return str_self
 
     def export_to_pkl(self, file_path: str):
