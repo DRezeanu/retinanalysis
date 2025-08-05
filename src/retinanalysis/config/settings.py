@@ -1,12 +1,8 @@
 from configparser import ConfigParser
 import platform
 import os
-
-try:
-    import importlib.resources as ir
-except:
-    import importlib_resources as ir # type: ignore
-
+# import importlib.resources as ir
+import importlib_resources as ir
 import retinanalysis
 
 
@@ -16,51 +12,27 @@ def load_config(config_path):
         configfile = ConfigParser()
         configfile.read(config_path)
     else:
-        raise FileNotFoundError("No config file found. Use reset_config() and create_config() to make one.")
+        print()
+        raise FileNotFoundError(f"No config file found at {config_path}.\nUse reset_config() and create_config() to make one.")
 
     if platform.system() == 'Darwin':
-        NAS_config = configfile['DEFAULT']
-        SSD_config = configfile['MAC_SSD']
-        if os.path.exists(os.path.abspath(NAS_config['data'])):
-            data_dir = NAS_config['data']
-            analysis_dir = NAS_config['analysis']
-            h5_dir = NAS_config['h5']
-            meta_dir = NAS_config['meta']
-            tags_dir = NAS_config['tags']
-            user = NAS_config['user']
-        elif os.path.exists(os.path.abspath(SSD_config['data'])):
-            data_dir = SSD_config['data']
-            analysis_dir = SSD_config['analysis']
-            h5_dir = SSD_config['h5']
-            meta_dir = SSD_config['meta']
-            tags_dir = SSD_config['tags']
-            user = SSD_config['user']
-        else:
-            raise FileNotFoundError("No NAS or SSD paths found, check that one of them is connected")
-
+        DEFAULT_config = configfile['DEFAULT']
+        SECONDARY_config = configfile['SECONDARY']
     else:
-        NAS_config = configfile['WINDOWS_NAS']
-        SSD_config = configfile['WINDOWS_SSD']
-        if os.path.exists(os.path.abspath(NAS_config['data'])):
-            data_dir = NAS_config['data']
-            analysis_dir = NAS_config['analysis']
-            h5_dir = NAS_config['h5']
-            meta_dir = NAS_config['meta']
-            tags_dir = NAS_config['tags']
-            user = NAS_config['user']
-        elif os.path.exists(os.path.abspath(SSD_config['data'])):
-            data_dir = SSD_config['data']
-            analysis_dir = SSD_config['analysis']
-            h5_dir = SSD_config['h5']
-            meta_dir = SSD_config['meta']
-            tags_dir = SSD_config['tags']
-            user = SSD_config['user']
-        else:
-            raise FileNotFoundError("No NAS or SSD paths found, check that one of them is connected")
+        DEFAULT_config = configfile['WINDOWS_DEFAULT']
+        SECONDARY_config = configfile['WINDOWS_SECONDARY']
     
-    mea_config = {'data' : data_dir, 'analysis': analysis_dir,
-                'h5': h5_dir, 'meta': meta_dir, 'tags': tags_dir,
-                'user': user}
+    if os.path.exists(os.path.abspath(DEFAULT_config['data'])):
+        use_config = DEFAULT_config
+    elif os.path.exists(os.path.abspath(SECONDARY_config['data'])):
+        use_config = SECONDARY_config
+    else:
+        use_config = {'data': '', 'analysis': '', 'h5': '', 'meta': '', 'tags': '', 'query': '', 'user': ''}
+        print("No NAS or SSD paths found, check that one of them is connected")
+
+    mea_config = {'data' : use_config['data'], 'analysis': use_config['analysis'],
+                'h5': use_config['h5'], 'meta': use_config['meta'], 'tags': use_config['tags'],
+                'query': use_config['query'], 'user': use_config['user']}
 
     return mea_config
 
@@ -109,12 +81,13 @@ def reset_config(config_path):
 #                 tags_dir='/Volumes/RachelSSD/mea/datajoint_testbed/mea/tags/',
 #                 username='roaksleaf')
 
-config_path = ir.files(retinanalysis) / "config/config.ini"
+config_path = ir.files(retinanalysis) / os.path.join("config", "config.ini")
 mea_config = load_config(config_path)
 
-NAS_DATA_DIR = mea_config['data'] 
-NAS_ANALYSIS_DIR = mea_config['analysis']
+DATA_DIR = mea_config['data'] 
+ANALYSIS_DIR = mea_config['analysis']
 H5_DIR = mea_config['h5']
 META_DIR = mea_config['meta']
 TAGS_DIR = mea_config['tags']
+QUERY_DIR = mea_config['query']
 USER = mea_config['user']
