@@ -1,8 +1,9 @@
-from retinanalysis.config.settings import (NAS_ANALYSIS_DIR,
-                                           NAS_DATA_DIR,
+from retinanalysis.config.settings import (ANALYSIS_DIR,
+                                           DATA_DIR,
                                            H5_DIR,
                                            META_DIR,
                                            TAGS_DIR,
+                                           QUERY_DIR,
                                            USER)
 
 import retinanalysis.config.schema as schema

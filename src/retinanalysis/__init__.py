@@ -6,11 +6,12 @@ import retinanalysis.config.schema as schema
 # safe to import first without circular import issues
 from . import config
 from .config import settings
-from .config.settings import (NAS_ANALYSIS_DIR,
-                              NAS_DATA_DIR,
+from .config.settings import (ANALYSIS_DIR,
+                              DATA_DIR,
                               H5_DIR,
                               META_DIR,
                               TAGS_DIR,
+                              QUERY_DIR,
                               USER)
 
 # Utilities imported first. They should NEVER reference the classes for anything

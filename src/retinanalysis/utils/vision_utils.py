@@ -10,8 +10,8 @@ if TYPE_CHECKING:
     from retinanalysis.classes.response import MEAResponseBlock
     from visionloader import VisionCellDataTable
     
-from retinanalysis.utils import (NAS_DATA_DIR,
-                                 NAS_ANALYSIS_DIR,
+from retinanalysis.utils import (DATA_DIR,
+                                 ANALYSIS_DIR,
                                  get_exp_summary)
 
 import os
@@ -25,7 +25,7 @@ import xarray as xr
 def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
                     include_ei: bool = True, include_neurons: bool = True,
                     verbose: bool = True) -> VisionCellDataTable:
-        data_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, chunk_name, ss_version)
+        data_path = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version)
         
         if verbose:
             print(f'Loading VCD from {data_path} ...')
@@ -43,7 +43,7 @@ def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
 def get_protocol_vcd(exp_name: str, datafile_name: str, ss_version: str,
                      verbose: bool = True) -> VisionCellDataTable:
         
-        data_path = os.path.join(NAS_DATA_DIR, exp_name, datafile_name, ss_version)
+        data_path = os.path.join(DATA_DIR, exp_name, datafile_name, ss_version)
         
         if verbose:
             print(f'Loading VCD from {data_path} ...')
@@ -219,7 +219,7 @@ def get_protocol_from_datafile(exp_name: str, datafile_name: str) -> str:
 def get_classification_file_path(classification_file_name: str, exp_name: str, chunk_name: str, 
                                  ss_version: str = 'kilosort2.5') -> str:
     
-    classification_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name)
+    classification_file_path = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name)
     
     return classification_file_path
 
@@ -392,7 +392,7 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
     if isinstance(target_object, AnalysisChunk):
         print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n")
-        destination_file_path = os.path.join(NAS_ANALYSIS_DIR, analysis_chunk.exp_name,
+        destination_file_path = os.path.join(ANALYSIS_DIR, analysis_chunk.exp_name,
                                                 target_object.chunk_name, ss_version, output_typing_file)
         
     else:
@@ -408,7 +408,7 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
     match_dict = cluster_match(analysis_chunk, target_object, **kwargs)
     
     # Create classification file and drop it in the destination path
-    input_file_path = os.path.join(NAS_ANALYSIS_DIR, analysis_chunk.exp_name,
+    input_file_path = os.path.join(ANALYSIS_DIR, analysis_chunk.exp_name,
                                     analysis_chunk.chunk_name, analysis_chunk.ss_version,
                                     input_typing_file)
     

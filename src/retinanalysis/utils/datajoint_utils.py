@@ -1,18 +1,14 @@
-from retinanalysis.utils import (NAS_ANALYSIS_DIR,
-                                 H5_DIR,
+from retinanalysis.utils import (H5_DIR, QUERY_DIR,
                                  schema)
 
 import numpy as np
 import datajoint as dj
 import os
 import pandas as pd
-from retinanalysis.config.settings import NAS_CONFIG
 import json
 from tqdm.auto import tqdm
 from IPython.display import display
 import h5py 
-NAS_ANALYSIS_DIR = NAS_CONFIG['analysis']
-H5_DIR = NAS_CONFIG['h5']
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
     """
@@ -322,7 +318,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
                     for i_ct in df_ct.index:
                         ss_version = df_ct.at[i_ct, 'algorithm']
                         typing_file_name = df_ct.at[i_ct, 'file_name']
-                        typing_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, noise_chunk, ss_version, typing_file_name)
+                        typing_file_path = os.path.join(QUERY_DIR, exp_name, noise_chunk, ss_version, typing_file_name)
                         n_cells_of_interest = get_n_cells_of_interest(typing_file_path, ls_cell_types)
                         d_typed['exp_name'].append(exp_name)
                         d_typed['datafile_name'].append(datafile_name)
