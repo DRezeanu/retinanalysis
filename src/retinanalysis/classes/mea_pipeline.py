@@ -114,7 +114,7 @@ class MEAPipeline:
 
         # If only type is given, pull only ids that correspond to that type
         elif protocol_ids is None:
-            protocol_ids = self.response_block.df_spike_times.query('cell_type == @cell_types')['cell_id'].values
+            protocol_ids = self.response_block.df_spike_times.query('cell_type in @cell_types')['cell_id'].values
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only ids are given, pull all ids regardless of type
@@ -123,7 +123,7 @@ class MEAPipeline:
 
         # If both are given, pull only ids that match both the cell types and the cell ids given
         else:
-            protocol_ids = self.response_block.df_spike_times.query('cell_type ==  @cell_types')['cell_id'].values
+            protocol_ids = self.response_block.df_spike_times.query('cell_type in @cell_types')['cell_id'].values
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         if len(noise_ids) == 0:
