@@ -1,9 +1,3 @@
-from __future__ import annotations
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from retinanalysis.classes.analysis_chunk import AnalysisChunk
-
 from retinanalysis.utils import (NAS_ANALYSIS_DIR,
                                  H5_DIR,
                                  schema)
@@ -161,14 +155,17 @@ def search_protocol(str_search: str):
     print(matches)
     return matches
 
-def get_datasets_from_protocol_names(ls_protocol_names):
+def get_datasets_from_protocol_names(ls_protocol_names, b_exact_match: bool=False):
     # TODO pull available algorithm names from CellTypeFile
     if type(ls_protocol_names) is str:
         ls_protocol_names = [ls_protocol_names]
 
-    found_protocols = []
-    for protocol in ls_protocol_names:
-        found_protocols  += list(search_protocol(protocol))
+    if b_exact_match:
+        found_protocols = ls_protocol_names
+    else:
+        found_protocols = []
+        for protocol in ls_protocol_names:
+            found_protocols  += list(search_protocol(protocol))
 
     # Query protocol table
     p_q = schema.Protocol() & [f'name="{protocol}"' for protocol in found_protocols]
@@ -359,6 +356,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
 
 def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP', 'OffM', 'OnP', 'OnM'],
                                   n_top: int=None):
+    from retinanalysis.classes.analysis_chunk import AnalysisChunk
     # df should be output of get_datasets_from_protocol_names
     df_typed, df_not_typed = get_typing_files_for_datasets(df, ls_cell_types)
     print(f'Found {df_not_typed.shape[0]} datasets without any typing files:')
