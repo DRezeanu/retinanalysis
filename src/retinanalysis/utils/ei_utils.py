@@ -83,17 +83,21 @@ def get_top_electrodes(n_ID: int, vcd: VisionCellDataTable, n_interval=2, n_mark
     return top_idx
 
 
+def get_ei_and_map(n_ID: int, vcd: VisionCellDataTable):
+     # Reshape EI timeseries
+    ei = vcd.get_ei_for_cell(n_ID).ei
+    sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
+    ei = reshape_ei(ei, sorted_electrodes)
+    ei_map = np.max(np.abs(ei), axis=2)
+    return ei, ei_map
+
 def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None, 
                 axs=None, label=None):
     if top_idx is None:
         # Get top electrodes if not provided
         top_idx = get_top_electrodes(n_ID, vcd)
 
-    # Reshape EI timeseries
-    ei = vcd.get_ei_for_cell(n_ID).ei
-    sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
-    ei = reshape_ei(ei, sorted_electrodes)
-    ei_map = np.max(np.abs(ei), axis=2)
+    ei, ei_map = get_ei_and_map(n_ID, vcd)
     # Log is better for visualization
     ei_map = np.log10(ei_map + 1e-6)
     
