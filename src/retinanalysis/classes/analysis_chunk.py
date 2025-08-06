@@ -305,7 +305,7 @@ class AnalysisChunk:
             filtered_df = self.df_cell_params.query(f'cell_id  in @noise_ids')
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         else:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
 
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
