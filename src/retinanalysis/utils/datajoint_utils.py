@@ -397,7 +397,7 @@ def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP',
             for ax in axs:
                 ax.set_aspect('equal', adjustable='box')
         except Exception as e:
-            print(f'Error processing {exp_name}, {datafile_names}, {chunk_name}: {e}')
+            print(f'Error processing {exp_name}, {datafile_names}, {chunk_name}, {ss_version}, {typing_file}: {e}')
             continue
     return df_typed, df_not_typed
 
@@ -491,8 +491,8 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: list=None,
 
 def get_epochblock_query(exp_name: str, block_id: int):
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
-    eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
-    eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
+    eg_q = schema.EpochGroup() * ex_q.proj('exp_name', 'is_mea', experiment_id='id')
+    eg_q = eg_q.proj('exp_name', 'is_mea', group_label='label', group_id='id')
     eb_q = schema.EpochBlock.proj(
         'protocol_id', 'data_dir', group_properties='properties',
         group_id='parent_id', block_id='id'
@@ -500,7 +500,6 @@ def get_epochblock_query(exp_name: str, block_id: int):
     eb_q = eg_q * eb_q
     eb_q = eb_q & f'block_id={block_id}'
     return eb_q
-
 
 def get_epochblock_timing(exp_name: str, block_id: int):
     eb_q = get_epochblock_query(exp_name, block_id)
@@ -510,6 +509,7 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     if len(df) == 0:
         raise ValueError(f'No EpochBlock found for {exp_name} {block_id}')
     d_data = df.loc[0].to_dict()
+    is_mea = df.loc[0, 'is_mea']
     # epoch_starts = d_data['group_properties']['epochStarts']
     # epoch_ends = d_data['group_properties']['epochEnds']
     # n_samples = d_data['group_properties']['n_samples']
@@ -526,13 +526,61 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     
     # For MEA data, this has epoch_starts, epoch_ends, n_samples, frame_times_ms
     # For SC data, this has just frame_times_ms
-    d_group = d_data['group_properties']
-    for key in d_group.keys():
-        d_timing[key] = d_group[key]
+    # d_group = d_data['group_properties']
+    # for key in d_group.keys():
+    #     d_timing[key] = d_group[key]
+    d_timing['frame_times_ms'] = d_data['group_properties']['frameTimesMs']
+    if is_mea:
+        d_timing['epoch_starts'] = d_data['group_properties']['epochStarts']
+        d_timing['epoch_ends'] = d_data['group_properties']['epochEnds']
+        d_timing['n_samples'] = d_data['group_properties']['n_samples']
     
 
-    return d_timing
+    # Get stim timing and frame rate
+    e_q = schema.Epoch() & f'parent_id={block_id}'
+    e_q = e_q.proj(
+        pre_time="parameters->>'$.preTime'",
+        stim_time="parameters->>'$.stimTime'",
+        tail_time="parameters->>'$.tailTime'",
+        stage_frame_rate="parameters->>'$.frameRate'"
+    )
+    df_transitions = e_q.fetch(format='frame').drop_duplicates().reset_index()
+    if len(df_transitions) != 1:
+        display(df_transitions)
+        raise ValueError(f'Expected a unique set of timing parameters for {exp_name} {block_id}, but found {len(df_transitions)}')
+    pre_time_ms = float(df_transitions.loc[0, 'pre_time'])
+    stim_time_ms = float(df_transitions.loc[0, 'stim_time'])
+    tail_time_ms = float(df_transitions.loc[0, 'tail_time'])
+    stage_frame_rate = df_transitions.loc[0, 'stage_frame_rate']
+    if stage_frame_rate is None:
+        print(f'Warning: for {exp_name} block {block_id}, error in finding stage frame rate.')
+    else:
+        stage_frame_rate = float(stage_frame_rate)
 
+    # Set transition times from measured frame times
+    pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
+    stim_frames = np.floor(stim_time_ms * 1e-3 * stage_frame_rate).astype(int)
+
+    # This assumes protocol is visible >=preTime and <preTime+stimTime.
+    # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
+    frame_times_ms = d_timing['frame_times_ms']
+    n_epochs = len(frame_times_ms)
+    actual_onset_time_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]
+    actual_offset_time_ms = [frame_times_ms[i][pre_frames+stim_frames] for i in range(n_epochs)]
+    print(f'For {exp_name} block {block_id}:')
+    print(f'Set pre_time_ms={pre_time_ms}, stim_time_ms={stim_time_ms}, tail_time_ms={tail_time_ms}')
+    print(f'Delivered pre_frames={pre_frames}, stim_frames={stim_frames}')
+    print(f'Actual onset times (ms): {actual_onset_time_ms}')
+    print(f'Actual offset times (ms): {actual_offset_time_ms}')
+
+    d_timing['pre_time_ms'] = pre_time_ms
+    d_timing['stim_time_ms'] = stim_time_ms
+    d_timing['tail_time_ms'] = tail_time_ms
+    d_timing['stage_frame_rate'] = stage_frame_rate
+    d_timing['actual_onset_time_ms'] = actual_onset_time_ms
+    d_timing['actual_offset_time_ms'] = actual_offset_time_ms
+
+    return d_timing
 def get_epochblock_response_query(exp_name: str, block_id: int):
     eb_q = get_epochblock_query(exp_name, block_id)
     p_q = eb_q * schema.Protocol.proj(protocol_name='name')
