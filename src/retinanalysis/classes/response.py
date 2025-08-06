@@ -86,7 +86,7 @@ class ResponseBlock:
         frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
         self.frame_data = frame_data
         self.frame_sample_rate = frame_sample_rate
-    
+
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
@@ -139,7 +139,7 @@ class SCResponseBlock(ResponseBlock):
 
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
-                 pkl_file: str=None, h5_file: str=None):
+                 pkl_file: str=None, h5_file: str=None, include_ei: bool=True):
         # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
@@ -154,7 +154,7 @@ class MEAResponseBlock(ResponseBlock):
                 self.datafile_name = datafile_name
         
         super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file)
-        self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
+        self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei)
 
         # If pkl_file is provided, everything else is already loaded in parent init.
         if pkl_file is not None:
@@ -180,7 +180,7 @@ class MEAResponseBlock(ResponseBlock):
         # n_samples = self.d_timing['n_samples']
         # frame_times_ms = self.d_timing['frame_times_ms']
 
-        self.n_epochs = len(epoch_starts)
+        self.n_epochs = self.d_timing['n_epochs']
         for cell_id in self.cell_ids:
             all_spike_times = []
             # STs in samples
