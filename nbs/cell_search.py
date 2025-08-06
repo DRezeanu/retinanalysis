@@ -167,10 +167,11 @@ def plot_metrics_summary(metrics, str_save=None):
     # Get bottom 20 percent threshold for onset/stable ratio
     threshold_onset_stable = np.percentile(onset_stable_ratio, 20)
     intersection = np.where(onset_stable_ratio < threshold_onset_stable)[0]
+    
     # For those cells, get top 20 percent threshold for offset/stable ratio
-    offset_stable_ratio = offset_stable_ratio[intersection]
-    threshold_stable_offset = np.percentile(offset_stable_ratio, 80)
-    intersection = intersection[offset_stable_ratio > threshold_stable_offset]
+    filtered_offset_ratio = offset_stable_ratio[intersection]
+    threshold_offset_stable = np.percentile(filtered_offset_ratio, 80)
+    intersection = intersection[filtered_offset_ratio > threshold_offset_stable]
     others = np.where(~np.isin(np.arange(n_cells), intersection))[0]
     intersection = intersection.astype(int)
 
@@ -190,7 +191,7 @@ def plot_metrics_summary(metrics, str_save=None):
     ax.set_ylabel('Offset/Stable sps')
     ax.set_title('Onset/Stable vs Offset/Stable sps')
     ax.axvline(threshold_onset_stable, c='k', linestyle='--', label='10% threshold')
-    ax.axhline(threshold_stable_offset, c='k', linestyle='--')
+    ax.axhline(threshold_offset_stable, c='k', linestyle='--')
     ax.grid()
 
     ax=axs[1]
@@ -221,6 +222,10 @@ def cell_search(exp_name, chunk_name, datafile_name, ss_version, str_save_dir, w
     print(f"Processing {exp_name} {datafile_name} {chunk_name} {ss_version}")
     rb = ra.MEAResponseBlock(exp_name, datafile_name, ss_version=ss_version, include_ei=False)
     ac = ra.AnalysisChunk(exp_name, chunk_name, ss_version=ss_version)
+    cell_ids = np.intersect1d(rb.cell_ids, ac.cell_ids)
+    rb.cell_ids = cell_ids
+    ac.cell_ids = cell_ids
+
     if 'SpatialNoise' in ac.noise_protocol:
         # Apply timing correction
         frame_times_ms = rb.d_timing['frameTimesMs']
