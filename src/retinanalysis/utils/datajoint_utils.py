@@ -289,9 +289,9 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
     # And df_not_typed with columns:
     # exp_name, datafile_names, nearest_noise_chunk, nearest_noise_distance
     # Each row corresponds to a dataset without any typing files.
-    d_not_typed = {'exp_name': [], 'datafile_name': [], 'nearest_noise_chunk': [],
+    d_not_typed = {'exp_name': [], 'datafile_name': [], 'chunk': [], 'nearest_noise_chunk': [],
                    'nearest_noise_distance': []}
-    d_typed = {'exp_name': [], 'datafile_name': [], 'nearest_noise_chunk': [],
+    d_typed = {'exp_name': [], 'datafile_name': [], 'chunk': [], 'nearest_noise_chunk': [],
                 'nearest_noise_distance': [], 'typed_noise_chunk': [], 
                 'nearest_noise_distance': [], 'typed_noise_distance': [], 'is_nearest': [],
                 'ss_version': [], 'noise_datafile_names': [],
@@ -303,6 +303,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
         noise_protocol_name = get_noise_name_by_exp(exp_name)
         
         for datafile_name in df_q['datafile_name'].values:
+            chunk = df_exp[df_exp['datafile_name']==datafile_name]['chunk_name'].values[0]
             noise_chunk_names, noise_chunk_distances = get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose)
     
             # Find nearest noise chunk with typing.
@@ -322,6 +323,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
                         n_cells_of_interest = get_n_cells_of_interest(typing_file_path, ls_cell_types)
                         d_typed['exp_name'].append(exp_name)
                         d_typed['datafile_name'].append(datafile_name)
+                        d_typed['chunk'].append(chunk)
                         d_typed['nearest_noise_chunk'].append(nearest_noise_chunk)
                         d_typed['nearest_noise_distance'].append(noise_chunk_distances[0])
                         d_typed['typed_noise_chunk'].append(noise_chunk)
@@ -342,6 +344,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
             if not b_found:
                 d_not_typed['exp_name'].append(exp_name)
                 d_not_typed['datafile_name'].append(datafile_name)
+                d_not_typed['chunk'].append(df_exp[df_exp['datafile_name']==datafile_name]['chunk_name'].values[0])
                 d_not_typed['nearest_noise_chunk'].append(nearest_noise_chunk)
                 d_not_typed['nearest_noise_distance'].append(noise_chunk_distances[0])
 
