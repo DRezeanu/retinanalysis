@@ -61,10 +61,16 @@ def plot_cell_of_interest(rb: ra.MEAResponseBlock, ac: ra.AnalysisChunk,
     ax.set_title(f'Stable rate: {stable_sps:.2f}, Post-Offset rate: {offset_sps:.2f}')
 
     # Plot spatial map
-    ax = axs[0, 1]
-    sm = ac.d_spatial_maps[cell_id][:,:,0]
-    im = ax.imshow(sm, cmap='viridis')
-    ax.set_title('Spatial Map')
+    if hasattr(ac, 'd_spatial_maps'):
+        if cell_id in ac.d_spatial_maps:
+            ax = axs[0, 1]
+            sm = ac.d_spatial_maps[cell_id][:,:,0]
+            im = ax.imshow(sm, cmap='viridis')
+            ax.set_title('Spatial Map')
+    else:
+        ax = axs[0, 1]
+        ax.text(0.5, 0.5, 'No spatial map found', ha='center', va='center')
+        ax.axis('off')
 
     # Plot timecourse
     ax = axs[0, 2]
@@ -158,17 +164,19 @@ def plot_metrics_summary(metrics, str_save=None):
     onset_stable_ratio[np.isnan(onset_stable_ratio)] = np.nanmean(onset_stable_ratio)
     offset_stable_ratio[np.isnan(offset_stable_ratio)] = np.nanmean(offset_stable_ratio)
     
-    # Get bottom 10 percent threshold for each ratio
+    # Get bottom 20 percent threshold for onset/stable ratio
     threshold_onset_stable = np.percentile(onset_stable_ratio, 20)
+    intersection = np.where(onset_stable_ratio < threshold_onset_stable)[0]
+    # For those cells, get top 20 percent threshold for offset/stable ratio
+    offset_stable_ratio = offset_stable_ratio[intersection]
     threshold_stable_offset = np.percentile(offset_stable_ratio, 80)
-    
-    # Find intersection of cells that are below both thresholds
-    intersection = np.where((onset_stable_ratio < threshold_onset_stable) & (offset_stable_ratio > threshold_stable_offset))[0]
-    intersection = intersection.astype(int)
+    intersection = intersection[offset_stable_ratio > threshold_stable_offset]
     others = np.where(~np.isin(np.arange(n_cells), intersection))[0]
+    intersection = intersection.astype(int)
 
-    # Sort intersection by descending order of offset_stable_ratio
+    # Sort intersection and others by descending order of offset_stable_ratio
     intersection = intersection[np.argsort(offset_stable_ratio[intersection])[::-1]]
+    others = others[np.argsort(offset_stable_ratio[others])[::-1]]
     print(f'Cells below 10% threshold for onset/stable ratio: {len(intersection)}')
     
     # Color the intersection cells in the scatter plot
@@ -211,8 +219,6 @@ def plot_metrics_summary(metrics, str_save=None):
 
 def cell_search(exp_name, chunk_name, datafile_name, ss_version, str_save_dir, window_ms=2000.0):
     print(f"Processing {exp_name} {datafile_name} {chunk_name} {ss_version}")
-    rb = ra.MEAResponseBlock(exp_name, datafile_name, ss_version=ss_version)
-
     rb = ra.MEAResponseBlock(exp_name, datafile_name, ss_version=ss_version, include_ei=False)
     ac = ra.AnalysisChunk(exp_name, chunk_name, ss_version=ss_version)
     if 'SpatialNoise' in ac.noise_protocol:
@@ -225,8 +231,12 @@ def cell_search(exp_name, chunk_name, datafile_name, ss_version, str_save_dir, w
         rb.d_timing['actual_offset_times_ms'] = [frame_times_ms[i][on_frames] for i in range(len(frame_times_ms))]
 
     d_metrics = compute_metrics(rb, window_ms=window_ms)
+    print('Computed metrics.')
     str_summary = os.path.join(str_save_dir, f'1_summary.png')
     intersection = plot_metrics_summary(d_metrics['metrics'], str_save=str_summary)
+    print('Saved summary plot.')
     for c_idx in intersection:
         str_save_cell = os.path.join(str_save_dir, f'cell_{c_idx}_id_{rb.cell_ids[c_idx]}.png')
         plot_cell_of_interest(rb, ac, rb.cell_ids[c_idx], d_metrics, str_save=str_save_cell)
+    print(f'Plotted {len(intersection)} cells of interest.')
+    print('*-----------------------------------------------------*')
