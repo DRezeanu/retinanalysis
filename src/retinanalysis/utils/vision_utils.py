@@ -41,7 +41,7 @@ def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
         return vcd
 
 def get_protocol_vcd(exp_name: str, datafile_name: str, ss_version: str,
-                     verbose: bool = True) -> VisionCellDataTable:
+                     verbose: bool = True, include_ei: bool=True) -> VisionCellDataTable:
         
         data_path = os.path.join(DATA_DIR, exp_name, datafile_name, ss_version)
         
@@ -50,7 +50,7 @@ def get_protocol_vcd(exp_name: str, datafile_name: str, ss_version: str,
             
         vcd = load_vision_data(
             data_path, datafile_name, 
-            include_ei = True, include_neurons = True
+            include_ei = include_ei, include_neurons = True
             )
         if verbose:
             print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
