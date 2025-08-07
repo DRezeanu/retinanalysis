@@ -29,7 +29,7 @@ class MEAPipeline:
         self.response_block = response_block
         self.analysis_chunk = analysis_chunk
 
-        self.match_dict = cluster_match(self.analysis_chunk, self.response_block)
+        self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
         
         self.add_matches_to_protocol()
         self.add_types_to_protocol()
@@ -75,8 +75,8 @@ class MEAPipeline:
     def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
                  **kwargs) -> np.ndarray:
         
-        noise_ids = self.get_noise_ids(protocol_ids, cell_types)
-        ax = self.analysis_chunk.plot_rfs(noise_ids, cell_types = cell_types,
+        noise_ids = self.get_noise_ids(protocol_ids = protocol_ids, cell_types = cell_types)
+        ax = self.analysis_chunk.plot_rfs(noise_ids = noise_ids, cell_types = cell_types,
                                           **kwargs)
 
         return ax
@@ -105,7 +105,6 @@ class MEAPipeline:
     # by type. IDs can be pulled by list of protocol ids, list of cell types, or both. Used
     # in plot_rfs and plot_timecourse
     def get_noise_ids(self, protocol_ids: List[int] = None, cell_types: List[int] = None) -> List[int]:
-
         # Pull analysis_block ids that match the input cell_ids and cell_types
         # If neither is given, plot all matched ids
         if protocol_ids is None and cell_types is None:
@@ -114,7 +113,7 @@ class MEAPipeline:
 
         # If only type is given, pull only ids that correspond to that type
         elif protocol_ids is None:
-            protocol_ids = self.response_block.df_spike_times.query('cell_type == @cell_types')['cell_id'].values
+            protocol_ids = self.response_block.df_spike_times.query('cell_type in @cell_types')['cell_id'].values
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only ids are given, pull all ids regardless of type
@@ -123,8 +122,8 @@ class MEAPipeline:
 
         # If both are given, pull only ids that match both the cell types and the cell ids given
         else:
-            protocol_ids = self.response_block.df_spike_times.query('cell_type ==  @cell_types')['cell_id'].values
-            noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
+            filtered_protocol_ids = self.response_block.df_spike_times.query('cell_type in @cell_types and cell_id in @protocol_ids')['cell_id'].values
+            noise_ids = [key for key, val in self.match_dict.items() if val in filtered_protocol_ids]
 
         if len(noise_ids) == 0:
             raise Exception("No cluster matched ids found for given list of cell ids and/or cell types") 
@@ -136,6 +135,7 @@ class MEAPipeline:
         str_self += f"  stim_block and response_block from: {os.path.splitext(self.stim_block.protocol_name)[1][1:]}\n"
         str_self += f"  analysis_chunk: {self.analysis_chunk.chunk_name}\n"
         str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.stim_block.protocol_name)[1][1:]}_id"
+        str_self += f"  corr_dict: with {self.analysis_chunk.chunk_name}_id : calculated ei correlations"
         return str_self
 
     def export_to_pkl(self, file_path: str):

@@ -117,15 +117,23 @@ class AnalysisChunk:
         spatial noise and the size of the STA.
         """
         self.rf_params = dict()
+        broken_ids = []
         for id in self.cell_ids:
-            center_x = self.vcd.main_datatable[id]['x0']
-            center_y = self.vcd.main_datatable[id]['y0']
-            self.rf_params[id] = {'center_x' : center_x + self.deltaXChecks,
-                                'center_y' : (self.staYChecks - center_y) + self.deltaYChecks,
-                                'std_x' : self.vcd.main_datatable[id]['SigmaX'],
-                                'std_y' : self.vcd.main_datatable[id]['SigmaY'],
-                                'rot' : self.vcd.main_datatable[id]['Theta']}
+            try: 
+                center_x = self.vcd.main_datatable[id]['x0']
+                center_y = self.vcd.main_datatable[id]['y0']
+                self.rf_params[id] = {'center_x' : center_x + self.deltaXChecks,
+                                    'center_y' : (self.staYChecks - center_y) + self.deltaYChecks,
+                                    'std_x' : self.vcd.main_datatable[id]['SigmaX'],
+                                    'std_y' : self.vcd.main_datatable[id]['SigmaY'],
+                                    'rot' : self.vcd.main_datatable[id]['Theta']}
+            except:
+                print(f"Issue with id {id}...\nWill remove from cell_ids list.")
+                broken_ids.append(id)
             
+        for id in broken_ids:
+            self.cell_ids.remove(id)
+
     def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
         """
         Method for pulling cell_ids by region of interest.
@@ -297,7 +305,7 @@ class AnalysisChunk:
             filtered_df = self.df_cell_params.query(f'cell_id  in @noise_ids')
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         else:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
 
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
