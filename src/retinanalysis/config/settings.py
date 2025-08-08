@@ -2,7 +2,11 @@ from configparser import ConfigParser
 import platform
 import os
 # import importlib.resources as ir
-import importlib_resources as ir
+try:
+    import importlib.resources as ir
+except:
+    import importlib_resources as ir # type: ignore
+
 import retinanalysis
 
 
