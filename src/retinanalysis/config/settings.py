@@ -27,10 +27,10 @@ def load_config(config_path):
     elif os.path.exists(os.path.abspath(SECONDARY_config['data'])):
         use_config = SECONDARY_config
     else:
-        use_config = {'data': '', 'analysis': '', 'h5': '', 'meta': '', 'tags': '', 'query': '', 'user': ''}
+        use_config = {'data': '', 'raw': '', 'analysis': '', 'h5': '', 'meta': '', 'tags': '', 'query': '', 'user': ''}
         print("No NAS or SSD paths found, check that one of them is connected")
 
-    mea_config = {'data' : use_config['data'], 'analysis': use_config['analysis'],
+    mea_config = {'data' : use_config['data'], 'raw': use_config['raw'], 'analysis': use_config['analysis'],
                 'h5': use_config['h5'], 'meta': use_config['meta'], 'tags': use_config['tags'],
                 'query': use_config['query'], 'user': use_config['user']}
 
@@ -42,6 +42,7 @@ def create_config(config_path, config_name,
                       h5_dir, meta_dir, tags_dir, username = 'drezeanu'):
 
     config = ConfigParser()
+    # TODO update
     config[config_name] = {'Analysis': analysis_dir,
                          'Data': data_dir,
                          'H5': h5_dir,
@@ -85,6 +86,7 @@ config_path = ir.files(retinanalysis) / os.path.join("config", "config.ini")
 mea_config = load_config(config_path)
 
 DATA_DIR = mea_config['data'] 
+RAW_DIR = mea_config['raw']
 ANALYSIS_DIR = mea_config['analysis']
 H5_DIR = mea_config['h5']
 META_DIR = mea_config['meta']

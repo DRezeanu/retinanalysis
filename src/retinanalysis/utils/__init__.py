@@ -1,5 +1,6 @@
 from retinanalysis.config.settings import (ANALYSIS_DIR,
                                            DATA_DIR,
+                                           RAW_DIR,
                                            H5_DIR,
                                            META_DIR,
                                            TAGS_DIR,
