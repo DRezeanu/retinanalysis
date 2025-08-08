@@ -433,6 +433,89 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     
     return d_output
 
+def make_checkerboard_noise_project(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_noise_only: bool=True):
+    exp_name = int(exp_name[:8])
+    import matlab.engine #type: ignore
+    print('Starting matlab engine for stim regen.')
+    eng = matlab.engine.start_matlab()
+    eng.addpath(str_pkg_dir)
+    print('Started engine and added pkg to path.')
+    preTime = matlab.double(df_epochs.loc[0,'preTime'])
+    tailTime = matlab.double(df_epochs.loc[0,'tailTime'])
+    stimTime = matlab.double(df_epochs.loc[0,'stimTime'])
+    noiseSeeds = matlab.double([df_epochs.loc[i,'noiseSeed'] for i in df_epochs.index])
+    numChecksXs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksX'] for i in df_epochs.index])
+    backgroundIntensity = matlab.double([df_epochs.loc[0, 'epoch_parameters']['backgroundIntensity']])
+    frameDwell = matlab.double([df_epochs.loc[0, 'epoch_parameters']['frameDwell']])
+    binaryNoise = matlab.double([df_epochs.loc[0, 'epoch_parameters']['binaryNoise']])
+    noiseStdv = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noiseStdv']])
+    if b_noise_only:
+        if exp_name<20250806:
+            backgroundRatios = matlab.double([0 for _ in df_epochs.index])
+        else:
+            backgroundRatios = matlab.double([1.0 for _ in df_epochs.index])
+    else:
+        backgroundRatios = matlab.double([df_epochs.loc[i,'epoch_parameters']['backgroundRatio'] for i in df_epochs.index])
+    backgroundFrameDwells = matlab.double([df_epochs.loc[i,'epoch_parameters']['backgroundFrameDwell'] for i in df_epochs.index])
+    pairedBars = matlab.double([df_epochs.loc[0, 'epoch_parameters']['pairedBars']])
+    if b_noise_only:
+        noSplitField = matlab.double([1.0])
+    else:
+        noSplitField = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noSplitField']])
+    contrastJumps = matlab.double(df_epochs.loc[0, 'epoch_parameters']['contrastJumps'])
+    numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
+    # if exp_name < 20250806:
+    stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(exp_name, preTime,  tailTime, stimTime, noiseSeeds, numChecksXs, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, backgroundRatios, backgroundFrameDwells, pairedBars, noSplitField, contrastJumps, numChecksYs, nargout=3);
+    stimulus = np.array(stimulus);
+    line_mat = np.array(line_mat);
+    contrast_mat = np.array(contrast_mat);
+    eng.quit()
+
+    canvas_size_pix = df_epochs.loc[0,'epoch_parameters']['canvasSize']
+    stixel_size_um = df_epochs.loc[0,'epoch_parameters']['stixelSize']
+    mu_per_pix = df_epochs.loc[0,'microns_per_pixel']
+    canvas_size_stix = (int(np.round(canvas_size_pix[0] * mu_per_pix / stixel_size_um)),
+                            int(np.round(canvas_size_pix[1] * mu_per_pix / stixel_size_um)))
+    stixel_size_pix = int(np.round(stixel_size_um / mu_per_pix))
+    x_offset_pix = df_epochs.loc[0,'epoch_parameters']['xOffset']
+    y_offset_pix = df_epochs.loc[0,'epoch_parameters']['yOffset']
+    x_offset_stix = int(np.round(x_offset_pix / stixel_size_pix))
+    y_offset_stix = int(np.round(y_offset_pix / stixel_size_pix))
+
+    stimulus_cropped = np.ones_like(stimulus) * int((255*df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']))
+    lines_cropped = np.ones_like(line_mat) * df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']
+    if x_offset_pix > 0:
+        offset = np.abs(x_offset_stix)
+        stimulus_cropped[:, offset:, :, :] = stimulus[:, :-offset, :, :]
+        lines_cropped[offset:, :, :] = line_mat[:-offset, :, :]
+    elif x_offset_pix < 0:
+        offset = np.abs(x_offset_stix)
+        stimulus_cropped[:, :-offset, :, :] = stimulus[:, offset:, :, :]
+        lines_cropped[:-offset, :, :] = line_mat[offset:, :, :]
+    else:
+        stimulus_cropped = stimulus
+        lines_cropped = line_mat
+    if y_offset_pix != 0:
+        raise NotImplementedError('Y offset cropping not implemented yet.')
+    
+    stim_transitions = []
+    for e_idx in df_epochs.index:
+        interval = df_epochs.at[e_idx, 'backgroundFrameDwell']
+        frame_transitions_ls = []
+        for i in range(lines_cropped.shape[1]):
+            if i % interval == 0:
+                frame_transitions_ls.append(i)
+        stim_transitions.append(frame_transitions_ls)
+
+    d_output = {
+        'stim_frames': stimulus_cropped,
+        'line_mat': lines_cropped,
+        'contrast_mat': contrast_mat,
+    }
+    return d_output
+
+
+
 
 def make_spot_image(ht, wt, center_row, center_col, diam, background, intensity):
     Y, X = np.ogrid[:ht, :wt]
