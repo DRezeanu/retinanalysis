@@ -1,5 +1,5 @@
-from retinanalysis.utils import (NAS_DATA_DIR, 
-                                 NAS_ANALYSIS_DIR,
+from retinanalysis.utils import (DATA_DIR, 
+                                 ANALYSIS_DIR,
                                  USER)
 
 import datajoint as dj
@@ -197,7 +197,7 @@ def append_sorting_files(chunk_id: int, algorithm: str, sorting_dir: str):
     p1 = os.path.split(sorting_dir)
     p2 = os.path.split(p1[0])
     p3 = os.path.split(p2[0])
-    analysis_dir = os.path.join(NAS_ANALYSIS_DIR, p3[1], p2[1], p1[1])
+    analysis_dir = os.path.join(ANALYSIS_DIR, p3[1], p2[1], p1[1])
     # check if real path
     if not os.path.exists(analysis_dir):
         return
@@ -251,11 +251,11 @@ def append_experiment_analysis(experiment_id: int, exp_name: str):
     print(f"Adding analysis for experiment {experiment_id}, {exp_name}")
     # exp_name = (Experiment & f"id={experiment_id}").fetch1()['data_file']
     # exp_name = os.path.basename(exp_name)[:-3]
-    if exp_name not in os.listdir(NAS_DATA_DIR):
+    if exp_name not in os.listdir(DATA_DIR):
         print(f"Could not find data directory for experiment {exp_name}")
         return
     
-    experiment_dir = os.path.join(NAS_DATA_DIR, exp_name)
+    experiment_dir = os.path.join(DATA_DIR, exp_name)
     print(f"Looking in {experiment_dir}")
     for file in os.listdir(experiment_dir):
         if os.path.isdir(os.path.join(experiment_dir, file)) and not file.startswith('data'):
@@ -268,7 +268,7 @@ def get_block_chunk(experiment_id: int, data_dir: str) -> int:
     possible_chunks = (SortingChunk & f"experiment_id={experiment_id}").fetch()['chunk_name']
     exp_name = (Experiment & f"id={experiment_id}").fetch1('exp_name')
     # exp_name = os.path.basename(exp_name)[:-3]
-    experiment_dir = os.path.join(NAS_DATA_DIR, exp_name)
+    experiment_dir = os.path.join(DATA_DIR, exp_name)
     for chunk_name in possible_chunks:
         f = os.path.join(experiment_dir, f"{exp_name}_{chunk_name}.txt")
         if not os.path.exists(f):
@@ -385,7 +385,7 @@ def append_epoch_block(experiment_id: int, parent_id: int, epoch_block: dict, us
         chunk_id = ''
         if is_mea:
             # Check that spike sorted outputs exist for this Experiment
-            if os.path.exists(os.path.join(NAS_DATA_DIR, exp_name)):
+            if os.path.exists(os.path.join(DATA_DIR, exp_name)):
                 chunk_id = get_block_chunk(experiment_id, data_dir)
     except Exception as e:
         print(f"Error getting chunk_id for {experiment_id}, {data_dir}: {e}")
@@ -563,13 +563,13 @@ def gen_meta_list(data_dir: str, meta_dir: str, tags_dir: str) -> list:
             if not os.path.exists(tags_file):
                 gen_tags(item[:-5] + '.json', tags_dir)
             # Check that NAS directory exists
-            if not os.path.exists(NAS_DATA_DIR):
-                print(f"Could not find NAS_DATA_DIR: {NAS_DATA_DIR}")
+            if not os.path.exists(DATA_DIR):
+                print(f"Could not find NAS_DATA_DIR: {DATA_DIR}")
                 print('Make sure you are connected and that api/helpers/utils.py has the correct path.')
                 continue
             
             # find the right directory in NAS_DATA_DIR
-            if item[:-5] not in os.listdir(NAS_DATA_DIR):
+            if item[:-5] not in os.listdir(DATA_DIR):
                 print(f"Could not find data directory for {item}")
                 continue
             meta_list.append([os.path.join(meta_dir, item), item[:-5], tags_file])
@@ -585,6 +585,7 @@ def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_p
 
     meta_list = gen_meta_list(data_dir, meta_dir, tags_dir)
     records_added = 0
+    ls_new_exp = []
     for meta, data, tags in tqdm(meta_list, desc='Experiments'):
         exp_name = os.path.basename(data)[:-3]
         # check if meta already in database
@@ -600,34 +601,19 @@ def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_p
             tags_dict = json.load(f)
         append_experiment(meta, data, tags, meta_dict, user, tags_dict)
         records_added += 1
+        ls_new_exp.append(exp_name)
+    
+    e_q = Experiment() & 'is_mea=1' & [f'exp_name="{exp_name}"' for exp_name in ls_new_exp]
+    sc_q = SortingChunk() * e_q.proj(..., experiment_id='id')
+    if len(sc_q) == 0:
+        print("No new sorting chunks found in database, skipping cell type file population.")
+    else:
+        append_celltypefiles(sc_q)
+    
     return records_added
 
 
-def reload_celltypefiles(experiment_names: list=None):
-    # Deletes and repopulates CellTypeFile table. 
-    # Optimized so takes ~40s for my NAS connection. 
-    # TODO: This doesn't update the SortedCellType table, 
-    # which is likely desirable but might take longer.
-    global db
-    db = dj.VirtualModule('schema.py', 'schema')
-    fill_tables()
-
-    # Query for any input experiments
-    ctf_q = CellTypeFile()
-    sc_q = SortingChunk()
-    if experiment_names is not None:
-        e_q = Experiment() & [f'exp_name="{exp_name}"' for exp_name in experiment_names]
-        sc_q = sc_q * e_q.proj(...,experiment_id='id')
-        chunk_ids = sc_q.fetch('id')
-        ctf_q = ctf_q & [f'chunk_id={id}' for id in chunk_ids]
-        # df_delete = (ctf_q * sc_q.proj(...,chunk_id='id')).fetch(format='frame')
-        # display(df_delete)
-    else:
-        experiment_names = 'all experiments'
-    print(f'Found {len(sc_q)} chunks for {experiment_names}.')
-    print(f'Deleting associated {len(ctf_q)} cell type files.')
-    ctf_q.delete(safemode=False)
-    
+def append_celltypefiles(sc_q):
     # Get all sorting chunks, each of which we'll look for typing files for.
     df_sc = sc_q.fetch(format='frame').reset_index()
     df_sc = df_sc.set_index('id')
@@ -641,7 +627,7 @@ def reload_celltypefiles(experiment_names: list=None):
         exp_name = (Experiment()& f"id={experiment_id}").fetch1('exp_name')
         chunk_name = df_sc.at[chunk_id, 'chunk_name']
 
-        chunk_path = os.path.join(NAS_DATA_DIR, exp_name, chunk_name)
+        chunk_path = os.path.join(DATA_DIR, exp_name, chunk_name)
         for file in os.listdir(chunk_path):
             for algorithm in os.listdir(chunk_path):
                 algorithm_dir = os.path.join(chunk_path, algorithm)
@@ -654,7 +640,7 @@ def reload_celltypefiles(experiment_names: list=None):
                 p1 = os.path.split(algorithm_dir)
                 p2 = os.path.split(p1[0])
                 p3 = os.path.split(p2[0])
-                analysis_dir = os.path.join(NAS_ANALYSIS_DIR, p3[1], p2[1], p1[1])
+                analysis_dir = os.path.join(ANALYSIS_DIR, p3[1], p2[1], p1[1])
                 if not os.path.exists(analysis_dir):
                     continue
                 for file in os.listdir(analysis_dir):
@@ -665,3 +651,31 @@ def reload_celltypefiles(experiment_names: list=None):
     
     print(f'Found {len(ls_insert_ctf)} text files in analysis directories.')
     print(f'There are now {len(CellTypeFile())} entries in CellTypeFile.')
+
+def reload_celltypefiles(experiment_names: list=None):
+    # Deletes and repopulates CellTypeFile table. 
+    # Optimized so takes ~40s for my NAS connection. 
+    # TODO: This doesn't update the SortedCellType table, 
+    # which is likely desirable but might take longer.
+    global db
+    db = dj.VirtualModule('schema.py', 'schema')
+    fill_tables()
+
+    # Query for any input experiments
+    ctf_q = CellTypeFile()
+    e_q = Experiment() & 'is_mea=1'
+    sc_q = SortingChunk() * e_q.proj(..., experiment_id='id')
+    if experiment_names is not None:
+        e_q = Experiment() & [f'exp_name="{exp_name}"' for exp_name in experiment_names]
+        sc_q = sc_q * e_q.proj(...,experiment_id='id')
+        chunk_ids = sc_q.fetch('id')
+        ctf_q = ctf_q & [f'chunk_id={id}' for id in chunk_ids]
+        # df_delete = (ctf_q * sc_q.proj(...,chunk_id='id')).fetch(format='frame')
+        # display(df_delete)
+    else:
+        experiment_names = 'all experiments'
+    print(f'Found {len(sc_q)} chunks for {experiment_names}.')
+    print(f'Deleting associated {len(ctf_q)} cell type files.')
+    ctf_q.delete(safemode=False)
+    
+    append_celltypefiles(sc_q)

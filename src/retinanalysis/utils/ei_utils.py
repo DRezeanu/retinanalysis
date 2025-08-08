@@ -83,17 +83,22 @@ def get_top_electrodes(n_ID: int, vcd: VisionCellDataTable, n_interval=2, n_mark
     return top_idx
 
 
-def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None, 
-                axs=None, label=None):
-    if top_idx is None:
-        # Get top electrodes if not provided
-        top_idx = get_top_electrodes(n_ID, vcd)
-
-    # Reshape EI timeseries
+def get_ei_and_map(n_ID: int, vcd: VisionCellDataTable):
+     # Reshape EI timeseries
     ei = vcd.get_ei_for_cell(n_ID).ei
     sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
     ei = reshape_ei(ei, sorted_electrodes)
     ei_map = np.max(np.abs(ei), axis=2)
+    return ei, ei_map
+
+def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None, 
+                axs=None, label=None):
+    sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
+    if top_idx is None:
+        # Get top electrodes if not provided
+        top_idx = get_top_electrodes(n_ID, vcd)
+
+    ei, ei_map = get_ei_and_map(n_ID, vcd)
     # Log is better for visualization
     ei_map = np.log10(ei_map + 1e-6)
     
@@ -116,12 +121,15 @@ def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None,
     # Get index of peak
     peak_channel = np.argmax(ei_map)
     peak_idx = np.unravel_index(peak_channel, ei_map.shape)
+    peak_channel_idx = sorted_electrodes[peak_channel]
     ax0.plot(peak_idx[1], peak_idx[0], 'o', color='blue')
     ax0.axhline(peak_idx[0], color='blue')
     ax0.axvline(peak_idx[1], color='blue')
 
     for i in range(n_markers):
-        y, x = np.unravel_index(top_idx[i], ei_map.shape)
+        top = top_idx[i]
+        channel_idx = sorted_electrodes[top]
+        y, x = np.unravel_index(top, ei_map.shape)
         ax0.plot(x, y, 'o', color='C2', ms=5)
         ax0.text(x, y, str(i), color='k')
 
@@ -131,7 +139,7 @@ def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None,
         ax.plot(ei_ts, 'C2')
         ax.axvline(np.argmin(ei_ts), color='k')
         ax.set_xticks([])
-        ax.set_ylabel(f'{i} (e{top_idx[i]})')
+        ax.set_ylabel(f'{i} (e{channel_idx})')
     
     # Set xticks for last ax
     ax.set_xticks(np.arange(0, len(ei_ts), 50))
@@ -140,7 +148,7 @@ def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None,
     str_title = ''
     if label is not None:
         str_title += f'{label} '
-    str_title += f'ID {n_ID}\nPeak: {peak_idx}, e{peak_channel}\n{num_sps} sps ({avg_rate:.1f} Hz)\n'
+    str_title += f'ID {n_ID}\nPeak: {peak_idx}, e{peak_channel_idx}\n{num_sps} sps ({avg_rate:.1f} Hz)\n'
     ax0.set_title(str_title)
     plt.tight_layout()
     return ax0
