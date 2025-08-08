@@ -12,34 +12,29 @@ python -m pip install . (to lock the modules in their current state)
 ## Sample config.ini file (must be in same src folder as settings.py):
 ```
 [DEFAULT]
+analysis = /Volumes/Vyom MEA/analysis
+data = /Volumes/Vyom MEA/analysis
+raw = /Volumes/Vyom MEA/data/raw
+h5 = /Volumes/Vyom MEA/data/samarjit_datajoint/data_dirs/data
+meta = /Volumes/Vyom MEA/data/samarjit_datajoint/data_dirs/meta
+tags = /Volumes/Vyom MEA/data/samarjit_datajoint/data_dirs/tags
+query = /Volumes/data-1/analysis
+user = vyomr
+
+[SECONDARY]
 analysis = /Volumes/data-1/analysis
 data = /Volumes/data-1/data/sorted
+raw = /Volumes/data-1/data/raw
 h5 = /Volumes/data-1/data/h5
 meta = /Volumes/data-1/datajoint_testbed/mea/meta
 tags = /Volumes/data-1/datajoint_testbed/mea/tags
-user = drezeanu
+query = /Volumes/data-1/analysis
+user = vyomr
 
-[MAC_SSD]
-analysis = /Volumes/ExternalM2/mea_ssd/analysis
-data = /Volumes/ExternalM2/mea_ssd/data/sorted
-h5 = /Volumes/ExternalM2/mea_ssd/data/h5
-meta = /Volumes/ExternalM2/mea_ssd/datajoint_testbed/mea/meta
-tags = /Volumes/ExternalM2/mea_ssd/datajoint_testbed/mea/tags
-user = drezeanu
+[WINDOWS_DEFAULT]
+...
 
-[WINDOWS_NAS]
-analysis = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/Z:/analysis
-data = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/Z:/data/sorted
-h5 = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/Z:/data/h5
-meta = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/Z:/datajoint_testbed/mea/meta
-tags = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/Z:/datajoint_testbed/mea/tags
-user = drezeanu
-
-[WINDOWS_SSD]
-analysis = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/E:/mea_ssd/analysis
-data = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/E:/mea_ssd/data/sorted
-h5 = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/E:/mea_ssd/data/h5
-meta = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/E:/mea_ssd/datajoint_testbed/mea/meta
-tags = /Users/drezeanu/UW/Core Repositories/RetinAnalysis/E:/mea_ssd/datajoint_testbed/mea/tags
-user = drezeanu
+[WINDOWS_SECONDARY]
+...
 ```
+`query` dir is used by `datajoint_utils.plot_mosaics_for_all_datasets` and it's useful to have it set to the NAS analysis dir even when all other paths are SSD. This allows loading and plotting mosaics and cell typing from all the data on the NAS instead of just the data on your SSD's `analysis` dir.
