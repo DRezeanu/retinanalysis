@@ -75,6 +75,12 @@ class MEAPipeline:
     def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
                  **kwargs) -> np.ndarray:
         
+        if isinstance(cell_types, str):
+            cell_types = [cell_types]
+        
+        if isinstance(protocol_ids, int) or isinstance(protocol_ids, float):
+            protocol_ids = [int(protocol_ids)]
+        
         noise_ids = self.get_noise_ids(protocol_ids = protocol_ids, cell_types = cell_types)
         ax = self.analysis_chunk.plot_rfs(noise_ids = noise_ids, cell_types = cell_types,
                                           **kwargs)
@@ -107,6 +113,13 @@ class MEAPipeline:
     def get_noise_ids(self, protocol_ids: List[int] = None, cell_types: List[int] = None) -> List[int]:
         # Pull analysis_block ids that match the input cell_ids and cell_types
         # If neither is given, plot all matched ids
+
+        if isinstance(cell_types, str):
+            cell_types = [cell_types]
+        
+        if isinstance(protocol_ids, int) or isinstance(protocol_ids, float):
+            protocol_ids = [int(protocol_ids)]
+
         if protocol_ids is None and cell_types is None:
             protocol_ids = self.response_block.df_spike_times['cell_id'].values
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
