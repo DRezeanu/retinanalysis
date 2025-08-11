@@ -574,11 +574,11 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     n_epochs = len(frame_times_ms)
     actual_onset_times_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]
     actual_offset_times_ms = [frame_times_ms[i][pre_frames+stim_frames] for i in range(n_epochs)]
-    print(f'For {exp_name} block {block_id}:')
-    print(f'Set pre_time_ms={pre_time_ms}, stim_time_ms={stim_time_ms}, tail_time_ms={tail_time_ms}')
-    print(f'Delivered pre_frames={pre_frames}, stim_frames={stim_frames}')
-    print(f'Actual onset times (ms): {actual_onset_times_ms}')
-    print(f'Actual offset times (ms): {actual_offset_times_ms}')
+    # print(f'For {exp_name} block {block_id}:')
+    # print(f'Set pre_time_ms={pre_time_ms}, stim_time_ms={stim_time_ms}, tail_time_ms={tail_time_ms}')
+    # print(f'Delivered pre_frames={pre_frames}, stim_frames={stim_frames}')
+    # print(f'Actual onset times (ms): {actual_onset_times_ms}')
+    # print(f'Actual offset times (ms): {actual_offset_times_ms}')
 
     d_timing['pre_time_ms'] = pre_time_ms
     d_timing['stim_time_ms'] = stim_time_ms
