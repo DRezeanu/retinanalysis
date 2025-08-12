@@ -254,7 +254,8 @@ class AnalysisChunk:
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
                  typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 b_zoom: bool = False, n_pad: int = 6, roi: Dict[str, float] = None):
+                 b_zoom: bool = False, n_pad: int = 6, roi: Dict[str, float] = None,
+                 label_cells: bool = False):
         """
         Method for plotting the receptive fields for a given list of cell ids, cell types, 
         or a union of both. If no cell_ids or cell types are given, all cells in the
@@ -285,6 +286,11 @@ class AnalysisChunk:
                                 in the plot.
 
         """
+        if isinstance(cell_types, str):
+            cell_types = [cell_types]
+        
+        if isinstance(noise_ids, int) or isinstance(noise_ids, float):
+            noise_ids = [int(noise_ids)]
 
         if typing_file is None:
             typing_file = self.typing_files[0]
@@ -334,6 +340,9 @@ class AnalysisChunk:
             ax = axs[idx]
             for id in d_ells_by_type[ct]:
                 ax.add_patch(d_ells_by_type[ct][id])
+                if label_cells:
+                    ax.text(d_ells_by_type[ct][id].center[0], d_ells_by_type[ct][id].center[1], str(id),
+                            horizontalalignment = 'center', verticalalignment = 'center')
 
             ax.set_xlim(0,self.numXChecks * scale_factor)
             ax.set_ylim(0,self.numYChecks * scale_factor)
