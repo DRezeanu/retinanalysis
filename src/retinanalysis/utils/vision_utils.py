@@ -360,44 +360,6 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = N
         cell_types = filtered_df['cell_type'].unique()
         
     elif protocol_ids is None:
-        filtered_df = spike_time_df.query('cell_type in @cell_types')
-
-    elif cell_types is None:
-        filtered_df = spike_time_df.query('cell_id in @protocol_ids')
-        cell_types = filtered_df['cell_type'].unique()
-        
-    else:
-        filtered_df = spike_time_df.query('cell_id in @protocol_ids and cell_type in @cell_types')
-
-    d_spike_times = dict()
-    for ct in cell_types:
-        df_type = filtered_df.query('cell_type == @ct').reset_index(drop = True)
-        type_ids = df_type['cell_id'].values
-        xarrays = np.empty((len(type_ids), num_epochs), dtype = object)
-        xarrays[:,:] = np.array([df_type.loc[idx, 'spike_times'] for idx, id in enumerate(type_ids)], dtype = object)
-        xarr = xr.DataArray(xarrays, dims = ['cell', 'epoch'], coords = {'cell' : type_ids,
-                                                                         'epoch' : np.arange(1,num_epochs+1)})
-        d_spike_times[ct] = xarr
-
-    return d_spike_times
-
-def get_spike_time_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = None,
-                   cell_types: List[str] = None) -> xr.DataArray:
-    
-    if isinstance(cell_types, str):
-        cell_types = [cell_types]
-    
-    if isinstance(protocol_ids, int):
-        protocol_ids = [protocol_ids]
-
-    spike_time_df = response_block.df_spike_times
-    num_epochs = response_block.n_epochs
-
-    if protocol_ids is None and cell_types is None:
-        filtered_df = spike_time_df
-        cell_types = filtered_df['cell_type'].unique()
-        
-    elif protocol_ids is None:
         filtered_df = spike_time_df.query('cell_type in @cell_types').reset_index(drop = True)
 
     elif cell_types is None:
