@@ -1,8 +1,8 @@
 import retinanalysis 
 import retinanalysis.config.schema as schema
 import os
-from retinanalysis.config.settings import (NAS_ANALYSIS_DIR,
-                                           NAS_DATA_DIR)
+from retinanalysis.config.settings import (ANALYSIS_DIR,
+                                           DATA_DIR)
 import pandas as pd
 # import retinanalysis.utils.vision_utils as vu
 from retinanalysis.utils.vision_utils import (get_analysis_vcd,
@@ -195,7 +195,7 @@ class AnalysisChunk:
         cell_types = cell_types_list['cell_types'].values
 
         for idx, typing_file in enumerate(self.typing_files):
-            file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
+            file_path = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
             d_result = dict()
             
             with open(file_path, 'r') as file:
@@ -228,7 +228,7 @@ class AnalysisChunk:
 
     def get_spatial_maps(self, ls_channels=[0,2]):
         # By default load red and blue channel spatial maps. 
-        mat_file = os.path.join(NAS_DATA_DIR, self.exp_name, self.chunk_name, self.ss_version, f'{self.ss_version}_params.mat')
+        mat_file = os.path.join(DATA_DIR, self.exp_name, self.chunk_name, self.ss_version, f'{self.ss_version}_params.mat')
         if not os.path.exists(mat_file):
             print(f'_params.mat file not found: {mat_file}')
             return

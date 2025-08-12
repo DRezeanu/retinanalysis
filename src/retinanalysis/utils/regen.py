@@ -300,7 +300,12 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
     return d_output
 
 def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
-    str_pkg_dir: str, b_noise_only: bool=True):
+    str_pkg_dir: str, exp_name: str, b_noise_only: bool=True):
+    # This protocol was basically bugged before 20250805,
+    # So regen only for experiments after that date.
+    if int(exp_name[:8]) < 20250805:
+        raise ValueError('Regen for DovesPerturbationAlpha only valid for experiments after 20250805.')
+
     import matlab.engine as engine #type: ignore
     if not b_noise_only:
         raise NotImplementedError('Noise + Doves not implemented yet.')
@@ -426,6 +431,140 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     }
 
     
+    return d_output
+
+def make_checkerboard_noise_project(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_noise_only: bool=True):
+    exp_name = int(exp_name[:8])
+    import matlab.engine #type: ignore
+    print('Starting matlab engine for stim regen.')
+    eng = matlab.engine.start_matlab()
+    eng.addpath(str_pkg_dir)
+    print('Started engine and added pkg to path.')
+    preTime = matlab.double(df_epochs.loc[0,'preTime'])
+    tailTime = matlab.double(df_epochs.loc[0,'tailTime'])
+    stimTime = matlab.double(df_epochs.loc[0,'stimTime'])
+    noiseSeeds = matlab.double([df_epochs.loc[i,'noiseSeed'] for i in df_epochs.index])
+    numChecksXs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksX'] for i in df_epochs.index])
+    backgroundIntensity = matlab.double([df_epochs.loc[0, 'epoch_parameters']['backgroundIntensity']])
+    frameDwell = matlab.double([df_epochs.loc[0, 'epoch_parameters']['frameDwell']])
+    binaryNoise = matlab.double([df_epochs.loc[0, 'epoch_parameters']['binaryNoise']])
+    noiseStdv = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noiseStdv']])
+    if b_noise_only:
+        if exp_name<20250806:
+            backgroundRatios = matlab.double([0 for _ in df_epochs.index])
+        else:
+            backgroundRatios = matlab.double([1.0 for _ in df_epochs.index])
+    else:
+        backgroundRatios = matlab.double([df_epochs.loc[i,'epoch_parameters']['backgroundRatio'] for i in df_epochs.index])
+    backgroundFrameDwells = matlab.double([df_epochs.loc[i,'epoch_parameters']['backgroundFrameDwell'] for i in df_epochs.index])
+    pairedBars = matlab.double([df_epochs.loc[0, 'epoch_parameters']['pairedBars']])
+    if b_noise_only:
+        noSplitField = matlab.double([1.0])
+    else:
+        noSplitField = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noSplitField']])
+    contrastJumps = matlab.double(df_epochs.loc[0, 'epoch_parameters']['contrastJumps'])
+    numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
+    # if exp_name < 20250806:
+    stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(exp_name, preTime,  tailTime, stimTime, noiseSeeds, numChecksXs, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, backgroundRatios, backgroundFrameDwells, pairedBars, noSplitField, contrastJumps, numChecksYs, nargout=3);
+    stimulus = np.array(stimulus);
+    line_mat = np.array(line_mat);
+    contrast_mat = np.array(contrast_mat);
+    eng.quit()
+
+    canvas_size_pix = df_epochs.loc[0,'epoch_parameters']['canvasSize']
+    stixel_size_um = df_epochs.loc[0,'epoch_parameters']['stixelSize']
+    mu_per_pix = df_epochs.loc[0,'microns_per_pixel']
+    canvas_size_stix = (int(np.round(canvas_size_pix[0] * mu_per_pix / stixel_size_um)),
+                            int(np.round(canvas_size_pix[1] * mu_per_pix / stixel_size_um)))
+    stixel_size_pix = int(np.round(stixel_size_um / mu_per_pix))
+    x_offset_pix = df_epochs.loc[0,'epoch_parameters']['xOffset']
+    y_offset_pix = df_epochs.loc[0,'epoch_parameters']['yOffset']
+    x_offset_stix = int(np.round(x_offset_pix / stixel_size_pix))
+    y_offset_stix = int(np.round(y_offset_pix / stixel_size_pix))
+
+    stimulus_cropped = np.ones_like(stimulus) * int((255*df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']))
+    lines_cropped = np.ones_like(line_mat) * df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']
+    if x_offset_pix > 0:
+        offset = np.abs(x_offset_stix)
+        stimulus_cropped[:, offset:, :, :] = stimulus[:, :-offset, :, :]
+        lines_cropped[offset:, :, :] = line_mat[:-offset, :, :]
+    elif x_offset_pix < 0:
+        offset = np.abs(x_offset_stix)
+        stimulus_cropped[:, :-offset, :, :] = stimulus[:, offset:, :, :]
+        lines_cropped[:-offset, :, :] = line_mat[offset:, :, :]
+    else:
+        stimulus_cropped = stimulus
+        lines_cropped = line_mat
+    if y_offset_pix != 0:
+        raise NotImplementedError('Y offset cropping not implemented yet.')
+    
+    stim_transitions = []
+    for e_idx in df_epochs.index:
+        interval = df_epochs.at[e_idx, 'backgroundFrameDwell']
+        frame_transitions_ls = []
+        for i in range(lines_cropped.shape[1]):
+            if i % interval == 0:
+                frame_transitions_ls.append(i)
+        stim_transitions.append(frame_transitions_ls)
+
+    d_output = {
+        'stim_frames': stimulus_cropped,
+        'line_mat': lines_cropped,
+        'contrast_mat': contrast_mat,
+    }
+    return d_output
+
+
+
+
+def make_spot_image(ht, wt, center_row, center_col, diam, background, intensity):
+    Y, X = np.ogrid[:ht, :wt]
+    dist_from_center = np.sqrt((X - center_col) ** 2 + (Y - center_row) ** 2)
+    mask = dist_from_center <= diam / 2
+    img = np.zeros((ht, wt), dtype=np.float32) + background
+    img[mask] = intensity
+    # Scale to (-1, 1)
+    img = (img - 0.5) * 2
+    return img
+
+
+def make_expanding_spots(df_epochs: pd.DataFrame, ds_mu: float=10.0):
+    # Get display parameters
+    d_epoch_params = df_epochs.iloc[0]['epoch_parameters']
+    # Get screen size in (rows, cols)
+    screen_size = np.array(d_epoch_params['canvasSize']).astype(int)[::-1]
+    d_display_params = {
+        'screen_size': screen_size,
+        'mu_per_pix': d_epoch_params['micronsPerPixel'],
+        'ds_mu': ds_mu
+    }
+    d_display_params['ds_pix'] = int(d_display_params['ds_mu'] / d_display_params['mu_per_pix'])
+    d_display_params['ds_screen_size'] = (d_display_params['screen_size']/ d_display_params['ds_pix']).astype(int)
+    img_size = d_display_params['ds_screen_size']
+
+    # Generate images for all epochs
+    all_images = []
+    for e_idx in tqdm.tqdm(df_epochs.index, desc='Generating images'):
+        spot_diam_um = get_df_dict_vals(df_epochs, 'currentSpotSize')[e_idx]
+        spot_diam_ds = int(np.round(spot_diam_um / d_display_params['ds_mu']))
+        # Center offset is in x, y pixels. Get in row, col format.
+        center_offset_pix = get_df_dict_vals(df_epochs, 'centerOffset')[e_idx][::-1]
+        center_offset_ds = (center_offset_pix / d_display_params['ds_pix']).astype(int)
+        center_row = int(np.round(img_size[0] / 2 + center_offset_ds[0]))
+        center_col = int(np.round(img_size[1] / 2 + center_offset_ds[1]))
+
+        background = get_df_dict_vals(df_epochs, 'backgroundIntensity')[e_idx]
+        intensity = get_df_dict_vals(df_epochs, 'spotIntensity')[e_idx]
+
+        img = make_spot_image(img_size[0], img_size[1], center_row, center_col, spot_diam_ds, background, intensity)
+        all_images.append(img)
+    all_images = np.array(all_images)
+
+    d_output = {
+        'image_data': all_images,
+        'd_display_params': d_display_params
+    }
+
     return d_output
 
 

@@ -4,7 +4,7 @@ from retinanalysis.classes.analysis_chunk import AnalysisChunk
 import retinanalysis.utils.vision_utils as vu
 import retinanalysis.utils.ei_utils as eu
 import os
-from retinanalysis.config.settings import NAS_DATA_DIR
+from retinanalysis.config.settings import DATA_DIR
 from matplotlib.patches import Ellipse
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -222,13 +222,13 @@ class DedupBlock:
 
     def load_ks_amplitudes(self):
         if self.is_noise:
-            amps = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'amplitudes.npy'))
-            temps = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'spike_templates.npy'))
-            times = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'spike_times.npy'))
+            amps = np.load(os.path.join(DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'amplitudes.npy'))
+            temps = np.load(os.path.join(DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'spike_templates.npy'))
+            times = np.load(os.path.join(DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'spike_times.npy'))
         else:
-            amps = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'amplitudes.npy'))
-            temps = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'spike_templates.npy'))
-            times = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'spike_times.npy'))
+            amps = np.load(os.path.join(DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'amplitudes.npy'))
+            temps = np.load(os.path.join(DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'spike_templates.npy'))
+            times = np.load(os.path.join(DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'spike_times.npy'))
         
         vision_temps = temps+1
 
@@ -527,11 +527,11 @@ class DedupBlock:
     def plot_pcs(self, pair:tuple, n_pcs=2, n_chans=2):
         if not hasattr(self, 'spike_pcs'):
             if self.is_noise:
-                self.spike_pcs = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'pc_features.npy'), mmap_mode='r')
-                self.spike_pc_idx = np.load(os.path.join(NAS_DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
+                self.spike_pcs = np.load(os.path.join(DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'pc_features.npy'), mmap_mode='r')
+                self.spike_pc_idx = np.load(os.path.join(DATA_DIR, self.AnalysisChunk.exp_name, self.AnalysisChunk.chunk_name, self.AnalysisChunk.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
             else: 
-                self.spike_pcs = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'pc_features.npy'), mmap_mode='r')
-                self.spike_pc_idx = np.load(os.path.join(NAS_DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
+                self.spike_pcs = np.load(os.path.join(DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'pc_features.npy'), mmap_mode='r')
+                self.spike_pc_idx = np.load(os.path.join(DATA_DIR, self.MEAResponseBlock.exp_name, self.MEAResponseBlock.datafile_name, self.MEAResponseBlock.ss_version, 'pc_feature_ind.npy'), mmap_mode='r')
         spike_idxs = []
         feat_chan_ids = []
         channels = []
