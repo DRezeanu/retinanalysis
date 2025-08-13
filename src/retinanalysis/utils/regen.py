@@ -375,6 +375,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     print('Matlab engine stopped.')
 
     # Apply jitter
+    shifts_epochs = []
     for e_idx in range(n_epochs):
         mu_per_pix = get_df_dict_vals(df_epochs, 'micronsPerPixel')[e_idx]
         num_checks_x = get_df_dict_vals(df_epochs, 'numChecksX')[e_idx]
@@ -406,21 +407,24 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
         noise_lines = cv2.resize(noise_lines, upsample_size[::-1], interpolation=cv2.INTER_NEAREST)
         
         n_frames = noise_lines.shape[1]
-        for f_count in range(1,n_frames+1):
+        shifts = []
+        # Start frame count at 2 bc shift for count 1 is skipped in protocol
+        for f_count in range(2,n_frames+1):
             if f_count % frame_dwell == 0:
                 x_shift_stix = np.round(np.random.rand() * (steps_per_stixel-1)).astype(int)
+                shifts.append(x_shift_stix)
                 # If in pixel space, would multiply by stixel_shift_pix
                 # x_shift_stix = int(x_shift_stix * stixel_shift_pix)
                 if x_shift_stix == 0:
                     continue
-                # I don't exactly get it, but below is correct as it matches screen cap.
-                noise_lines[:-x_shift_stix, f_count-1] = noise_lines[x_shift_stix:, f_count-1]
+                noise_lines[x_shift_stix:, f_count-1] = noise_lines[:-x_shift_stix, f_count-1]
         noise_lines_epochs[e_idx] = noise_lines
-
+        shifts_epochs.append(shifts)
     noise_lines_epochs = np.array(noise_lines_epochs)
     all_fix_indices_epochs = np.array(all_fix_indices_epochs)
+    shifts_epochs = np.array(shifts_epochs)
     d_output = {
-        'noise_lines': noise_lines_epochs,
+        'noise_lines': noise_lines_epochs, # (epochs, stixels*steps_per_stixel, frames)
         'all_fix_indices': all_fix_indices_epochs,
         'd_stim_timing': {
             'pre_time': pre_time,
@@ -429,7 +433,8 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
             'pre_frames': pre_frames,
             'stim_frames': stim_frames,
             'tail_frames': tail_frames
-        }
+        },
+        'shifts': shifts_epochs # (epochs, frames-1)
     }
 
     
