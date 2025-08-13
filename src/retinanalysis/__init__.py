@@ -6,11 +6,13 @@ import retinanalysis.config.schema as schema
 # safe to import first without circular import issues
 from . import config
 from .config import settings
-from .config.settings import (NAS_ANALYSIS_DIR,
-                              NAS_DATA_DIR,
+from .config.settings import (ANALYSIS_DIR,
+                              DATA_DIR,
+                              RAW_DIR,
                               H5_DIR,
                               META_DIR,
                               TAGS_DIR,
+                              QUERY_DIR,
                               USER)
 
 # Utilities imported first. They should NEVER reference the classes for anything
@@ -62,7 +64,7 @@ from .classes.qc import MEAQC
 from .classes import mea_pipeline
 from .classes.mea_pipeline import (MEAPipeline,
                                    create_mea_pipeline)
-
+from .classes import sc_pipeline
 from .classes import dedup
 from .classes.dedup import DedupBlock
 

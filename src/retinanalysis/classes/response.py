@@ -27,7 +27,7 @@ def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0):
     frame_interval = 1000/frame_rate
     d_frames = np.diff(frame_times)
     # Get the number of frames between transitions/check for drops.
-    transition_frames = np.round( d_frames / frame_interval).astype(np.int32)   # this was backwards... frame_interval/d_frames
+    transition_frames = np.round( d_frames / frame_interval ).astype(np.int32)   # this was backwards... frame_interval/d_frames
                                                                                 # prints 1 wherever there is a missing frame and
                                                                                 # a zero everywhere else...
 
@@ -86,13 +86,13 @@ class ResponseBlock:
         frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
         self.frame_data = frame_data
         self.frame_sample_rate = frame_sample_rate
-    
+
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
-        str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
+        str_self += f"  frame_sample_rate: {self.frame_sample_rate} Hz\n"
         str_self += f"  frame_data shape: {self.frame_data.shape}\n"
         if self.h5_file is not None:
             str_self += f"  h5_file: {self.h5_file}\n"
@@ -125,10 +125,21 @@ class SCResponseBlock(ResponseBlock):
         self.spike_amps = amps
         self.spike_refs = refs
 
+    def __repr__(self):
+        str_self = super().__repr__()
+        str_self += f"  b_spiking: {self.b_spiking}\n"
+        str_self += f"  amp_data shape: {self.amp_data.shape}\n"
+        str_self += f"  amp_sample_rate: {self.amp_sample_rate} Hz\n"
+        if self.b_spiking:
+            str_self += f"  spike_times length: {len(self.spike_times)}\n"
+            str_self += f"  spike_amps length: {len(self.spike_amps)}\n"
+            str_self += f"  spike_refs length: {len(self.spike_refs)}\n"
+        return str_self
+
 
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
-                 pkl_file: str=None, h5_file: str=None):
+                 pkl_file: str=None, h5_file: str=None, include_ei: bool=True):
         # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
@@ -143,7 +154,7 @@ class MEAResponseBlock(ResponseBlock):
                 self.datafile_name = datafile_name
         
         super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file)
-        self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version)
+        self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei)
 
         # If pkl_file is provided, everything else is already loaded in parent init.
         if pkl_file is not None:
@@ -169,7 +180,7 @@ class MEAResponseBlock(ResponseBlock):
         # n_samples = self.d_timing['n_samples']
         # frame_times_ms = self.d_timing['frame_times_ms']
 
-        self.n_epochs = len(epoch_starts)
+        self.n_epochs = self.d_timing['n_epochs']
         for cell_id in self.cell_ids:
             all_spike_times = []
             # STs in samples

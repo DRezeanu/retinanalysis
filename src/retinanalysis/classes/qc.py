@@ -26,11 +26,21 @@ def get_isi(vcd: VisionCellDataTable, cell_ids: list, bin_edges: np.array):
         # Compute the interspike interval
         if len(spike_times) > 1:
             isi_tmp = np.diff(spike_times)
-            isi_dict[n_ID] = np.histogram(isi_tmp,bins=bin_edges)[0].astype(float)
+            isi_dict[n_ID] = np.histogram(isi_tmp, bins=bin_edges)[0].astype(float)
+            
+            if np.sum(isi_dict[n_ID]) == 0:
+                isi_dict[n_ID] = np.zeros((len(bin_edges)-1,)).astype(float)
             # Normalize by sum
-            isi_dict[n_ID] /= np.sum(isi_dict[n_ID])
+            else:
+                isi_dict[n_ID] /= np.sum(isi_dict[n_ID])
+        
         else:
-            isi_dict[n_ID] = np.zeros((len(bin_edges)-1,)).astype(int)
+            isi_dict[n_ID] = np.zeros((len(bin_edges)-1,)).astype(float)
+        
+    
+    for id in cell_ids:
+        if id not in list(isi_dict.keys()):
+            print(f"ID Not in dict: {id}")
     
     return isi_dict
 
@@ -44,6 +54,7 @@ def get_ei_corr(vcd1: VisionCellDataTable, vcd2: VisionCellDataTable,
                 match_dict: dict, method: str='full'):
     if method != 'full':
         raise NotImplementedError("Only 'full' method is implemented for now in QC EI correlation.")
+        
     ei_corrs = []
     for id1 in match_dict.keys():
         ei1 = vcd1.get_ei_for_cell(id1).ei.flatten()
@@ -51,14 +62,16 @@ def get_ei_corr(vcd1: VisionCellDataTable, vcd2: VisionCellDataTable,
         ei2 = vcd2.get_ei_for_cell(id2).ei.flatten()
         r = np.corrcoef(ei1, ei2)[0,1]
         ei_corrs.append(r)
+
     return ei_corrs
 
 class MEAQC():
     def __init__(self, rb: MEAResponseBlock, ac: AnalysisChunk, match_dict: dict,
-                 refractory_period_ms: float=1.5):
+                 corr_dict: dict, refractory_period_ms: float=1.5):
         self.rb = rb
         self.ac = ac
         self.match_dict = match_dict
+        self.corr_dict = corr_dict
         # Assuming different sorting chunks for now
         # And assuming rb is not for noise protocol
         self.refractory_period_ms = refractory_period_ms
@@ -84,22 +97,27 @@ class MEAQC():
         for key, val in self.match_dict.items():
             ls_cell_ids.append(val)
             ls_analysis_chunk_cell_ids.append(key)
+        
+        ls_ei_corr = []
+        for key, val in self.corr_dict.items():
+            ls_ei_corr.append(val)
+
         df_qc['cell_id'] = ls_cell_ids
         df_qc['analysis_chunk_cell_id'] = ls_analysis_chunk_cell_ids
 
-        df_qc['cell_type'] = self.rb.df_spike_times.loc[df_qc['cell_id'], 'cell_type']
+        df_qc['cell_type'] = self.rb.df_spike_times.loc[df_qc['cell_id'].index, 'cell_type']
         
         df_qc['protocol_spikes'] = get_nsps(self.rb.vcd, df_qc['cell_id'].values)
         df_qc['noise_spikes'] = get_nsps(self.ac.vcd, df_qc['analysis_chunk_cell_id'].values)
 
-        self.protocol_isi = get_isi(self.rb.vcd, df_qc['cell_id'].values, self.isi_bin_edges)
+        self.protocol_isi = get_isi(self.rb.vcd, df_qc['cell_id'].values, self.isi_bin_edges) #getting incorrect number of cells...
+
         self.noise_isi = get_isi(self.ac.vcd, df_qc['analysis_chunk_cell_id'].values, self.isi_bin_edges)
         df_qc['noise_isi_violations'] = get_pct_refractory(self.noise_isi, self.isi_bin_max)
         df_qc['protocol_isi_violations'] = get_pct_refractory(self.protocol_isi, self.isi_bin_max)
 
-        df_qc['ei_corr'] = get_ei_corr(self.ac.vcd, self.rb.vcd, self.match_dict)
-
-        df_qc = df_qc.set_index('cell_id')
+        df_qc['ei_corr'] = ls_ei_corr
+        
 
         return df_qc
 

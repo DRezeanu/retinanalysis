@@ -300,10 +300,16 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
     return d_output
 
 def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
-    str_pkg_dir: str, b_noise_only: bool=True):
+    str_pkg_dir: str, exp_name: str, b_noise_only: bool=True):
+    # This protocol was basically bugged before 20250805,
+    # So regen only for experiments after that date.
+    if int(exp_name[:8]) < 20250805:
+        raise ValueError('Regen for DovesPerturbationAlpha only valid for experiments after 20250805.')
+
     import matlab.engine as engine #type: ignore
     if not b_noise_only:
         raise NotImplementedError('Noise + Doves not implemented yet.')
+    
     print('Starting matlab engine for stim regen.')
     eng = engine.start_matlab()
     eng.addpath(str_pkg_dir)
@@ -356,7 +362,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
 
         ls_input = [seed, num_checks_x, pre_time, stim_time, tail_time,
                     background_intensity, frame_dwell, binary_noise,
-                    1.0, 0.0, 1, paired_bars, 0, 0]
+                    1.0, 1.0, 1, paired_bars, 0, 0]
         # print(f'Calling matlab function with inputs: {ls_input}')
         noise_lines = eng.util.getCheckerboardProjectLines(*ls_input, nargout=1)
 
@@ -369,6 +375,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     print('Matlab engine stopped.')
 
     # Apply jitter
+    shifts_epochs = []
     for e_idx in range(n_epochs):
         mu_per_pix = get_df_dict_vals(df_epochs, 'micronsPerPixel')[e_idx]
         num_checks_x = get_df_dict_vals(df_epochs, 'numChecksX')[e_idx]
@@ -400,20 +407,24 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
         noise_lines = cv2.resize(noise_lines, upsample_size[::-1], interpolation=cv2.INTER_NEAREST)
         
         n_frames = noise_lines.shape[1]
-        for f_count in range(1,n_frames+1):
+        shifts = []
+        # Start frame count at 2 bc shift for count 1 is skipped in protocol
+        for f_count in range(2,n_frames+1):
             if f_count % frame_dwell == 0:
                 x_shift_stix = np.round(np.random.rand() * (steps_per_stixel-1)).astype(int)
+                shifts.append(x_shift_stix)
                 # If in pixel space, would multiply by stixel_shift_pix
                 # x_shift_stix = int(x_shift_stix * stixel_shift_pix)
                 if x_shift_stix == 0:
                     continue
                 noise_lines[x_shift_stix:, f_count-1] = noise_lines[:-x_shift_stix, f_count-1]
         noise_lines_epochs[e_idx] = noise_lines
-
+        shifts_epochs.append(shifts)
     noise_lines_epochs = np.array(noise_lines_epochs)
     all_fix_indices_epochs = np.array(all_fix_indices_epochs)
+    shifts_epochs = np.array(shifts_epochs)
     d_output = {
-        'noise_lines': noise_lines_epochs,
+        'noise_lines': noise_lines_epochs, # (epochs, stixels*steps_per_stixel, frames)
         'all_fix_indices': all_fix_indices_epochs,
         'd_stim_timing': {
             'pre_time': pre_time,
@@ -422,7 +433,8 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
             'pre_frames': pre_frames,
             'stim_frames': stim_frames,
             'tail_frames': tail_frames
-        }
+        },
+        'shifts': shifts_epochs # (epochs, frames-1)
     }
 
     
@@ -510,5 +522,56 @@ def make_checkerboard_noise_project(df_epochs: pd.DataFrame, exp_name:str, str_p
     return d_output
 
 
+
+
+def make_spot_image(ht, wt, center_row, center_col, diam, background, intensity):
+    Y, X = np.ogrid[:ht, :wt]
+    dist_from_center = np.sqrt((X - center_col) ** 2 + (Y - center_row) ** 2)
+    mask = dist_from_center <= diam / 2
+    img = np.zeros((ht, wt), dtype=np.float32) + background
+    img[mask] = intensity
+    # Scale to (-1, 1)
+    img = (img - 0.5) * 2
+    return img
+
+
+def make_expanding_spots(df_epochs: pd.DataFrame, ds_mu: float=10.0):
+    # Get display parameters
+    d_epoch_params = df_epochs.iloc[0]['epoch_parameters']
+    # Get screen size in (rows, cols)
+    screen_size = np.array(d_epoch_params['canvasSize']).astype(int)[::-1]
+    d_display_params = {
+        'screen_size': screen_size,
+        'mu_per_pix': d_epoch_params['micronsPerPixel'],
+        'ds_mu': ds_mu
+    }
+    d_display_params['ds_pix'] = int(d_display_params['ds_mu'] / d_display_params['mu_per_pix'])
+    d_display_params['ds_screen_size'] = (d_display_params['screen_size']/ d_display_params['ds_pix']).astype(int)
+    img_size = d_display_params['ds_screen_size']
+
+    # Generate images for all epochs
+    all_images = []
+    for e_idx in tqdm.tqdm(df_epochs.index, desc='Generating images'):
+        spot_diam_um = get_df_dict_vals(df_epochs, 'currentSpotSize')[e_idx]
+        spot_diam_ds = int(np.round(spot_diam_um / d_display_params['ds_mu']))
+        # Center offset is in x, y pixels. Get in row, col format.
+        center_offset_pix = get_df_dict_vals(df_epochs, 'centerOffset')[e_idx][::-1]
+        center_offset_ds = (center_offset_pix / d_display_params['ds_pix']).astype(int)
+        center_row = int(np.round(img_size[0] / 2 + center_offset_ds[0]))
+        center_col = int(np.round(img_size[1] / 2 + center_offset_ds[1]))
+
+        background = get_df_dict_vals(df_epochs, 'backgroundIntensity')[e_idx]
+        intensity = get_df_dict_vals(df_epochs, 'spotIntensity')[e_idx]
+
+        img = make_spot_image(img_size[0], img_size[1], center_row, center_col, spot_diam_ds, background, intensity)
+        all_images.append(img)
+    all_images = np.array(all_images)
+
+    d_output = {
+        'image_data': all_images,
+        'd_display_params': d_display_params
+    }
+
+    return d_output
 
 

@@ -1,8 +1,8 @@
 import retinanalysis 
 import retinanalysis.config.schema as schema
 import os
-from retinanalysis.config.settings import (NAS_ANALYSIS_DIR,
-                                           NAS_DATA_DIR)
+from retinanalysis.config.settings import (ANALYSIS_DIR,
+                                           DATA_DIR)
 import pandas as pd
 # import retinanalysis.utils.vision_utils as vu
 from retinanalysis.utils.vision_utils import (get_analysis_vcd,
@@ -117,15 +117,23 @@ class AnalysisChunk:
         spatial noise and the size of the STA.
         """
         self.rf_params = dict()
+        broken_ids = []
         for id in self.cell_ids:
-            center_x = self.vcd.main_datatable[id]['x0']
-            center_y = self.vcd.main_datatable[id]['y0']
-            self.rf_params[id] = {'center_x' : center_x + self.deltaXChecks,
-                                'center_y' : (self.staYChecks - center_y) + self.deltaYChecks,
-                                'std_x' : self.vcd.main_datatable[id]['SigmaX'],
-                                'std_y' : self.vcd.main_datatable[id]['SigmaY'],
-                                'rot' : self.vcd.main_datatable[id]['Theta']}
+            try: 
+                center_x = self.vcd.main_datatable[id]['x0']
+                center_y = self.vcd.main_datatable[id]['y0']
+                self.rf_params[id] = {'center_x' : center_x + self.deltaXChecks,
+                                    'center_y' : (self.staYChecks - center_y) + self.deltaYChecks,
+                                    'std_x' : self.vcd.main_datatable[id]['SigmaX'],
+                                    'std_y' : self.vcd.main_datatable[id]['SigmaY'],
+                                    'rot' : self.vcd.main_datatable[id]['Theta']}
+            except:
+                print(f"Issue with id {id}...\nWill remove from cell_ids list.")
+                broken_ids.append(id)
             
+        for id in broken_ids:
+            self.cell_ids.remove(id)
+
     def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
         """
         Method for pulling cell_ids by region of interest.
@@ -187,7 +195,7 @@ class AnalysisChunk:
         cell_types = cell_types_list['cell_types'].values
 
         for idx, typing_file in enumerate(self.typing_files):
-            file_path = os.path.join(NAS_ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
+            file_path = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
             d_result = dict()
             
             with open(file_path, 'r') as file:
@@ -220,7 +228,7 @@ class AnalysisChunk:
 
     def get_spatial_maps(self, ls_channels=[0,2]):
         # By default load red and blue channel spatial maps. 
-        mat_file = os.path.join(NAS_DATA_DIR, self.exp_name, self.chunk_name, self.ss_version, f'{self.ss_version}_params.mat')
+        mat_file = os.path.join(DATA_DIR, self.exp_name, self.chunk_name, self.ss_version, f'{self.ss_version}_params.mat')
         if not os.path.exists(mat_file):
             print(f'_params.mat file not found: {mat_file}')
             return
@@ -246,7 +254,8 @@ class AnalysisChunk:
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
                  typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 b_zoom: bool = False, n_pad: int = 6, roi: Dict[str, float] = None):
+                 b_zoom: bool = False, n_pad: int = 6, roi: Dict[str, float] = None,
+                 label_cells: bool = False):
         """
         Method for plotting the receptive fields for a given list of cell ids, cell types, 
         or a union of both. If no cell_ids or cell types are given, all cells in the
@@ -277,6 +286,11 @@ class AnalysisChunk:
                                 in the plot.
 
         """
+        if isinstance(cell_types, str):
+            cell_types = [cell_types]
+        
+        if isinstance(noise_ids, int) or isinstance(noise_ids, float):
+            noise_ids = [int(noise_ids)]
 
         if typing_file is None:
             typing_file = self.typing_files[0]
@@ -297,7 +311,7 @@ class AnalysisChunk:
             filtered_df = self.df_cell_params.query(f'cell_id  in @noise_ids')
             cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
         else:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} == @cell_types and cell_id == @noise_ids')
+            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
 
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
@@ -326,6 +340,9 @@ class AnalysisChunk:
             ax = axs[idx]
             for id in d_ells_by_type[ct]:
                 ax.add_patch(d_ells_by_type[ct][id])
+                if label_cells:
+                    ax.text(d_ells_by_type[ct][id].center[0], d_ells_by_type[ct][id].center[1], str(id),
+                            horizontalalignment = 'center', verticalalignment = 'center')
 
             ax.set_xlim(0,self.numXChecks * scale_factor)
             ax.set_ylim(0,self.numYChecks * scale_factor)

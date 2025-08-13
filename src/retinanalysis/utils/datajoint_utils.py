@@ -1,11 +1,4 @@
-from __future__ import annotations
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from retinanalysis.classes.analysis_chunk import AnalysisChunk
-
-from retinanalysis.utils import (NAS_ANALYSIS_DIR,
-                                 H5_DIR,
+from retinanalysis.utils import (H5_DIR, QUERY_DIR,
                                  schema)
 
 import numpy as np
@@ -15,8 +8,7 @@ import pandas as pd
 import json
 from tqdm.auto import tqdm
 from IPython.display import display
-import h5py
-
+import h5py 
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
     """
@@ -159,14 +151,17 @@ def search_protocol(str_search: str):
     print(matches)
     return matches
 
-def get_datasets_from_protocol_names(ls_protocol_names):
+def get_datasets_from_protocol_names(ls_protocol_names, b_exact_match: bool=False):
     # TODO pull available algorithm names from CellTypeFile
     if type(ls_protocol_names) is str:
         ls_protocol_names = [ls_protocol_names]
 
-    found_protocols = []
-    for protocol in ls_protocol_names:
-        found_protocols  += list(search_protocol(protocol))
+    if b_exact_match:
+        found_protocols = ls_protocol_names
+    else:
+        found_protocols = []
+        for protocol in ls_protocol_names:
+            found_protocols  += list(search_protocol(protocol))
 
     # Query protocol table
     p_q = schema.Protocol() & [f'name="{protocol}"' for protocol in found_protocols]
@@ -294,9 +289,9 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
     # And df_not_typed with columns:
     # exp_name, datafile_names, nearest_noise_chunk, nearest_noise_distance
     # Each row corresponds to a dataset without any typing files.
-    d_not_typed = {'exp_name': [], 'datafile_name': [], 'nearest_noise_chunk': [],
+    d_not_typed = {'exp_name': [], 'datafile_name': [], 'chunk': [], 'nearest_noise_chunk': [],
                    'nearest_noise_distance': []}
-    d_typed = {'exp_name': [], 'datafile_name': [], 'nearest_noise_chunk': [],
+    d_typed = {'exp_name': [], 'datafile_name': [], 'chunk': [], 'nearest_noise_chunk': [],
                 'nearest_noise_distance': [], 'typed_noise_chunk': [], 
                 'nearest_noise_distance': [], 'typed_noise_distance': [], 'is_nearest': [],
                 'ss_version': [], 'noise_datafile_names': [],
@@ -308,6 +303,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
         noise_protocol_name = get_noise_name_by_exp(exp_name)
         
         for datafile_name in df_q['datafile_name'].values:
+            chunk = df_exp[df_exp['datafile_name']==datafile_name]['chunk_name'].values[0]
             noise_chunk_names, noise_chunk_distances = get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose)
     
             # Find nearest noise chunk with typing.
@@ -323,10 +319,11 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
                     for i_ct in df_ct.index:
                         ss_version = df_ct.at[i_ct, 'algorithm']
                         typing_file_name = df_ct.at[i_ct, 'file_name']
-                        typing_file_path = os.path.join(NAS_ANALYSIS_DIR, exp_name, noise_chunk, ss_version, typing_file_name)
+                        typing_file_path = os.path.join(QUERY_DIR, exp_name, noise_chunk, ss_version, typing_file_name)
                         n_cells_of_interest = get_n_cells_of_interest(typing_file_path, ls_cell_types)
                         d_typed['exp_name'].append(exp_name)
                         d_typed['datafile_name'].append(datafile_name)
+                        d_typed['chunk'].append(chunk)
                         d_typed['nearest_noise_chunk'].append(nearest_noise_chunk)
                         d_typed['nearest_noise_distance'].append(noise_chunk_distances[0])
                         d_typed['typed_noise_chunk'].append(noise_chunk)
@@ -347,6 +344,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
             if not b_found:
                 d_not_typed['exp_name'].append(exp_name)
                 d_not_typed['datafile_name'].append(datafile_name)
+                d_not_typed['chunk'].append(df_exp[df_exp['datafile_name']==datafile_name]['chunk_name'].values[0])
                 d_not_typed['nearest_noise_chunk'].append(nearest_noise_chunk)
                 d_not_typed['nearest_noise_distance'].append(noise_chunk_distances[0])
 
@@ -357,17 +355,19 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
 
 def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP', 'OffM', 'OnP', 'OnM'],
                                   n_top: int=None):
+    from retinanalysis.classes.analysis_chunk import AnalysisChunk
     # df should be output of get_datasets_from_protocol_names
     df_typed, df_not_typed = get_typing_files_for_datasets(df, ls_cell_types)
     print(f'Found {df_not_typed.shape[0]} datasets without any typing files:')
     display(df_not_typed)
     print(f'Found {df_typed.shape[0]} datasets with typing files.')
 
-    df_u = df_typed[['exp_name', 'typed_noise_chunk', 'n_cells_of_interest']].drop_duplicates()
     # Keep only those with n_cells_of_interest > 0
-    df_u = df_u.query('n_cells_of_interest > 0')
+    df_u = df_typed.query('n_cells_of_interest > 0')
     # Sort by n_cells_of_interest
     df_u = df_u.sort_values('n_cells_of_interest', ascending=False)
+    df_u = df_typed[['exp_name', 'typed_noise_chunk']].drop_duplicates()
+    
     if n_top is None:
         n_top = 20
     print(f'Found {df_u.shape[0]} unique datasets with typing files and > 0  cells of interest.')
@@ -378,7 +378,7 @@ def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP',
         df_q = df_typed.query(f'exp_name == "{exp_name}" and typed_noise_chunk == "{chunk_name}"')
         df_q = df_q.reset_index(drop=True)
         datafile_names = df_q['datafile_name'].unique()
-        # for i, row in df_q.iterrows():
+
         # Find row with max n_cells_of_interest
         row = df_q.loc[df_q['n_cells_of_interest'].idxmax()]
         ss_version = row['ss_version']
@@ -400,7 +400,7 @@ def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP',
             for ax in axs:
                 ax.set_aspect('equal', adjustable='box')
         except Exception as e:
-            print(f'Error processing {exp_name}, {datafile_names}, {chunk_name}: {e}')
+            print(f'Error processing {exp_name}, {datafile_names}, {chunk_name}, {ss_version}, {typing_file}: {e}')
             continue
     return df_typed, df_not_typed
 
@@ -494,16 +494,15 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: list=None,
 
 def get_epochblock_query(exp_name: str, block_id: int):
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
-    eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
-    eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
+    eg_q = schema.EpochGroup() * ex_q.proj('exp_name', 'is_mea', experiment_id='id')
+    eg_q = eg_q.proj('exp_name', 'is_mea', group_label='label', group_id='id')
     eb_q = schema.EpochBlock.proj(
-        'protocol_id', 'data_dir', group_properties='properties',
+        'protocol_id', 'data_dir', block_properties='properties',
         group_id='parent_id', block_id='id'
         )
     eb_q = eg_q * eb_q
     eb_q = eb_q & f'block_id={block_id}'
     return eb_q
-
 
 def get_epochblock_timing(exp_name: str, block_id: int):
     eb_q = get_epochblock_query(exp_name, block_id)
@@ -513,10 +512,11 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     if len(df) == 0:
         raise ValueError(f'No EpochBlock found for {exp_name} {block_id}')
     d_data = df.loc[0].to_dict()
-    # epoch_starts = d_data['group_properties']['epochStarts']
-    # epoch_ends = d_data['group_properties']['epochEnds']
-    # n_samples = d_data['group_properties']['n_samples']
-    # frame_times_ms = d_data['group_properties']['frameTimesMs']
+    is_mea = df.loc[0, 'is_mea']
+    # epoch_starts = d_data['block_properties']['epochStarts']
+    # epoch_ends = d_data['block_properties']['epochEnds']
+    # n_samples = d_data['block_properties']['n_samples']
+    # frame_times_ms = d_data['block_properties']['frameTimesMs']
 
     d_timing = {
         'exp_name': exp_name,
@@ -529,13 +529,65 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     
     # For MEA data, this has epoch_starts, epoch_ends, n_samples, frame_times_ms
     # For SC data, this has just frame_times_ms
-    d_group = d_data['group_properties']
-    for key in d_group.keys():
-        d_timing[key] = d_group[key]
-    
+    # d_group = d_data['block_properties']
+    # for key in d_group.keys():
+    #     d_timing[key] = d_group[key]
+    d_timing['frameTimesMs'] = d_data['block_properties']['frameTimesMs']
+    if is_mea:
+        d_timing['epochStarts'] = d_data['block_properties']['epochStarts']
+        d_timing['epochEnds'] = d_data['block_properties']['epochEnds']
+        d_timing['n_samples'] = d_data['block_properties']['n_samples']
+
+
+    # Get stim timing and frame rate
+    e_q = schema.Epoch() & f'parent_id={block_id}'
+    # Sometimes have extra epochStarts and epochEnds. TODO debug? eg-20250527C data007
+    # The definitive number of epochs though should be the number of epochs we have metadata for
+    n_epochs = len(e_q)
+    d_timing['n_epochs'] = n_epochs
+    e_q = e_q.proj(
+        pre_time="parameters->>'$.preTime'",
+        stim_time="parameters->>'$.stimTime'",
+        tail_time="parameters->>'$.tailTime'",
+        stage_frame_rate="parameters->>'$.frameRate'"
+    )
+    df_transitions = e_q.fetch(format='frame').drop_duplicates().reset_index()
+    if len(df_transitions) != 1:
+        display(df_transitions)
+        raise ValueError(f'Expected a unique set of timing parameters for {exp_name} {block_id}, but found {len(df_transitions)}')
+    pre_time_ms = float(df_transitions.loc[0, 'pre_time'])
+    stim_time_ms = float(df_transitions.loc[0, 'stim_time'])
+    tail_time_ms = float(df_transitions.loc[0, 'tail_time'])
+    stage_frame_rate = df_transitions.loc[0, 'stage_frame_rate']
+    if stage_frame_rate is None:
+        print(f'Warning: for {exp_name} block {block_id}, error in finding stage frame rate.')
+    else:
+        stage_frame_rate = float(stage_frame_rate)
+
+    # Set transition times from measured frame times
+    pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
+    stim_frames = np.floor(stim_time_ms * 1e-3 * stage_frame_rate).astype(int)
+
+    # This assumes protocol is visible >=preTime and <preTime+stimTime.
+    # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
+    frame_times_ms = d_timing['frameTimesMs']
+    n_epochs = len(frame_times_ms)
+    actual_onset_times_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]
+    actual_offset_times_ms = [frame_times_ms[i][pre_frames+stim_frames] for i in range(n_epochs)]
+    # print(f'For {exp_name} block {block_id}:')
+    # print(f'Set pre_time_ms={pre_time_ms}, stim_time_ms={stim_time_ms}, tail_time_ms={tail_time_ms}')
+    # print(f'Delivered pre_frames={pre_frames}, stim_frames={stim_frames}')
+    # print(f'Actual onset times (ms): {actual_onset_times_ms}')
+    # print(f'Actual offset times (ms): {actual_offset_times_ms}')
+
+    d_timing['pre_time_ms'] = pre_time_ms
+    d_timing['stim_time_ms'] = stim_time_ms
+    d_timing['tail_time_ms'] = tail_time_ms
+    d_timing['stage_frame_rate'] = stage_frame_rate
+    d_timing['actual_onset_times_ms'] = actual_onset_times_ms
+    d_timing['actual_offset_times_ms'] = actual_offset_times_ms
 
     return d_timing
-
 def get_epochblock_response_query(exp_name: str, block_id: int):
     eb_q = get_epochblock_query(exp_name, block_id)
     p_q = eb_q * schema.Protocol.proj(protocol_name='name')
