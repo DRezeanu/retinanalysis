@@ -309,6 +309,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     import matlab.engine as engine #type: ignore
     if not b_noise_only:
         raise NotImplementedError('Noise + Doves not implemented yet.')
+    
     print('Starting matlab engine for stim regen.')
     eng = engine.start_matlab()
     eng.addpath(str_pkg_dir)
@@ -361,7 +362,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
 
         ls_input = [seed, num_checks_x, pre_time, stim_time, tail_time,
                     background_intensity, frame_dwell, binary_noise,
-                    1.0, 0.0, 1, paired_bars, 0, 0]
+                    1.0, 1.0, 1, paired_bars, 0, 0]
         # print(f'Calling matlab function with inputs: {ls_input}')
         noise_lines = eng.util.getCheckerboardProjectLines(*ls_input, nargout=1)
 
@@ -412,7 +413,8 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
                 # x_shift_stix = int(x_shift_stix * stixel_shift_pix)
                 if x_shift_stix == 0:
                     continue
-                noise_lines[x_shift_stix:, f_count-1] = noise_lines[:-x_shift_stix, f_count-1]
+                # I don't exactly get it, but below is correct as it matches screen cap.
+                noise_lines[:-x_shift_stix, f_count-1] = noise_lines[x_shift_stix:, f_count-1]
         noise_lines_epochs[e_idx] = noise_lines
 
     noise_lines_epochs = np.array(noise_lines_epochs)
