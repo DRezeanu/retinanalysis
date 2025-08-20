@@ -3,13 +3,36 @@ MEA and Single Cell Ephys Analysis Package
 
 ## Installation
 ```
-cd to root directory
-activate your conda environment of choice (if using)
-python -m pip install -e . (for dev use)
-python -m pip install . (to lock the modules in their current state)
+
+create a conda environment using python=3.11 (e.g. conda create --name retinanalysis python=3.11)
+activate the conda environment (e.g. conda activate retinanalysis)
+cd to package root directory
+pip install -e . 
+conda install pytorch::pytorch torchvision torchaudio -c pytorch
+conda install conda-forge::ipykernel 
+conda install -c conda-forge xarray dask netCDF4 bottleneck
+
+cd ../../../artificial-retina-software-pipeline/utilities/ (external requirement from Chichilnisky lab)
+pip install .
+cd ../../../MEA/src/analysis (external requirement from Manookin lab)
+pip install .
+
+Create a config.ini file using the sample version below as a guide and put this config file in
+the src/retinanalysis/config directory.
+
+-------- FOR WINDOWS USERS ---------
+
+The above requirements have been tested to work on both Mac and Linux (Ubuntu 24.04 LTS).
+
+For windows, you may receive a DLL error when the package attempts to import matplotlib
+for the first time. To fix this, open a terminal window and "pip uninstall Pillow"
+then "pip install -U Pillow."
+
+This should fix the error.
+
 ```
 
-## Sample config.ini file (must be in same src folder as settings.py):
+## Sample config.ini file:
 ```
 [DEFAULT]
 analysis = /Volumes/Vyom MEA/analysis
@@ -30,6 +53,12 @@ meta = /Volumes/data-1/datajoint_testbed/mea/meta
 tags = /Volumes/data-1/datajoint_testbed/mea/tags
 query = /Volumes/data-1/analysis
 user = vyomr
+
+[LINUX_DEFAULT]
+...
+
+[LINUX_SECONDARY]
+...
 
 [WINDOWS_DEFAULT]
 ...
