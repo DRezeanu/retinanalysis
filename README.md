@@ -2,34 +2,41 @@
 MEA and Single Cell Ephys Analysis Package
 
 ## Installation
+1. Create a conda environment using python 3.11:
+```
+conda create --name retinanalysis python=3.11)
 ```
 
-create a conda environment using python=3.11 (e.g. conda create --name retinanalysis python=3.11)
-activate the conda environment (e.g. conda activate retinanalysis)
-cd to package root directory
+2. Activate conda environment, cd to the package directory, and use pip and conda to install all required dependencies:
+```
+conda activate retinanalysis)
+cd repositories_dir/retinanalysis
 pip install -e . 
 conda install pytorch::pytorch torchvision torchaudio -c pytorch
 conda install conda-forge::ipykernel 
 conda install -c conda-forge xarray dask netCDF4 bottleneck
+```
 
-cd ../../../artificial-retina-software-pipeline/utilities/ (external requirement from Chichilnisky lab)
+3. Install additional requirements from Chichilnisky and Manooking repositories:
+```
+cd repositories_dir/artificial-retina-software-pipeline/utilities/ (external requirement from Chichilnisky lab)
 pip install .
-cd ../../../MEA/src/analysis (external requirement from Manookin lab)
+cd repositories_dir/MEA/src/analysis (external requirement from Manookin lab)
 pip install .
+```
 
-Create a config.ini file using the sample version below as a guide and put this config file in
+4. Create a config.ini file using the sample version below as a guide and put this config file in
 the src/retinanalysis/config directory.
 
--------- FOR WINDOWS USERS ---------
+## Note for Windows Users
 
 The above requirements have been tested to work on both Mac and Linux (Ubuntu 24.04 LTS).
 
 For windows, you may receive a DLL error when the package attempts to import matplotlib
-for the first time. To fix this, open a terminal window and "pip uninstall Pillow"
-then "pip install -U Pillow."
-
-This should fix the error.
-
+for the first time. To fix this, run:
+```
+pip uninstall Pillow
+pip install -U Pillow.
 ```
 
 ## Sample config.ini file:
@@ -66,4 +73,4 @@ user = vyomr
 [WINDOWS_SECONDARY]
 ...
 ```
-`query` dir is used by `datajoint_utils.plot_mosaics_for_all_datasets` and it's useful to have it set to the NAS analysis dir even when all other paths are SSD. This allows loading and plotting mosaics and cell typing from all the data on the NAS instead of just the data on your SSD's `analysis` dir.
+Note: The `query` dir is used by `datajoint_utils.plot_mosaics_for_all_datasets` and it's useful to have it set to the NAS analysis dir even when all other paths are SSD. This allows loading and plotting mosaics and cell typing from all the data on the NAS instead of just the data on your SSD's `analysis` dir.
