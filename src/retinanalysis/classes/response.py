@@ -258,7 +258,7 @@ class MEAResponseBlock(ResponseBlock):
 
     def bin_spike_times_at_rate(self, bin_rate: float, b_count: bool=True):
         n_bins = self.get_max_bins_for_rate(bin_rate)
-        time_bins = np.arange(n_bins + 1) / self.bin_rate * 1000 # in ms
+        time_bins = np.arange(n_bins + 1) / bin_rate * 1000 # in ms
         n_cells = len(self.cell_ids)
         
         binned_spikes = np.zeros((n_cells, self.n_epochs, n_bins))
