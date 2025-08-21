@@ -65,7 +65,7 @@ class AnalysisChunk:
 
         self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
         self.get_noise_params()
-        self.cell_ids = self.vcd.get_cell_ids()
+        self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
         self.get_rf_params()
         self.get_df()
         if b_load_spatial_maps:
