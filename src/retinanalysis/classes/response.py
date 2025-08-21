@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 import pickle
+import matplotlib.pyplot as plt
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
@@ -104,6 +105,15 @@ class ResponseBlock:
             pickle.dump(d_out, f)
         print(f"ResponseBlock exported to {file_path}")
 
+    def plot_frame_monitor(self, e_idx=0, xlim=(0,1)):
+        f, ax = plt.subplots(figsize=(10,4))
+        fd = self.frame_data[e_idx]
+        time = np.arange(fd.shape[0]) / self.frame_sample_rate
+        ax.plot(time, fd)
+        for ft in self.d_timing['frameTimesMs'][e_idx]:
+            ax.axvline(x=ft * 1e-3, color='r', linestyle='--')
+        ax.set_xlim(*xlim)
+
 
 class SCResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
@@ -161,7 +171,7 @@ class MEAResponseBlock(ResponseBlock):
             return
         
         self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
-        self.cell_ids = self.vcd.get_cell_ids()
+        self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
         self.get_spike_times()
 
     def get_spike_times(self):
@@ -169,16 +179,6 @@ class MEAResponseBlock(ResponseBlock):
 
         epoch_starts = self.d_timing['epochStarts']
         epoch_ends = self.d_timing['epochEnds']
-
-        #i think if symphony crashed during recording, there might be more 1 more start than end
-        #this ignores the partial epoch
-        if len(epoch_ends) == len(epoch_starts)-1:
-            epoch_starts = epoch_starts[:len(epoch_ends)]
-        elif len(epoch_ends) != len(epoch_starts):
-            raise ValueError("Mismatch in number of epoch starts and ends.")
-
-        # n_samples = self.d_timing['n_samples']
-        # frame_times_ms = self.d_timing['frame_times_ms']
 
         self.n_epochs = self.d_timing['n_epochs']
         for cell_id in self.cell_ids:
@@ -215,7 +215,9 @@ class MEAResponseBlock(ResponseBlock):
         n_max_bins = int(np.max(ls_bins))
         return n_max_bins
     
-    def bin_spike_times_by_frames(self, stride: int=1):
+    def bin_spike_times_by_frames(self): # , stride: int=1
+        stride = 1
+        # TODO implement stride > 1 with interpolating bw frame times.
         frame_times_ms = self.d_timing['frameTimesMs']
         if int(self.exp_name[:8]) < 20230926:
             marginal_frame_rate = 60.31807657 # Upper bound on the frame rate to make sure that we don't miss any frames.
@@ -252,7 +254,30 @@ class MEAResponseBlock(ResponseBlock):
         print(f'Mean frame rate: {mean_frame_rate:.2f} Hz\n')
         self.mean_frame_rate = mean_frame_rate
         self.bin_rate = bin_rate
-        self.binned_time = np.arange(0, n_max_bins) / self.bin_rate * 1000 # in ms
+        self.time_bins_ms = np.arange(0, n_max_bins) / self.bin_rate * 1000 # in ms
+
+    def bin_spike_times_at_rate(self, bin_rate: float, b_count: bool=True):
+        n_bins = self.get_max_bins_for_rate(bin_rate)
+        time_bins = np.arange(n_bins + 1) / self.bin_rate * 1000 # in ms
+        n_cells = len(self.cell_ids)
+        
+        binned_spikes = np.zeros((n_cells, self.n_epochs, n_bins))
+        for i_cell in tqdm(self.df_spike_times.index, desc='Binning spikes for cells'):
+            sts = self.df_spike_times.at[i_cell, 'spike_times']
+            for j_epoch in range(self.n_epochs):
+                e_sts = sts[j_epoch]
+
+                bs = np.histogram(e_sts, bins=time_bins)[0]
+                binned_spikes[i_cell, j_epoch, :] = bs
+        
+        if not b_count:
+            binned_spikes *= bin_rate
+        
+        self.df_spike_times['binned_spikes'] = [binned_spikes[i_cell, :, :] for i_cell in range(n_cells)]
+        
+        self.binned_spikes = binned_spikes
+        self.bin_rate = bin_rate
+        self.time_bins_ms = time_bins[:-1]
 
 
     def __repr__(self):
