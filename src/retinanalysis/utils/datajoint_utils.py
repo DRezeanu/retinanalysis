@@ -534,16 +534,41 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     #     d_timing[key] = d_group[key]
     d_timing['frameTimesMs'] = d_data['block_properties']['frameTimesMs']
     if is_mea:
-        d_timing['epochStarts'] = d_data['block_properties']['epochStarts']
-        d_timing['epochEnds'] = d_data['block_properties']['epochEnds']
-        d_timing['n_samples'] = d_data['block_properties']['n_samples']
+        # d_timing['epochStarts'] = d_data['block_properties']['epochStarts']
+        # d_timing['epochEnds'] = d_data['block_properties']['epochEnds']
+        epoch_starts = d_data['block_properties']['epochStarts']
+        epoch_ends = d_data['block_properties']['epochEnds']
 
+        #i think if symphony crashed during recording, there might be more 1 more start than end
+        #this ignores the partial epoch
+        if len(epoch_ends) == len(epoch_starts)-1:
+            epoch_starts = epoch_starts[:len(epoch_ends)]
+            print(f'Warning: For {exp_name} block {block_id}, found {len(epoch_ends)} epoch ends but {len(epoch_starts)} epoch starts.')
+            print(f'Keeping only {len(epoch_starts)} starts.')
+        elif len(epoch_ends) != len(epoch_starts):
+            raise ValueError("Mismatch in number of epoch starts and ends.")
+
+        n_epoch_times = len(epoch_starts)
+        d_timing['epochStarts'] = epoch_starts
+        d_timing['epochEnds'] = epoch_ends
+        d_timing['n_samples'] = d_data['block_properties']['n_samples']
 
     # Get stim timing and frame rate
     e_q = schema.Epoch() & f'parent_id={block_id}'
     # Sometimes have extra epochStarts and epochEnds. TODO debug? eg-20250527C data007
     # The definitive number of epochs though should be the number of epochs we have metadata for
     n_epochs = len(e_q)
+
+    # If mea, check for inequality with number of epochStarts and epochEnds
+    if is_mea:
+        # Can have 1 more metadata entry in case of symphony crash
+        if n_epochs > n_epoch_times:
+            print(f'Warning: For {exp_name} block {block_id}, found {n_epochs} epochs in metadata but only {n_epoch_times} epoch times.')
+            print(f'Assuming n_epochs = {n_epoch_times}')
+            n_epochs = n_epoch_times
+        elif n_epochs < n_epoch_times:
+            raise ValueError(f'For {exp_name} block {block_id}, found {n_epoch_times} epoch times but only {n_epochs} epochs in metadata.')
+
     d_timing['n_epochs'] = n_epochs
     e_q = e_q.proj(
         pre_time="parameters->>'$.preTime'",
@@ -584,6 +609,7 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     except Exception as e:
         print(f'Error occurred while getting actual onset/offset times: {e}')
         print('It could be that frame_times_ms do not have the correct number of frames due to some error in frame detection.')
+        print('Check the frame monitor sample rate! On MEA Rigs, prefer 1k, errors likely with 10k.')
         actual_onset_times_ms = []
         actual_offset_times_ms = []
     # print(f'For {exp_name} block {block_id}:')
