@@ -664,7 +664,7 @@ def reload_celltypefiles(experiment_names: list=None):
     # Query for any input experiments
     ctf_q = CellTypeFile()
     e_q = Experiment() & 'is_mea=1'
-    sc_q = SortingChunk() * e_q.proj(..., experiment_id='id')
+    sc_q = SortingChunk()
     if experiment_names is not None:
         e_q = Experiment() & [f'exp_name="{exp_name}"' for exp_name in experiment_names]
         sc_q = sc_q * e_q.proj(...,experiment_id='id')
@@ -673,6 +673,7 @@ def reload_celltypefiles(experiment_names: list=None):
         # df_delete = (ctf_q * sc_q.proj(...,chunk_id='id')).fetch(format='frame')
         # display(df_delete)
     else:
+        sc_q = sc_q * e_q.proj(...,experiment_id='id')
         experiment_names = 'all experiments'
     print(f'Found {len(sc_q)} chunks for {experiment_names}.')
     print(f'Deleting associated {len(ctf_q)} cell type files.')
