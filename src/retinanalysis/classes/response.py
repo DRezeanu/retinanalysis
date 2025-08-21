@@ -68,7 +68,7 @@ class ResponseBlock:
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
-            print(f"Initializing ResponseBlock for {exp_name} block {block_id} from pickle file.")
+            print(f"Initializing ResponseBlock from pickle file {pkl_file}")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
                 with open(pkl_file, 'rb') as f:
