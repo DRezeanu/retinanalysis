@@ -564,26 +564,34 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     else:
         stage_frame_rate = float(stage_frame_rate)
 
+    d_timing['pre_time_ms'] = pre_time_ms
+    d_timing['stim_time_ms'] = stim_time_ms
+    d_timing['tail_time_ms'] = tail_time_ms
+    d_timing['stage_frame_rate'] = stage_frame_rate
+    
     # Set transition times from measured frame times
     pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
     stim_frames = np.floor(stim_time_ms * 1e-3 * stage_frame_rate).astype(int)
 
     # This assumes protocol is visible >=preTime and <preTime+stimTime.
     # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
-    frame_times_ms = d_timing['frameTimesMs']
-    n_epochs = len(frame_times_ms)
-    actual_onset_times_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]
-    actual_offset_times_ms = [frame_times_ms[i][pre_frames+stim_frames] for i in range(n_epochs)]
+    try:
+        frame_times_ms = d_timing['frameTimesMs']
+        n_epochs = len(frame_times_ms)
+        actual_onset_times_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]
+        actual_offset_times_ms = [frame_times_ms[i][pre_frames+stim_frames] for i in range(n_epochs)]
+    # Exceptions can occur when frame_times_ms are messed up and don't have correct number of frames.
+    except Exception as e:
+        print(f'Error occurred while getting actual onset/offset times: {e}')
+        print('It could be that frame_times_ms do not have the correct number of frames due to some error in frame detection.')
+        actual_onset_times_ms = []
+        actual_offset_times_ms = []
     # print(f'For {exp_name} block {block_id}:')
     # print(f'Set pre_time_ms={pre_time_ms}, stim_time_ms={stim_time_ms}, tail_time_ms={tail_time_ms}')
     # print(f'Delivered pre_frames={pre_frames}, stim_frames={stim_frames}')
     # print(f'Actual onset times (ms): {actual_onset_times_ms}')
     # print(f'Actual offset times (ms): {actual_offset_times_ms}')
 
-    d_timing['pre_time_ms'] = pre_time_ms
-    d_timing['stim_time_ms'] = stim_time_ms
-    d_timing['tail_time_ms'] = tail_time_ms
-    d_timing['stage_frame_rate'] = stage_frame_rate
     d_timing['actual_onset_times_ms'] = actual_onset_times_ms
     d_timing['actual_offset_times_ms'] = actual_offset_times_ms
 
