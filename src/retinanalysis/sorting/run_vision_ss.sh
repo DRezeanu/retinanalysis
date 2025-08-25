@@ -48,7 +48,8 @@ fi
 java -Xmx8000m -Xss2m -cp ${VISIONPATH}Vision.jar edu.ucsc.neurobiology.vision.tasks.NeuronIdentification ${DATA_PATH}${FILE_NAME} ${SORT_PATH} -c ${VISIONPATH}config.xml
 # -d64
 # Get the EI file.
-java -Xmx8G -cp ${VISIONPATH}Vision.jar edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" ${SORT_PATH}/ ${RAW_DATA_PATH}/${EXPERIMENT_NAME}/${FILE_NAME}/ 0.01 20 40 1000000 8
+# java -Xmx8G -cp ${VISIONPATH}Vision.jar edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" ${SORT_PATH}/ ${RAW_DATA_PATH}/${EXPERIMENT_NAME}/${FILE_NAME}/ 0.01 20 40 1000000 8
+java -Xmx8G -cp ${VISIONPATH}Vision.jar edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" ${SORT_PATH}/ ${RAW_DATA_PATH}/${EXPERIMENT_NAME}/${FILE_NAME}/ 0.01 67 133 1000000 6
 
 END_TIME=$(date +%s)
 RUN_TIME=$((END_TIME-START_TIME))
