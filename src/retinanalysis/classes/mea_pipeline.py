@@ -52,9 +52,11 @@ class MEAPipeline:
 
         if typing_file is None:
             typing_file = 0
+            print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
         else:
             try:
                 typing_file = self.analysis_chunk.typing_files.index(typing_file)
+                print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
             except:
                 raise FileNotFoundError(f"{typing_file} Not Found in Analysis Chunk")
         
