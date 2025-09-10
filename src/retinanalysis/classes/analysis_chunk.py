@@ -164,13 +164,13 @@ class AnalysisChunk:
         bounding_box = dict()
         for key, val in roi.items():
             bounding_box[key] = val/unit_scaling
+         
+        x_min = bounding_box['x_min']
+        x_max = bounding_box['x_max']
+        y_min = bounding_box['y_min']
+        y_max = bounding_box['y_max']
 
-        x_1 = 'center_x > @bounding_box["x_min"]'
-        x_2 = 'center_x < @bounding_box["x_max"]'
-        y_1 = 'center_y > @bounding_box["y_min"]'
-        y_2 = 'center_y < @bounding_box["y_max"]'
-
-        df_cell_params_filtered = self.df_cell_params.query(f'{x_1} and {x_2} and {y_1} and {y_2}')
+        df_cell_params_filtered = self.df_cell_params.query("center_x > @x_min and center_x < @x_max and center_y > @y_min and center_y < @y_max")
         arr_ids = df_cell_params_filtered['cell_id'].values
 
         return arr_ids
