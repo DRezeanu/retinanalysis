@@ -353,7 +353,6 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = N
         protocol_ids = [protocol_ids]
 
     spike_time_df = response_block.df_spike_times
-    num_epochs = response_block.n_epochs
 
     if protocol_ids is None and cell_types is None:
         filtered_df = spike_time_df
