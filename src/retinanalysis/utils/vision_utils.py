@@ -392,23 +392,31 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = N
     return spike_time_xarr
 
 def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = None, 
-                         cell_types: List[str] = None) -> dict:
+                         cell_types: List[str] = None, minimum_n:int = 1) -> dict:
     
     spike_time_df = response_block.df_spike_times
 
     if protocol_ids is None and cell_types is None:
         filtered_df = spike_time_df
-        cell_types = filtered_df['cell_type'].unique()
+        cell_types = sorted(filtered_df['cell_type'].unique())
     
     elif protocol_ids is None:
         filtered_df = spike_time_df.query('cell_type in @cell_types')
+        cell_types = sorted(filtered_df['cell_type'].unique())
 
     elif cell_types is None:
         filtered_df = spike_time_df.query('cell_id in @protocol_ids')
-        cell_types = filtered_df['cell_type'].unique()
+        cell_types = sorted(filtered_df['cell_type'].unique())
         
     else:
         filtered_df = spike_time_df.query('cell_id in @protocol_ids and cell_type in @cell_types')
+        cell_types = sorted(filtered_df['cell_type'].unique())
+
+    for ct in cell_types:
+        if len(filtered_df.query('cell_type == @ct').values) < minimum_n:
+            print(f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})...")
+            indices = filtered_df.query('cell_type == @ct').index
+            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True)
 
     d_spike_times = dict()
     for ct in cell_types:
