@@ -254,8 +254,8 @@ class AnalysisChunk:
 
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
                  typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 b_zoom: bool = False, n_pad: int = 6, roi: Dict[str, float] = None,
-                 label_cells: bool = False):
+                 b_zoom: bool = False, n_pad: int = 6, minimum_n: int = 1,
+                 roi: Dict[str, float] = None, label_cells: bool = False):
         """
         Method for plotting the receptive fields for a given list of cell ids, cell types, 
         or a union of both. If no cell_ids or cell types are given, all cells in the
@@ -276,6 +276,7 @@ class AnalysisChunk:
         n_pad (int):            Padding value (in stixels) used with b_zoom. B_zoom will zoom
                                 into the min and max center_x and center_y values in the mosaic,
                                 and n_pad will zoom back out by the given number of stixels. Default 6
+        minimum_n (int):        min number of cells required to actually plot the output
         roi (dict):            roi definition as a dictionary with 4 values. 'x_min',
                                 'x_max', 'y_min', 'y_max'. These define the vertical and
                                 horizontal lines that define the region of interest
@@ -303,15 +304,17 @@ class AnalysisChunk:
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
             noise_ids = filtered_df['cell_id'].values
-            cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif noise_ids is None:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
             noise_ids = filtered_df['cell_id'].values
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif cell_types is None:
             filtered_df = self.df_cell_params.query(f'cell_id  in @noise_ids')
-            cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
 
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
@@ -320,10 +323,19 @@ class AnalysisChunk:
         if len(filtered_df) == 0:
             print("No data found for the given noise_ids and cell_types.")
             return
+        
+
+        # Remove cells velow minimum threshold
+        too_few_cells = [ct for ct in cell_types if len(filtered_df.query(f"typing_file_{typing_file_idx} == @ct")['cell_id'].values) < minimum_n]
+        
+        for ct in too_few_cells:
+            cell_types.remove(ct) 
+
+                
 
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
-
         d_ells_by_type, scale_factor = get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)
+
 
         rows = int(np.ceil(len(cell_types)/4))
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
