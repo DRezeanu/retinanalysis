@@ -175,7 +175,7 @@ def get_spatial_noise_frames(numXStixels: int,
 def load_and_process_img(str_img,screen_size = np.array([1140, 1824]), # rows, cols
                         magnification_factor = 8,
                         ds_factor: int=3, rescale: bool=True,
-                        verbose: bool=False):
+                        verbose: bool=False, bg: float=0.0):
     img = cv2.imread(str_img, cv2.IMREAD_GRAYSCALE)
     screen_size = screen_size.astype(int)
 
@@ -197,6 +197,7 @@ def load_and_process_img(str_img,screen_size = np.array([1140, 1824]), # rows, c
         print(f'Img dtype: {img_resized.dtype}')
 
     frame = np.zeros(screen_size, dtype=img_resized.dtype)
+    frame += np.uint8(bg)
 
     x_vals = np.arange(-screen_size[1] / 2, screen_size[1] / 2)
     y_vals = np.arange(-screen_size[0] / 2, screen_size[0] / 2)
