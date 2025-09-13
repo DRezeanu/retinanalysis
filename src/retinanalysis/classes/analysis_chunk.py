@@ -199,12 +199,13 @@ class AnalysisChunk:
             d_result = dict()
             
             with open(file_path, 'r') as file:
-                for line in file:
+               for line in file:
                     # Split each line into key and value using the specified delimiter
                     key, value = map(str.strip, line.split(' ', 1))
-                                
+                    sub_values = value.split('/')
+                    
                     # Add key-value pair to the dictionary
-                    d_result[int(key)] = value
+                    d_result[int(key)] = sub_values[:-1]
 
             for cell in self.cell_ids:
                 if cell in d_result.keys():
