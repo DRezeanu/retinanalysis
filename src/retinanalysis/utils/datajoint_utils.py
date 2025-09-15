@@ -594,13 +594,14 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     d_timing['tail_time_ms'] = tail_time_ms
     d_timing['stage_frame_rate'] = stage_frame_rate
     
-    # Set transition times from measured frame times
-    pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
-    stim_frames = np.floor(stim_time_ms * 1e-3 * stage_frame_rate).astype(int)
 
-    # This assumes protocol is visible >=preTime and <preTime+stimTime.
-    # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
     try:
+        # Set transition times from measured frame times
+        pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
+        stim_frames = np.floor(stim_time_ms * 1e-3 * stage_frame_rate).astype(int)
+
+        # This assumes protocol is visible >=preTime and <preTime+stimTime.
+        # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
         frame_times_ms = d_timing['frameTimesMs']
         n_epochs = len(frame_times_ms)
         actual_onset_times_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]

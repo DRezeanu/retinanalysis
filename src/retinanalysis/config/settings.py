@@ -22,6 +22,9 @@ def load_config(config_path):
     if platform.system() == 'Darwin':
         DEFAULT_config = configfile['DEFAULT']
         SECONDARY_config = configfile['SECONDARY']
+    elif platform.system() == 'Linux':
+        DEFAULT_config = configfile['LINUX_DEFAULT']
+        SECONDARY_config = configfile['LINUX_SECONDARY']
     else:
         DEFAULT_config = configfile['WINDOWS_DEFAULT']
         SECONDARY_config = configfile['WINDOWS_SECONDARY']
