@@ -52,9 +52,11 @@ class MEAPipeline:
 
         if typing_file is None:
             typing_file = 0
+            print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
         else:
             try:
                 typing_file = self.analysis_chunk.typing_files.index(typing_file)
+                print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
             except:
                 raise FileNotFoundError(f"{typing_file} Not Found in Analysis Chunk")
         
@@ -73,7 +75,7 @@ class MEAPipeline:
             self.response_block.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
 
     def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
-                 **kwargs) -> np.ndarray:
+                 minimum_n: int = 1, **kwargs) -> np.ndarray:
         
         if isinstance(cell_types, str):
             cell_types = [cell_types]
@@ -83,7 +85,7 @@ class MEAPipeline:
         
         noise_ids = self.get_noise_ids(protocol_ids = protocol_ids, cell_types = cell_types)
         ax = self.analysis_chunk.plot_rfs(noise_ids = noise_ids, cell_types = cell_types,
-                                          **kwargs)
+                                          minimum_n = minimum_n, **kwargs)
 
         return ax
     
@@ -104,8 +106,6 @@ class MEAPipeline:
                                              **kwargs)
         
         return ax
-
-    
 
     # Helper function for pulling noise ids for plotting and organizing them into a dictionary
     # by type. IDs can be pulled by list of protocol ids, list of cell types, or both. Used

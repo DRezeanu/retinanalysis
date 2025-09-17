@@ -184,22 +184,25 @@ class MEAResponseBlock(ResponseBlock):
         for cell_id in self.cell_ids:
             all_spike_times = []
             # STs in samples
-            cell_sts = self.vcd.get_spike_times_for_cell(cell_id)
-            for i in range(self.n_epochs):
-                # Set epoch start as zero
-                e_sts = cell_sts - epoch_starts[i]
-                n_epoch_samples = epoch_ends[i] - epoch_starts[i]
+            try:
+                cell_sts = self.vcd.get_spike_times_for_cell(cell_id)
+                for i in range(self.n_epochs):
+                    # Set epoch start as zero
+                    e_sts = cell_sts - epoch_starts[i]
+                    n_epoch_samples = epoch_ends[i] - epoch_starts[i]
 
-                # Filter spike times to be within the epoch
-                e_sts = e_sts[(e_sts >= 0) & (e_sts <= n_epoch_samples)]
+                    # Filter spike times to be within the epoch
+                    e_sts = e_sts[(e_sts >= 0) & (e_sts <= n_epoch_samples)]
 
-                # From samples to ms
-                e_sts = e_sts / SAMPLE_RATE * 1000
+                    # From samples to ms
+                    e_sts = e_sts / SAMPLE_RATE * 1000
 
-                all_spike_times.append(e_sts)
+                    all_spike_times.append(e_sts)
 
-            d_spike_times['cell_id'].append(cell_id)
-            d_spike_times['spike_times'].append(all_spike_times)
+                d_spike_times['cell_id'].append(cell_id)
+                d_spike_times['spike_times'].append(all_spike_times)
+            except Exception as e:
+                print(f"WARNING: No spike times found for cell {cell_id}.\n Error: {e}")
         self.df_spike_times = pd.DataFrame(d_spike_times)
 
     def get_max_bins_for_rate(self, bin_rate: float):
