@@ -440,7 +440,7 @@ def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     
     return d_output
 
-def make_checkerboard_noise_project(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_noise_only: bool=True):
+def make_checkerboard_noise_project(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_lines_only:True, b_noise_only: bool=True):
     exp_name = int(exp_name[:8])
     import matlab.engine #type: ignore
     print('Starting matlab engine for stim regen.')
@@ -472,8 +472,11 @@ def make_checkerboard_noise_project(df_epochs: pd.DataFrame, exp_name:str, str_p
     contrastJumps = matlab.double(df_epochs.loc[0, 'epoch_parameters']['contrastJumps'])
     numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
     # if exp_name < 20250806:
-    stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(exp_name, preTime,  tailTime, stimTime, noiseSeeds, numChecksXs, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, backgroundRatios, backgroundFrameDwells, pairedBars, noSplitField, contrastJumps, numChecksYs, nargout=3);
-    stimulus = np.array(stimulus);
+    if b_lines_only:
+        stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(b_noise_only, exp_name, preTime,  tailTime, stimTime, noiseSeeds, numChecksXs, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, backgroundRatios, backgroundFrameDwells, pairedBars, noSplitField, contrastJumps, numChecksYs, nargout=3);
+    else:
+        stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(exp_name, preTime,  tailTime, stimTime, noiseSeeds, numChecksXs, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, backgroundRatios, backgroundFrameDwells, pairedBars, noSplitField, contrastJumps, numChecksYs, nargout=3);
+        stimulus = np.array(stimulus);
     line_mat = np.array(line_mat);
     contrast_mat = np.array(contrast_mat);
     eng.quit()
@@ -489,39 +492,51 @@ def make_checkerboard_noise_project(df_epochs: pd.DataFrame, exp_name:str, str_p
     x_offset_stix = int(np.round(x_offset_pix / stixel_size_pix))
     y_offset_stix = int(np.round(y_offset_pix / stixel_size_pix))
 
-    stimulus_cropped = np.ones_like(stimulus) * int((255*df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']))
+    if not b_lines_only:
+        stimulus_cropped = np.ones_like(stimulus) * int((255*df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']))
     lines_cropped = np.ones_like(line_mat) * df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']
     if x_offset_pix > 0:
         offset = np.abs(x_offset_stix)
-        stimulus_cropped[:, offset:, :, :] = stimulus[:, :-offset, :, :]
+        if not b_lines_only:
+            stimulus_cropped[:, offset:, :, :] = stimulus[:, :-offset, :, :]
         lines_cropped[offset:, :, :] = line_mat[:-offset, :, :]
     elif x_offset_pix < 0:
         offset = np.abs(x_offset_stix)
-        stimulus_cropped[:, :-offset, :, :] = stimulus[:, offset:, :, :]
+        if not b_lines_only:
+            stimulus_cropped[:, :-offset, :, :] = stimulus[:, offset:, :, :]
         lines_cropped[:-offset, :, :] = line_mat[offset:, :, :]
     else:
-        stimulus_cropped = stimulus
+        if not b_lines_only:
+            stimulus_cropped = stimulus
         lines_cropped = line_mat
     if y_offset_pix != 0:
         raise NotImplementedError('Y offset cropping not implemented yet.')
     
     stim_transitions = []
     for e_idx in df_epochs.index:
-        interval = df_epochs.at[e_idx, 'backgroundFrameDwell']
+        # interval = df_epochs.at[e_idx, 'backgroundFrameDwell']
+        interval = df_epochs['epoch_parameters'][e_idx]['backgroundFrameDwell']
+        preFrames = int(np.round(60 * df_epochs.at[e_idx, 'preTime'] / 1e3))
         frame_transitions_ls = []
-        for i in range(lines_cropped.shape[1]):
+        for i in range(preFrames, lines_cropped.shape[1]):
             if i % interval == 0:
                 frame_transitions_ls.append(i)
         stim_transitions.append(frame_transitions_ls)
-
-    d_output = {
-        'stim_frames': stimulus_cropped,
-        'line_mat': lines_cropped,
-        'contrast_mat': contrast_mat,
-    }
+    
+    if b_lines_only:
+        d_output = {
+            'line_mat': lines_cropped,
+            'contrast_mat': contrast_mat,
+            'stim_transitions': stim_transitions,
+        }
+    else:
+        d_output = {
+            'stim_frames': stimulus_cropped,
+            'line_mat': lines_cropped,
+            'contrast_mat': contrast_mat,
+            'stim_transitions': stim_transitions,
+        }
     return d_output
-
-
 
 
 def make_spot_image(ht, wt, center_row, center_col, diam, background, intensity):
