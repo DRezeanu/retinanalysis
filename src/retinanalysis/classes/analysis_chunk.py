@@ -65,11 +65,12 @@ class AnalysisChunk:
 
         self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
         self.get_noise_params()
-        self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
+        self.cell_ids = self.vcd.get_cell_ids()
         self.get_rf_params()
         self.get_df()
         if b_load_spatial_maps:
             self.get_spatial_maps()
+        self.cell_ids = np.array(self.cell_ids, dtype=int)
 
     def get_noise_params(self):
         """
@@ -104,7 +105,17 @@ class AnalysisChunk:
         self.data_files = [os.path.basename(path) for path in noise_data_dirs]
 
         typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id, 'algorithm': self.ss_version}
-        self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
+        typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
+
+        # Keep only typing_files with paths that exist
+        existing_typing_files = []
+        for tf in typing_files:
+            fp = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, tf)
+            if not os.path.exists(fp):
+                print(f"Warning: Typing file not found, skipping: {fp}")
+                continue
+            existing_typing_files.append(tf)
+        self.typing_files = existing_typing_files
 
         self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
         self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
@@ -256,7 +267,7 @@ class AnalysisChunk:
     def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
                  typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
                  b_zoom: bool = False, n_pad: int = 6, minimum_n: int = 1,
-                 roi: Dict[str, float] = None, label_cells: bool = False):
+                 roi: Dict[str, float] = None, label_cells: bool = False, axs=None):
         """
         Method for plotting the receptive fields for a given list of cell ids, cell types, 
         or a union of both. If no cell_ids or cell types are given, all cells in the
@@ -342,12 +353,13 @@ class AnalysisChunk:
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
         size = (4*cols, int(3*rows))
 
-        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
-
-        if cols != 1:
-            axs = axs.flatten()
-        else:
-            axs = np.array([axs])
+        if axs is None:
+            fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
+            fig.suptitle("RFs by Cell Type", fontsize = 15)
+            if cols != 1:
+                axs = axs.flatten()
+            else:
+                axs = np.array([axs])
 
         for idx, ct in enumerate(cell_types):
             ax = axs[idx]
@@ -381,8 +393,8 @@ class AnalysisChunk:
                 ax.set_xlim((x_min - n_pad)*scale_factor, (x_max + n_pad)*scale_factor)
                 ax.set_ylim((y_min - n_pad)*scale_factor, (y_max + n_pad)*scale_factor)
         
-        fig.suptitle("RFs by Cell Type", fontsize = 15)
-        fig.tight_layout()
+        
+        plt.tight_layout()
 
         return axs
         
