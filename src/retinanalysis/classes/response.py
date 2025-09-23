@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 import pickle
+from typing import Optional
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
@@ -60,8 +61,9 @@ class ResponseBlock:
     """
     Generic class for single cell or MEA response blocks. 
     """
-    def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
-                 pkl_file: str=None):
+    def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
+                 h5_file: Optional[str]=None, pkl_file: Optional[str]=None):
+
         if pkl_file is None:
             print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
@@ -106,9 +108,13 @@ class ResponseBlock:
 
 
 class SCResponseBlock(ResponseBlock):
-    def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
-                 pkl_file: str=None, b_spiking: bool=False, **detector_kwargs):
+
+    def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
+                 h5_file: Optional[str]=None, pkl_file: Optional[str]=None,
+                 b_spiking: bool=False, **detector_kwargs):
+
         super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file)
+
         if pkl_file is not None:
             return
 
@@ -138,8 +144,11 @@ class SCResponseBlock(ResponseBlock):
 
 
 class MEAResponseBlock(ResponseBlock):
-    def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
-                 pkl_file: str=None, h5_file: str=None, include_ei: bool=True):
+
+    def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
+                 ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None,
+                 h5_file: Optional[str]=None, include_ei: bool=True):
+
         # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
@@ -154,6 +163,7 @@ class MEAResponseBlock(ResponseBlock):
                 self.datafile_name = datafile_name
         
         super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file)
+
         self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei)
 
         # If pkl_file is provided, everything else is already loaded in parent init.

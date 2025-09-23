@@ -9,6 +9,8 @@ import json
 from tqdm.auto import tqdm
 from IPython.display import display
 import h5py 
+from typing import (List,
+                    Optional)
 
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
     """
@@ -50,7 +52,7 @@ def populate_ndf_column(df):
     return df
 
 
-def get_exp_summary(exp_name: str):
+def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
     exp_ids = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')
     exp_id = exp_ids[0]
     if len(exp_ids) == 0:
@@ -151,9 +153,9 @@ def search_protocol(str_search: str):
     print(matches)
     return matches
 
-def get_datasets_from_protocol_names(ls_protocol_names, b_exact_match: bool=False):
+def get_datasets_from_protocol_names(ls_protocol_names: List[str], b_exact_match: bool=False):
     # TODO pull available algorithm names from CellTypeFile
-    if type(ls_protocol_names) is str:
+    if isinstance(ls_protocol_names, str):
         ls_protocol_names = [ls_protocol_names]
 
     if b_exact_match:
@@ -210,7 +212,7 @@ def get_datasets_from_protocol_names(ls_protocol_names, b_exact_match: bool=Fals
     return df
 
 
-def get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose=False):
+def get_noise_chunks_sorted_by_distance(df_exp, datafile_name: str, noise_protocol_name: str, verbose=False):
     prot_row = df_exp[df_exp['datafile_name']==datafile_name]
     prot_start_time = prot_row['start_time'].values[0]
     prot_end_time = prot_row['end_time'].values[0]
@@ -242,7 +244,7 @@ def get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_na
     return noise_chunk_names, noise_chunk_distances
 
 
-def get_n_cells_of_interest(str_file, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM']):
+def get_n_cells_of_interest(str_file: str, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM']):
     # str_file is cell typing file path
     # Returns the number of cells of interest in the typing file
     if not os.path.exists(str_file):
@@ -273,7 +275,7 @@ def get_n_cells_of_interest(str_file, ls_cell_types: list = ['OffP', 'OffM', 'On
         n_cells += len(ls_match)
     return n_cells
 
-def get_noise_name_by_exp(exp_name):
+def get_noise_name_by_exp(exp_name: str) -> str:
     # Pull appropriate noise protocol for cell typing
     if int(exp_name[:8]) < 20230926:
             noise_protocol_name = 'manookinlab.protocols.FastNoise'
@@ -281,7 +283,7 @@ def get_noise_name_by_exp(exp_name):
         noise_protocol_name = 'manookinlab.protocols.SpatialNoise'
     return noise_protocol_name
 
-def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM'],
+def get_typing_files_for_datasets(df: pd.DataFrame, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM'],
                                   verbose: bool = False):
     # Return df_typed with columns:
     # exp_name, datafile_names, chunk_name, protocol_name, ss_version, typing_file_name, typing_file_path
@@ -298,19 +300,23 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
                 'typing_file_name': [], 'typing_file_path': [], 'typing_file_id': [],
                 'n_cells_of_interest': []}
     for exp_name in tqdm(df['exp_name'].unique(), desc="Finding typing files for unique experiments"):
-        df_q = df.query('exp_name==@exp_name')
-        df_exp = get_exp_summary(exp_name)
-        noise_protocol_name = get_noise_name_by_exp(exp_name)
+        df_q: pd.DataFrame = df.query('exp_name==@exp_name')
+
+        exp_summary = get_exp_summary(exp_name)
+        assert exp_summary is not None, f'Failed to generate experiment summary for {exp_name}'
+        df_exp: pd.DataFrame = exp_summary
+
+        noise_protocol_name: str = get_noise_name_by_exp(exp_name)
         
         for datafile_name in df_q['datafile_name'].values:
-            chunk = df_exp[df_exp['datafile_name']==datafile_name]['chunk_name'].values[0]
+            chunk = df_exp.query('datafile_name == @datafile_name')['chunk_name'].values[0]
             noise_chunk_names, noise_chunk_distances = get_noise_chunks_sorted_by_distance(df_exp, datafile_name, noise_protocol_name, verbose)
     
             # Find nearest noise chunk with typing.
             b_found = False
             nearest_noise_chunk = noise_chunk_names[0]
             for i_c, noise_chunk in enumerate(noise_chunk_names):
-                df_chunk = df_exp[(df_exp['chunk_name']==noise_chunk) & (df_exp['protocol_name']==noise_protocol_name)]
+                df_chunk = df_exp.query('chunk_name == @noise_chunk and protocol_name == @noise_protocol_name')
                 noise_chunk_id = df_chunk['chunk_id'].values[0]
                 noise_datafile_names = list(df_chunk['datafile_name'].values)
                 df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).fetch(format='frame')
@@ -344,7 +350,7 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
             if not b_found:
                 d_not_typed['exp_name'].append(exp_name)
                 d_not_typed['datafile_name'].append(datafile_name)
-                d_not_typed['chunk'].append(df_exp[df_exp['datafile_name']==datafile_name]['chunk_name'].values[0])
+                d_not_typed['chunk'].append(df_exp.query('datafile_name == @datafile_name')['chunk_name'].values[0])
                 d_not_typed['nearest_noise_chunk'].append(nearest_noise_chunk)
                 d_not_typed['nearest_noise_distance'].append(noise_chunk_distances[0])
 
@@ -354,7 +360,8 @@ def get_typing_files_for_datasets(df, ls_cell_types: list = ['OffP', 'OffM', 'On
     return df_typed, df_not_typed
 
 def plot_mosaics_for_all_datasets(df: pd.DataFrame, ls_cell_types: list=['OffP', 'OffM', 'OnP', 'OnM'],
-                                  n_top: int=None):
+                                  n_top: Optional[int]=None):
+
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
     # df should be output of get_datasets_from_protocol_names
     df_typed, df_not_typed = get_typing_files_for_datasets(df, ls_cell_types)
@@ -431,8 +438,8 @@ def add_parameters_col(df, ls_params, src_col: str='epoch_parameters'):
     return df
 
 
-def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: list=None,
-                                stim_time_name: str='stimTime'):
+def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[List]=None,
+                                stim_time_name: str='stimTime') -> pd.DataFrame:
     # Filter Experiment by exp_name, EpochBlock by block_id, then join down to Epoch
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
     is_mea = (ex_q.fetch1('is_mea') == 1)
@@ -605,7 +612,7 @@ def get_epochblock_response_query(exp_name: str, block_id: int):
     return r_q
 
 
-def get_h5_file(exp_name):
+def get_h5_file(exp_name: str) -> str:
     # First try h5 in config h5 dir
     str_h5_in_config = os.path.join(H5_DIR, f'{exp_name}.h5')
     if os.path.exists(str_h5_in_config):
@@ -622,14 +629,14 @@ def get_h5_file(exp_name):
 
 
 
-def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
+def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str]=None):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
     print(f'Loading frame monitor data from {str_h5} ...')
     r_q = get_epochblock_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
     
-    df_frame = df[df['device_name']=='Frame Monitor']
+    df_frame = df.query('device_name == "Frame Monitor"')
     df_frame = df_frame.reset_index(drop=True)
 
     frame_h5paths = df_frame['h5path'].values
@@ -646,12 +653,12 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
 
     sample_rates = df_frame['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:
-        raise ValueError(f'Expected single sample rate for Frame Monitor data, but found {len(sample_rate)}: {sample_rate}')
+        raise ValueError(f'Expected single sample rate for Frame Monitor data, but found {len(sample_rates)}: {sample_rates}')
     sample_rate = sample_rates[0]
 
     return frame_data, sample_rate
 
-def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: str=None):
+def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=None):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
     print(f'Loading Amp1 data from {str_h5} ...')
@@ -675,7 +682,7 @@ def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: str=None):
 
     sample_rates = df_amp['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:
-        raise ValueError(f'Expected single sample rate for Amp1 data, but found {len(sample_rate)}: {sample_rate}')
+        raise ValueError(f'Expected single sample rate for Amp1 data, but found {len(sample_rates)}: {sample_rates}')
     sample_rate = sample_rates[0]
 
     return amp_data, sample_rate
