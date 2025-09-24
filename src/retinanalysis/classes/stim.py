@@ -65,6 +65,10 @@ class StimBlock:
         if ls_epochs is None:
             ls_epochs = self.df_epochs.index.tolist()
         
+        # Convert single values into a list since the function doesn't know what to do with an int
+        if isinstance(ls_epochs, int):
+            ls_epochs = list(ls_epochs)
+        
         if self.protocol_name in D_REGEN_FXNS.keys():
             print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.block_id}")
             f_regen = D_REGEN_FXNS[self.protocol_name]
