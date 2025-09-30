@@ -12,6 +12,7 @@ def get_df_dict_vals(df, key, col_name='epoch_parameters'):
 def make_spatial_noise(df_epochs: pd.DataFrame, center_row: int=None, center_col: int=None, n_pad: int=None):
     # Create noise movies by epochs
     ls_frames = []
+    ls_steps = []
     for e_idx in tqdm.tqdm(df_epochs.index):
         fts = df_epochs.at[e_idx, 'frame_times_ms']
         pre_time = df_epochs.at[e_idx, 'preTime']
@@ -36,14 +37,65 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: int=None, center_col
             d_meta['gaussianFilter'] = d_e_params['gaussianFilter']
         if 'filterSdStixels' in d_e_params:
             d_meta['filterSdStixels'] = d_e_params['filterSdStixels']
-        frames = get_spatial_noise_frames(**d_meta)
-        
-        ls_frames.append(frames)
+        d_wn = get_spatial_noise_frames(**d_meta)
+        ls_steps.append(d_wn['steps'])
+        ls_frames.append(d_wn['stimulus'])
     frames = np.array(ls_frames)
+    steps = np.array(ls_steps)
     if center_row is not None:
         # Crop frames around the cell center
         frames = frames[:, :, center_row-n_pad:center_row+n_pad+1, center_col-n_pad:center_col+n_pad+1, :]
-    return frames
+    d_out = {
+        'frames': frames,
+        'steps': steps,
+    }
+
+    return d_out
+
+def center_image_on_canvas(image, canvas_size, center_coords):
+    """
+    Centers an image on a canvas of a specified size using cv2.remap.
+
+    Args:
+        image (np.ndarray): The source image to be centered.
+        canvas_size (tuple): A tuple (width, height) for the destination canvas.
+        center_coords (tuple): A tuple (x, y) specifying the canvas coordinates
+                               where the center of the image should be placed.
+
+    Returns:
+        np.ndarray: The new canvas with the image centered at the specified coordinates.
+    """
+    canvas_width, canvas_height = canvas_size
+    img_height, img_width = image.shape[:2]
+    target_center_x, target_center_y = center_coords
+
+    # 1. Create a blank canvas with the correct dimensions and channels
+    # The canvas should have the same number of channels as the source image
+    # For a color image, the shape is (height, width, 3)
+    canvas = np.zeros((canvas_height, canvas_width), dtype=np.uint8)
+
+    # 2. Calculate the center of the source image
+    img_center_x = img_width / 2.0
+    img_center_y = img_height / 2.0
+
+    # 3. Calculate the translation offset
+    offset_x = target_center_x - img_center_x
+    offset_y = target_center_y - img_center_y
+
+    # 4. Create the mapping arrays using a vectorized approach
+    map_x, map_y = np.meshgrid(np.arange(canvas_width, dtype=np.float32),
+                               np.arange(canvas_height, dtype=np.float32))
+
+    # Apply the inverse translation to the map arrays
+    map_x -= offset_x
+    map_y -= offset_y
+
+    # 5. Apply the remapping directly into the canvas
+    # Use borderMode=cv2.BORDER_CONSTANT to fill the border with a constant color (e.g., black)
+    centered_image = cv2.remap(image, map_x, map_y, cv2.INTER_NEAREST, dst=canvas,
+                               borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
+    
+    return centered_image
 
 def get_spatial_noise_frames(numXStixels: int, 
                         numYStixels: int, 
@@ -74,6 +126,19 @@ def get_spatial_noise_frames(numXStixels: int,
     Returns:
     frames: 4D array of frames (n_frames, x, y, n_colors).
     """
+    # Print input params
+    print(f'numXStixels: {numXStixels}, numYStixels: {numYStixels}, numXChecks: {numXChecks}, numYChecks: {numYChecks}')
+    print(f'chromaticClass: {chromaticClass}, unique_frames: {unique_frames}, repeat_frames: {repeat_frames}')
+    print(f'stepsPerStixel: {stepsPerStixel}, seed: {seed}, frameDwell: {frameDwell}')
+    print(f'gaussianFilter: {gaussianFilter}, filterSdStixels: {filterSdStixels}')
+    
+    # Compute gridSizePix, stixelSizePix
+    um_per_pix = 3.37 # Get from display parameters. Why 
+    um_grid_size = 30.0 # Get from epoch parameters
+    gridSizePix = np.round(um_grid_size / um_per_pix).astype(int) # LCRVideoDevice rounds
+    stixelSizePix = gridSizePix * stepsPerStixel
+    print(f'Grid size: {gridSizePix} pix, Stixel size: {stixelSizePix} pix')
+    
     # Seed the random number generator.
     np.random.seed( int(seed) )
 
@@ -95,8 +160,14 @@ def get_spatial_noise_frames(numXStixels: int,
         tsize += 1
         rsize += 1
     
+    # reduce tsize for debugging
+    tsize = 100
+    usize = 100
+    rsize = 0
+
     # Generate the random grid of stixels.
     gridValues = np.zeros((tsize, int(numXStixels*numYStixels)), dtype=np.float32)
+    print(f'gridValues: {gridValues.shape}')
     gridValues[:usize,:] = np.random.rand(usize, int(numXStixels*numYStixels))
     # Repeating sequence.
     if repeat_frames > 0:
@@ -107,6 +178,7 @@ def get_spatial_noise_frames(numXStixels: int,
     gridValues = np.transpose(gridValues, (0, 2, 1))
     gridValues = np.round(gridValues)
     gridValues = (2*gridValues-1).astype(np.float32) # Convert to contrast
+    print(f'gridValues: {gridValues.shape}')
 
     # Filter the stixels if indicated.
     if gaussianFilter:
@@ -117,15 +189,22 @@ def get_spatial_noise_frames(numXStixels: int,
         gridValues[gridValues > 1.0] = 1.0
         gridValues[gridValues < -1.0] = -1.0
 
-    # Translate to the full grid
-    fullGrid = np.zeros((tsize,int(numYStixels*stepsPerStixel),int(numXStixels*stepsPerStixel)), dtype=np.float32)
+    # Translate to the full grid by upscaling by stepsPerStixel
+    # fullGrid = np.zeros((tsize,int(numYStixels*stepsPerStixel),int(numXStixels*stepsPerStixel)), dtype=np.float32)
+    fullGrid = np.zeros((tsize,int(numYStixels*stixelSizePix),int(numXStixels*stixelSizePix)), dtype=np.float32)
+    rs_shape = (fullGrid.shape[1], fullGrid.shape[2])
+    for t in range(tsize):
+        fullGrid[t,:,:] = cv2.resize(
+            gridValues[t,:,:], 
+            rs_shape[::-1], 
+            interpolation=cv2.INTER_NEAREST_EXACT)
     # fullGrid = np.zeros((tsize,numYStixels*stepsPerStixel,numXStixels*stepsPerStixel), dtype=np.uint8)
-
-    for k in range(int(numYStixels*stepsPerStixel)):
-        yindex = np.floor(k/stepsPerStixel).astype(int)
-        for m in range(int(numXStixels*stepsPerStixel)):
-            xindex = np.floor(m/stepsPerStixel).astype(int)
-            fullGrid[:, k, m] = gridValues[:, yindex, xindex]
+    print(f'fullGrid: {fullGrid.shape}')
+    # for k in range(int(numYStixels*stepsPerStixel)):
+    #     yindex = np.floor(k/stepsPerStixel).astype(int)
+    #     for m in range(int(numXStixels*stepsPerStixel)):
+    #         xindex = np.floor(m/stepsPerStixel).astype(int)
+    #         fullGrid[:, k, m] = gridValues[:, yindex, xindex]
 
     # Generate the motion trajectory of the larger stixels.
     np.random.seed( int(seed) ) # Re-seed the number generator
@@ -136,14 +215,40 @@ def get_spatial_noise_frames(numXStixels: int,
     # steps = (stepsPerStixel-1) - np.round( (stepsPerStixel-1) * np.random.rand(tsize, 2) )
     # Get the frame values for the finer grid.
     # frameValues = np.zeros((tsize,numYChecks,numXChecks),dtype=np.uint8)
-    frameValues = np.zeros((tsize,int(numYChecks),int(numXChecks)),dtype=np.float32)
+    # frameValues = np.zeros((tsize,int(numYChecks),int(numXChecks)),dtype=np.float32)
+    frameValues = np.zeros((tsize,1140, 1824),dtype=np.float32)
+    print(f'frameValues: {frameValues.shape}')
+    # print(steps)
+    # Take out first few rows of fullGrid
+    # fullGrid = fullGrid[:,2:,:]
+    crop = np.array([fullGrid.shape[1], fullGrid.shape[2]])/2 - np.array([frameValues.shape[1], frameValues.shape[2]])/2
+    # x crop is 2 for some reason
+    crop[1] = 2
+    print(f'Cropping fullGrid by {crop} pixels on top and left')
+    crop = np.floor(crop).astype(int)
+    # fullGrid = fullGrid[:,crop[0]:,crop[1]:]
+    # fullGrid = fullGrid[:,crop[0]:,:]
+    # fullGrid = fullGrid[:,:,2:]
+    
+    print(f'fullGrid: {fullGrid.shape}')
     for k in range(tsize):
         x_offset = steps[np.floor(k/tfactor).astype(int), 0].astype(int)
         y_offset = steps[np.floor(k/tfactor).astype(int), 1].astype(int)
-        frameValues[k,:,:] = fullGrid[k, y_offset : int(numYChecks)+y_offset, x_offset : int(numXChecks)+x_offset]
+        # frameValues[k,:,:] = fullGrid[k, y_offset : int(numYChecks)+y_offset, x_offset : int(numXChecks)+x_offset]
+        x_offset *= gridSizePix
+        y_offset *= gridSizePix
+        y_offset += crop[0]
+        x_offset += crop[1]
+        frameValues[k,:,:] = fullGrid[k, y_offset : 1140+y_offset, x_offset : 1824+x_offset]
+        # tmp = center_image_on_canvas(
+            # fullGrid[k, :, :], (1824, 1140),
+            # center_coords=(1824/2 + x_offset, 1140/2 + y_offset)
+        # )
+        # frameValues[k,:,:] = tmp
 
     # Create your output stimulus. (t, y, x, color)
-    stimulus = np.zeros((np.ceil(tsize/tfactor).astype(int),int(numYChecks),int(numXChecks),3), dtype=np.float32)
+    # stimulus = np.zeros((np.ceil(tsize/tfactor).astype(int),int(numYChecks),int(numXChecks),3), dtype=np.float32)
+    stimulus = np.zeros((np.ceil(tsize/tfactor).astype(int), 1140, 1824, 3), dtype=np.float32)
 
     # Get the pixel values into the proper color channels
     if (chromaticClass == 'BY'):
@@ -160,15 +265,19 @@ def get_spatial_noise_frames(numXStixels: int,
         stimulus[:,:,:,2] = frameValues
     # return stimulus
 
+    d_out = {
+        'stimulus': stimulus,
+        'steps': steps,
+    }
     # Deal with the frame dwell.
     if frameDwell > 1:
         stim = np.zeros((numFrames,int(numYChecks),int(numXChecks),3), dtype=np.float32)
         for k in range(numFrames):
             idx = np.floor(k / frameDwell).astype(int)
             stim[k,:,:,:] = stimulus[idx,:,:,:]
-        return stim
-    else:
-        return stimulus
+        d_out['stimulus'] = stim
+    
+    return d_out
 
 
 # Functions for PresentImages protocol
