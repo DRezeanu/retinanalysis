@@ -543,9 +543,9 @@ def get_epochblock_timing(exp_name: str, block_id: int):
         #this ignores the partial epoch
         if len(epoch_ends) == len(epoch_starts)-1:
             print(f'Warning: For {exp_name} block {block_id}, found {len(epoch_ends)} epoch ends but {len(epoch_starts)} epoch starts.')
-            print(f'Keeping only {len(epoch_starts)} starts.')
             
             epoch_starts = epoch_starts[:len(epoch_ends)]
+            print(f'Keeping only {len(epoch_starts)} starts.')
             
         elif len(epoch_ends) != len(epoch_starts):
             raise ValueError("Mismatch in number of epoch starts and ends.")
