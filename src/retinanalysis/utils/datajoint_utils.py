@@ -674,8 +674,9 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
 
     sample_rates = df_frame['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:
-        raise ValueError(f'Expected single sample rate for Frame Monitor data, but found {len(sample_rate)}: {sample_rate}')
+        raise ValueError(f'Expected single sample rate for Frame Monitor data, but found {len(sample_rates)}: {sample_rates}')
     sample_rate = sample_rates[0]
+    print(f'Frame Monitor sample rate: {sample_rate} Hz')
 
     return frame_data, sample_rate
 
