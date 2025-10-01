@@ -169,11 +169,15 @@ class MEAPipeline:
         print(f"MEAPipeline exported to {file_path}")
 
 def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: str=None,
-                    ss_version: str='kilosort2.5', ls_params: list=None):
+                    ss_version: str='kilosort2.5', rb_ss_version: str=None, ls_params: list=None,
+                    b_load_fd: bool=True) -> MEAPipeline:
     # Helper function for initializing MEAPipeline from metadata
     # TODO StimGroup and ResponseGroup functionality
     s = MEAStimBlock(exp_name, datafile_name, ls_params)
-    r = MEAResponseBlock(exp_name, datafile_name, ss_version)
+    if rb_ss_version is None:
+        rb_ss_version = ss_version
+
+    r = MEAResponseBlock(exp_name, datafile_name, rb_ss_version, b_load_fd=b_load_fd)
     if analysis_chunk_name is None:
         analysis_chunk_name = s.nearest_noise_chunk
         print(f'Using {analysis_chunk_name} for AnalysisChunk\n')

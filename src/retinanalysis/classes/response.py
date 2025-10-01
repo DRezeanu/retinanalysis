@@ -6,6 +6,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 import pickle
 import matplotlib.pyplot as plt
+from typing import Union
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
@@ -62,15 +63,16 @@ class ResponseBlock:
     Generic class for single cell or MEA response blocks. 
     """
     def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
-                 pkl_file: str=None):
+                 pkl_file: Union[str, dict]=None, b_load_fd: bool=True):
         if pkl_file is None:
             print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
-            print(f"Initializing ResponseBlock from pickle file {pkl_file}")
+            print(f"Initializing ResponseBlock from pickle file.")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
+                print(f"  pkl_file: {pkl_file}")
                 with open(pkl_file, 'rb') as f:
                     d_out = pickle.load(f)
             else:
@@ -84,7 +86,11 @@ class ResponseBlock:
         self.block_id = block_id    
         self.h5_file = h5_file
         self.d_timing = dju.get_epochblock_timing(self.exp_name, self.block_id)
-        frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
+        if b_load_fd:
+            frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
+        else:
+            frame_data = np.array([])
+            frame_sample_rate = None
         self.frame_data = frame_data
         self.frame_sample_rate = frame_sample_rate
 
@@ -117,8 +123,8 @@ class ResponseBlock:
 
 class SCResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, block_id: int=None, h5_file: str=None,
-                 pkl_file: str=None, b_spiking: bool=False, **detector_kwargs):
-        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file)
+                 pkl_file: Union[str, dict]=None, b_spiking: bool=False, b_load_fd: bool=True, **detector_kwargs):
+        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file, b_load_fd=b_load_fd)
         if pkl_file is not None:
             return
 
@@ -149,7 +155,7 @@ class SCResponseBlock(ResponseBlock):
 
 class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: str=None, datafile_name: str=None, ss_version: str = 'kilosort2.5', 
-                 pkl_file: str=None, h5_file: str=None, include_ei: bool=True):
+                 b_load_fd: bool=True, pkl_file: Union[str, dict]=None, h5_file: str=None, include_ei: bool=True):
         # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
@@ -163,7 +169,7 @@ class MEAResponseBlock(ResponseBlock):
                 self.ss_version = ss_version
                 self.datafile_name = datafile_name
         
-        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file)
+        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file, b_load_fd=b_load_fd)
         self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei)
 
         # If pkl_file is provided, everything else is already loaded in parent init.

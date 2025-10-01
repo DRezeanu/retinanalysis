@@ -33,6 +33,7 @@ class StimBlock:
             print(f"Initializing StimBlock for {exp_name} block {block_id} from pickle file")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
+                print(f"  pkl_file: {pkl_file}")
                 with open(pkl_file, 'rb') as f:
                     d_out = pickle.load(f)
             else:
@@ -106,7 +107,7 @@ class MEAStimBlock(StimBlock):
     """
     MEA stimulus block class that gets associated noise protocol and nearest noise chunk.
     """
-    def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
+    def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: Union[str, dict]=None):
         # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
