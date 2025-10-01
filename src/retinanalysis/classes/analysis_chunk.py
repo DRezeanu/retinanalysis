@@ -2,7 +2,8 @@ import retinanalysis
 import retinanalysis.config.schema as schema
 import os
 from retinanalysis.config.settings import (ANALYSIS_DIR,
-                                           DATA_DIR)
+                                           DATA_DIR,
+                                           QUERY_DIR)
 import pandas as pd
 # import retinanalysis.utils.vision_utils as vu
 from retinanalysis.utils.vision_utils import (get_analysis_vcd,
@@ -110,7 +111,7 @@ class AnalysisChunk:
         # Keep only typing_files with paths that exist
         existing_typing_files = []
         for tf in typing_files:
-            fp = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, tf)
+            fp = os.path.join(QUERY_DIR, self.exp_name, self.chunk_name, self.ss_version, tf)
             if not os.path.exists(fp):
                 print(f"Warning: Typing file not found, skipping: {fp}")
                 continue
@@ -207,6 +208,9 @@ class AnalysisChunk:
 
         for idx, typing_file in enumerate(self.typing_files):
             file_path = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
+            if not os.path.exists(file_path):
+                print(f"Warning: Typing file not found, skipping: {file_path}")
+                continue
             d_result = dict()
             
             with open(file_path, 'r') as file:
