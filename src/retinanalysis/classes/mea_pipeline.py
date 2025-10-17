@@ -14,8 +14,9 @@ from matplotlib.axes import Axes
 
 class MEAPipeline:
 
-    def __init__(self, stim_block: Optional[MEAStimBlock]=None, response_block: Optional[MEAResponseBlock]=None,
-                 analysis_chunk: Optional[AnalysisChunk]=None, pkl_file: Optional[str] = None):
+    def __init__(self, stim_block: Optional[MEAStimBlock] = None, response_block: Optional[MEAResponseBlock] = None,
+                 analysis_chunk: Optional[AnalysisChunk] = None, typing_file: Optional[str] = None,
+                 pkl_file: Optional[str] = None):
 
         if pkl_file is None:
             if stim_block is None or response_block is None or analysis_chunk is None:
@@ -37,7 +38,7 @@ class MEAPipeline:
         self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
         
         self.add_matches_to_protocol()
-        self.add_types_to_protocol()
+        self.add_types_to_protocol(typing_file_name = typing_file)
     
 
     def add_matches_to_protocol(self) -> None:
@@ -173,8 +174,9 @@ class MEAPipeline:
             pickle.dump(d_out, f)
         print(f"MEAPipeline exported to {file_path}")
 
-def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: Optional[str]=None,
-                    ss_version: str='kilosort2.5', ls_params: Optional[list]=None):
+def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: Optional[str] = None,
+                    typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
+                    ls_params: Optional[list] = None):
     # Helper function for initializing MEAPipeline from metadata
     # TODO StimGroup and ResponseGroup functionality
     s = MEAStimBlock(exp_name, datafile_name, ls_params)
@@ -183,5 +185,5 @@ def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: 
         analysis_chunk_name = s.nearest_noise_chunk
         print(f'Using {analysis_chunk_name} for AnalysisChunk\n')
     ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version)
-    mp = MEAPipeline(s, r, ac)
+    mp = MEAPipeline(stim_block = s, response_block = r, analysis_chunk = ac, typing_file = typing_file)
     return mp
