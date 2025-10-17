@@ -5,13 +5,19 @@ from retinanalysis.classes.analysis_chunk import AnalysisChunk
 from retinanalysis.utils.vision_utils import cluster_match
 import os
 from typing import (List,
-                    Dict)
+                    Dict,
+                    Optional,
+                    Any)
 import pickle
+from matplotlib.axes import Axes
 
 
 class MEAPipeline:
 
-    def __init__(self, stim_block: MEAStimBlock=None, response_block: MEAResponseBlock=None, analysis_chunk: AnalysisChunk=None, pkl_file: str = None):
+    def __init__(self, stim_block: Optional[MEAStimBlock] = None, response_block: Optional[MEAResponseBlock] = None,
+                 analysis_chunk: Optional[AnalysisChunk] = None, typing_file: Optional[str] = None,
+                 pkl_file: Optional[str] = None):
+
         if pkl_file is None:
             if stim_block is None or response_block is None or analysis_chunk is None:
                 raise ValueError("Either stim_block, response_block, and analysis_chunk must be provided or pkl_file.")
@@ -32,7 +38,7 @@ class MEAPipeline:
         self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
         
         self.add_matches_to_protocol()
-        self.add_types_to_protocol()
+        self.add_types_to_protocol(typing_file_name = typing_file)
     
 
     def add_matches_to_protocol(self) -> None:
@@ -48,17 +54,17 @@ class MEAPipeline:
         
         self.response_block.df_spike_times['noise_id'] = self.response_block.df_spike_times['noise_id'].astype(int)
 
-    def add_types_to_protocol(self, typing_file: str = None) -> None:
+    def add_types_to_protocol(self, typing_file_name: Optional[str] = None) -> None:
 
-        if typing_file is None:
+        if typing_file_name is None:
             typing_file = 0
             print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
         else:
             try:
-                typing_file = self.analysis_chunk.typing_files.index(typing_file)
+                typing_file = self.analysis_chunk.typing_files.index(typing_file_name)
                 print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
             except:
-                raise FileNotFoundError(f"{typing_file} Not Found in Analysis Chunk")
+                raise FileNotFoundError(f"{typing_file_name} Not Found in Analysis Chunk")
         
         type_dict = dict()
         for id in self.analysis_chunk.df_cell_params['cell_id']:
@@ -74,8 +80,8 @@ class MEAPipeline:
         for idx, id in enumerate(self.response_block.df_spike_times['cell_id'].values):
             self.response_block.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
 
-    def plot_rfs(self, protocol_ids: List[int] = None, cell_types: List[str] = None,
-                 minimum_n: int = 1, **kwargs) -> np.ndarray:
+    def plot_rfs(self, protocol_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None,
+                 minimum_n: int = 1, **kwargs) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         
         if isinstance(cell_types, str):
             cell_types = [cell_types]
@@ -98,8 +104,8 @@ class MEAPipeline:
         return arr_ids
 
 
-    def plot_timecourses(self, protocol_ids: List[int] = None, cell_types: List[str] = None, 
-                        **kwargs) -> np.ndarray:
+    def plot_timecourses(self, protocol_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None, 
+                        **kwargs) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
 
         noise_ids = self.get_noise_ids(protocol_ids, cell_types)
         ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
@@ -110,7 +116,7 @@ class MEAPipeline:
     # Helper function for pulling noise ids for plotting and organizing them into a dictionary
     # by type. IDs can be pulled by list of protocol ids, list of cell types, or both. Used
     # in plot_rfs and plot_timecourse
-    def get_noise_ids(self, protocol_ids: List[int] = None, cell_types: List[int] = None) -> List[int]:
+    def get_noise_ids(self, protocol_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None) -> List[int]:
         # Pull analysis_block ids that match the input cell_ids and cell_types
         # If neither is given, plot all matched ids
 
@@ -121,12 +127,12 @@ class MEAPipeline:
             protocol_ids = [int(protocol_ids)]
 
         if protocol_ids is None and cell_types is None:
-            protocol_ids = self.response_block.df_spike_times['cell_id'].values
+            protocol_ids = list(self.response_block.df_spike_times['cell_id'].values)
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only type is given, pull only ids that correspond to that type
         elif protocol_ids is None:
-            protocol_ids = self.response_block.df_spike_times.query('cell_type in @cell_types')['cell_id'].values
+            protocol_ids = list(self.response_block.df_spike_times.query('cell_type in @cell_types')['cell_id'].values)
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only ids are given, pull all ids regardless of type
@@ -168,8 +174,9 @@ class MEAPipeline:
             pickle.dump(d_out, f)
         print(f"MEAPipeline exported to {file_path}")
 
-def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: str=None,
-                    ss_version: str='kilosort2.5', ls_params: list=None):
+def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: Optional[str] = None,
+                    typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
+                    ls_params: Optional[list] = None):
     # Helper function for initializing MEAPipeline from metadata
     # TODO StimGroup and ResponseGroup functionality
     s = MEAStimBlock(exp_name, datafile_name, ls_params)
@@ -178,5 +185,5 @@ def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: 
         analysis_chunk_name = s.nearest_noise_chunk
         print(f'Using {analysis_chunk_name} for AnalysisChunk\n')
     ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version)
-    mp = MEAPipeline(s, r, ac)
+    mp = MEAPipeline(stim_block = s, response_block = r, analysis_chunk = ac, typing_file = typing_file)
     return mp
