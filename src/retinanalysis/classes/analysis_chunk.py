@@ -90,14 +90,22 @@ class AnalysisChunk:
         epoch_block_ids = [epoch_blocks.fetch('id')[idx] for idx in range(len(epoch_blocks))]
         epochs = [schema.Epoch() & {'experiment_id' : self.exp_id, 'parent_id' : block_id} for block_id in epoch_block_ids]
 
-        numXChecks = [epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs]
-        numYChecks = [epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs]
+        numXChecks = np.array([epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs])
+        numYChecks = np.array([epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs])
+        
+        if (not all(element == numXChecks[0] for element in numXChecks) and
+            not all(element == numYChecks[0] for element in numYChecks)):
+            print('WARNING: Not all epoch blocks used the same number of X and Y checks\n')
 
-        assert all(element == numXChecks[0] for element in numXChecks), "Not all epoch blocks used same number of X checks"
-        assert all(element == numYChecks[0] for element in numYChecks), "Not all epoch blocks used same number of Y checks"
+            vision_micronsPerStixel = self.vcd.runtimemovie_params.micronsPerStixelX
+            gridSizes = np.array([epoch.fetch('parameters')[0]['gridSize'] for epoch in epochs])
+            
+            self.numXChecks = int(numXChecks[gridSizes == vision_micronsPerStixel])
+            self.numYChecks = int(numYChecks[gridSizes == vision_micronsPerStixel])
 
-        self.numXChecks = int(numXChecks[0])
-        self.numYChecks = int(numYChecks[0])
+        else:
+            self.numXChecks = int(numXChecks[0])
+            self.numYchecks = int(numYChecks[0])
 
         self.deltaXChecks = (self.numXChecks - self.staXChecks)/2
         self.deltaYChecks = (self.numYChecks - self.staYChecks)/2
