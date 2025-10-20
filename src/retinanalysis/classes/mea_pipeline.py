@@ -34,11 +34,12 @@ class MEAPipeline:
         self.stim_block = stim_block
         self.response_block = response_block
         self.analysis_chunk = analysis_chunk
+        self.typing_file = typing_file
 
         self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
         
         self.add_matches_to_protocol()
-        self.add_types_to_protocol(typing_file_name = typing_file)
+        self.add_types_to_protocol(typing_file_name = self.typing_file)
     
 
     def add_matches_to_protocol(self) -> None:
@@ -90,8 +91,17 @@ class MEAPipeline:
             protocol_ids = [int(protocol_ids)]
         
         noise_ids = self.get_noise_ids(protocol_ids = protocol_ids, cell_types = cell_types)
-        ax = self.analysis_chunk.plot_rfs(noise_ids = noise_ids, cell_types = cell_types,
-                                          minimum_n = minimum_n, **kwargs)
+
+        # Check if user provided a typing file. If not, use the typing file provided when pipeline
+        # was initialized. This can still be None, in which case typing_file_0 will be used.
+        if 'typing_file' in kwargs:
+            ax = self.analysis_chunk.plot_rfs(noise_ids = noise_ids, cell_types = cell_types,
+                                              minimum_n = minimum_n, **kwargs)
+        else:
+            ax = self.analysis_chunk.plot_rfs(noise_ids = noise_ids, cell_types = cell_types,
+                                              minimum_n = minimum_n, typing_file = self.typing_file,
+                                              **kwargs)
+            
 
         return ax
     
@@ -103,13 +113,27 @@ class MEAPipeline:
         
         return arr_ids
 
-
+    # TODO: Implement Minimum_N inpyut param for plot_timecourses to match plot_rfs
     def plot_timecourses(self, protocol_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None, 
                         **kwargs) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
+        
+        if isinstance(cell_types, str):
+            cell_types = [cell_types]
+            
+        if isinstance(protocol_ids, int) or isinstance(protocol_ids, float):
+            protocol_ids = [int(protocol_ids)]
 
         noise_ids = self.get_noise_ids(protocol_ids, cell_types)
-        ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
-                                             **kwargs)
+
+        # Check if user provided a typing file. If not, use the typing file provided when pipeline
+        # was initialized. This can still be None, in which case typing_file_0 will be used.
+        if 'typing_file' in kwargs:
+            ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
+                                                 **kwargs)
+        else:
+            ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
+                                                 typing_file = self.typing_file, **kwargs)
+            
         
         return ax
 
