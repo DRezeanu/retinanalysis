@@ -4,7 +4,6 @@ import os
 from retinanalysis.config.settings import (ANALYSIS_DIR,
                                            DATA_DIR)
 import pandas as pd
-# import retinanalysis.utils.vision_utils as vu
 from retinanalysis.utils.vision_utils import (get_analysis_vcd,
                                               get_ells,
                                               get_timecourses)
@@ -105,7 +104,7 @@ class AnalysisChunk:
 
         else:
             self.numXChecks = int(numXChecks[0])
-            self.numYchecks = int(numYChecks[0])
+            self.numYChecks = int(numYChecks[0])
 
         self.deltaXChecks = (self.numXChecks - self.staXChecks)/2
         self.deltaYChecks = (self.numYChecks - self.staYChecks)/2

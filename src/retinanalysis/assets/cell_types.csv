@@ -2,8 +2,8 @@ cell_types
 OnP
 OffP
 OnM
-BlueOffM
 OffM
+BlueOffM
 OnS
 OffS
 SBC
@@ -19,6 +19,9 @@ RB
 Tufted
 BlueMystery
 A1
+OnAmacrine 
+OffAmacrine
+BlueAmacrine
 Amacrine
 InterestingIfTrue
 BigMas
