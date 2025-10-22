@@ -21,6 +21,34 @@ class RawTraces:
         self.sample_rate = SAMPLE_RATE  # Hz
         self.epoch_idx = None
 
+    def load_ttl_data(self, start_sample, end_sample, verbose=False):
+        with bin2py.PyBinFileReader(self.binpath, chunk_samples=RW_BLOCKSIZE, is_row_major=True) as pbfr:
+            array_id = pbfr.header.array_id
+            total_samples = pbfr.length
+
+            # Set end_sample to the total length if not specified
+            if end_sample is None:
+                end_sample = total_samples
+
+            # Validate sample range
+            if start_sample < 0 or end_sample > total_samples or start_sample >= end_sample:
+                raise ValueError("Invalid start_sample or end_sample range.")
+
+            query_samples = end_sample - start_sample
+            if verbose:
+                print(f"Querying {query_samples} samples from {start_sample} to {end_sample} for array {array_id}.")
+                print(f'Queried time: {query_samples / SAMPLE_RATE} seconds')
+                print(f'From {start_sample / SAMPLE_RATE} to {end_sample / SAMPLE_RATE} seconds')
+
+            data = np.zeros(query_samples, dtype=np.float32)
+            for start_idx in range(start_sample, end_sample, RW_BLOCKSIZE):
+                n_samples_to_get = min(RW_BLOCKSIZE, end_sample - start_idx)
+                samples = pbfr.get_data_for_electrode(0, start_idx, n_samples_to_get)
+                data[start_idx - start_sample:start_idx - start_sample + n_samples_to_get] = samples
+
+        self.ttl_samples = data
+
+
     def load_bin_data(self, start_sample=0, end_sample=None, verbose=False):
         """
         Load raw .bin data into a NumPy array.
