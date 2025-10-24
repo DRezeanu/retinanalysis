@@ -9,7 +9,7 @@ conda create --name retinanalysis python=3.11)
 
 2. Activate conda environment, cd to the package directory, and use pip and conda to install all required dependencies:
 ```
-conda activate retinanalysis)
+conda activate retinanalysis
 cd repositories_dir/retinanalysis
 pip install -e . 
 conda install pytorch::pytorch torchvision torchaudio -c pytorch
