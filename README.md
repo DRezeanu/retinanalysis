@@ -21,8 +21,6 @@ conda install -c conda-forge xarray dask netCDF4 bottleneck
 ```
 cd repositories_dir/artificial-retina-software-pipeline/utilities/ (external requirement from Chichilnisky lab)
 pip install .
-cd repositories_dir/MEA/src/analysis (external requirement from Manookin lab)
-pip install .
 ```
 
 4. Create a config.ini file using the sample version below as a guide and put this config file in
