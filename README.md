@@ -17,7 +17,7 @@ conda install conda-forge::ipykernel
 conda install -c conda-forge xarray dask netCDF4 bottleneck
 ```
 
-3. Install additional requirements from Chichilnisky and Manooking repositories:
+3. Install additional requirements from Chichilnisky Vision repository:
 ```
 cd repositories_dir/artificial-retina-software-pipeline/utilities/ (external requirement from Chichilnisky lab)
 pip install .
@@ -72,3 +72,23 @@ user = vyomr
 ...
 ```
 Note: The `query` dir is used by `datajoint_utils.plot_mosaics_for_all_datasets` and it's useful to have it set to the NAS analysis dir even when all other paths are SSD. This allows loading and plotting mosaics and cell typing from all the data on the NAS instead of just the data on your SSD's `analysis` dir.
+
+## Docker Installation
+Retinanalysis uses a custom datajoint mysql database to store all experiment metadata. This uses the datajoine/mysql docker image found at <a href='https://hub.docker.com/r/datajoint/mysql'>https://hub.docker.com/r/datajoint/mysql</a>.
+We've included a docker-compose.yaml file for easy installation using the steps below:
+
+1. Install docker desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>
+
+2. Copy the docker-compose.yaml file from the repository's root into an empty directory where you
+will store your database. You can create this folder in the repository root if you'd like,
+but you must add it to your .gitignore if you do this.
+
+7. cd into the new directory and run:
+```
+docker compose up -d
+```
+
+NOTE: Before importing retinanalysis, you will need to make sure this container is running in Docker 
+Desktop (or throught the terminal if you're comfortable with the Docker CLI) by clicking the play button.
+
+<img width="1382" height="832" alt="Screenshot 2025-10-24 at 3 00 20 PM" src="https://github.com/user-attachments/assets/45ee0d03-6dd7-48c4-ad38-c75e558259ed" />
