@@ -559,6 +559,9 @@ def ei_corr(ref_object: Union[AnalysisChunk, MEAResponseBlock], target_object: U
 
         # Pull test eis
         test_ids = target_object.cell_ids
+
+        # test_ids = [cell for cell in test_ids if cell != 159 and cell != 210]
+
         test_eis = [target_object.vcd.get_ei_for_cell(cell).ei for cell in test_ids]
 
         if n_removed_channels > 0:

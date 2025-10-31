@@ -651,6 +651,38 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: str=None):
 
     return frame_data, sample_rate
 
+
+def get_epochblock_projector_data(exp_name: str, block_id: int, str_h5: str=None):
+    if str_h5 is None:
+        str_h5 = get_h5_file(exp_name)
+    print(f'Loading projector data from {str_h5} ...')
+    r_q = get_epochblock_response_query(exp_name, block_id)
+    df = r_q.fetch(format='frame').reset_index()
+
+    print(df['device_name'].unique())
+    
+    df_pg = df[df['device_name']=='Red Sync']
+    df_pg = df_pg.reset_index(drop=True)
+
+    pg_h5paths = df_pg['h5path'].values
+
+    # Collect data
+    pg_data = []
+    with h5py.File(str_h5, 'r') as f:
+        for h5path in pg_h5paths:
+            trace = f[h5path]['data']['quantity']
+            pg_data.append(trace)
+    
+    pg_data = np.array(pg_data)
+    print(f'Loaded {pg_data.shape} pg_data.\n')
+
+    sample_rates = df_pg['sample_rate'].unique().astype(float)
+    if len(sample_rates) != 1:
+        raise ValueError(f'Expected single sample rate for Amp1 data, but found {len(sample_rate)}: {sample_rate}')
+    sample_rate = sample_rates[0]
+
+    return pg_data, sample_rate
+
 def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: str=None):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)

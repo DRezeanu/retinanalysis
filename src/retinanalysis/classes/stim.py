@@ -15,7 +15,9 @@ D_REGEN_FXNS = {
     'manookinlab.protocols.PresentImages': regen.load_all_present_images,
     'edu.washington.riekelab.rachel.protocols.DovesPerturbationAlpha': regen.make_doves_perturbation_alpha,
     'edu.washington.riekelab.turner.protocols.ExpandingSpots': regen.make_expanding_spots,
-    'edu.washington.riekelab.rachel.protocols.CheckerboardNoiseProjectRachel': regen.make_checkerboard_noise_project
+    'edu.washington.riekelab.rachel.protocols.CheckerboardNoiseProjectRachel': regen.make_checkerboard_noise_project,
+    'edu.washington.riekelab.rachel.protocols.VariableMeanBars': regen.make_variable_mean_bars,
+    'edu.washington.riekelab.rachel.protocols.BarsAndGain': regen.make_variable_mean_bars
     # 'manookinlab.protocols.DovesMovie'
 }
 

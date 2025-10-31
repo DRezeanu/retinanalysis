@@ -87,6 +87,7 @@ class AnalysisChunk:
         self.numXChecks = [epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs]
         self.numYChecks = [epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs]
 
+        #commenting out to see what error is
         assert all(element == self.numXChecks[0] for element in self.numXChecks), "Not all epoch blocks used same number of X checks"
         assert all(element == self.numYChecks[0] for element in self.numYChecks), "Not all epoch blocks used same number of Y checks"
 
