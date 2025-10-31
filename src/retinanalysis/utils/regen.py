@@ -4,12 +4,14 @@ import tqdm
 import pandas as pd
 import os
 import cv2
+from typing import Optional
 
 def get_df_dict_vals(df, key, col_name='epoch_parameters'):
     vals = np.array([d[key] for d in df[col_name].values])
     return vals
 
-def make_spatial_noise(df_epochs: pd.DataFrame, center_row: int=None, center_col: int=None, n_pad: int=None):
+def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
+                       center_col: Optional[int]=None, n_pad: Optional[int]=None):
     # Create noise movies by epochs
     ls_frames = []
     for e_idx in tqdm.tqdm(df_epochs.index):
@@ -40,7 +42,9 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: int=None, center_col
         
         ls_frames.append(frames)
     frames = np.array(ls_frames)
-    if center_row is not None:
+
+    # Checking all optional variables for more accurate static type checking
+    if center_row is not None and center_col is not None and n_pad is not None:
         # Crop frames around the cell center
         frames = frames[:, :, center_row-n_pad:center_row+n_pad+1, center_col-n_pad:center_col+n_pad+1, :]
     return frames

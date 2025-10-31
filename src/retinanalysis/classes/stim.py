@@ -8,6 +8,7 @@ from typing import List
 import retinanalysis.utils.regen as regen
 import pickle
 from retinanalysis.classes.analysis_chunk import get_noise_name_by_exp
+from typing import Optional
 
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
@@ -25,14 +26,18 @@ class StimBlock:
     """
     Generic class for single cell or MEA stimulus blocks. 
     """
-    def __init__(self, exp_name: str=None, block_id: int=None, ls_params: list=None, pkl_file: str=None):
+
+    def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
+                 ls_params: Optional[list]=None, verbose: bool = True, pkl_file: Optional[str]=None):
         
         if pkl_file is None:
-            print(f"Initializing StimBlock for {exp_name} block {block_id}")
+            if verbose:
+                print(f"Initializing StimBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
-            print(f"Initializing StimBlock for {exp_name} block {block_id} from pickle file")
+            if verbose:
+                print(f"Initializing StimBlock for {exp_name} block {block_id} from pickle file")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
                 with open(pkl_file, 'rb') as f:
@@ -41,9 +46,10 @@ class StimBlock:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            print(f"StimBlock loaded from {pkl_file}")
+            if verbose:
+                print(f"StimBlock loaded from {pkl_file}")
             return
-        
+
         self.exp_name = exp_name
         self.block_id = block_id
 
@@ -59,13 +65,17 @@ class StimBlock:
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
-    def regenerate_stimulus(self, ls_epochs: list=None, **kwargs):
+    def regenerate_stimulus(self, ls_epochs: Optional[list]=None, **kwargs):
         """
         Regenerate the stimulus for the block based on the epochs provided.
         If no epochs are provided, it regenerates for all epochs in the block.
         """
         if ls_epochs is None:
             ls_epochs = self.df_epochs.index.tolist()
+        
+        # Convert single values into a list since the function doesn't know what to do with an int
+        if isinstance(ls_epochs, int):
+            ls_epochs = list(ls_epochs)
         
         if self.protocol_name in D_REGEN_FXNS.keys():
             print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.block_id}")
@@ -108,8 +118,11 @@ class MEAStimBlock(StimBlock):
     """
     MEA stimulus block class that gets associated noise protocol and nearest noise chunk.
     """
-    def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
+
+    def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
+                 ls_params: Optional[list]=None, verbose: bool = True, pkl_file: Optional[str]=None):
         # If pkl_file is provided, block_id can be None.
+        self.verbose = verbose
         block_id = None
         if pkl_file is None:
             # Either pkl_file or exp_name and datafile_name must be provided
@@ -119,7 +132,7 @@ class MEAStimBlock(StimBlock):
                 # If exp_name and datafile_name are provided, get block_id from datafile_name
                 block_id = get_block_id_from_datafile(exp_name, datafile_name)
         
-        super().__init__(exp_name=exp_name, block_id=block_id, ls_params=ls_params, pkl_file=pkl_file)
+        super().__init__(exp_name=exp_name, block_id=block_id, ls_params=ls_params, verbose = self.verbose, pkl_file=pkl_file)
         
         # If pkl_file, everything is already loaded in parent init.
         if pkl_file is not None:
@@ -138,6 +151,7 @@ class MEAStimBlock(StimBlock):
 
         # pull relevant information from datajoint
         experiment_summary = get_exp_summary(self.exp_name)
+        
         # Keep only rows with same prep_label
         experiment_summary = experiment_summary.query('prep_label == @self.prep_label')
         
@@ -164,8 +178,12 @@ class MEAStimBlock(StimBlock):
         # Find the minimum distance between target protocol and each chunk
         minimum_distance = np.minimum(protocolstart_to_noisestop, protocolstop_to_noisestart)
         
+        # Instantiate nearest_noise_chunk so that if minimum_distance is None, we still have a
+        # variable to return
+        nearest_noise_chunk = None
+
         # Iterate through minimum distances until we find the nearest chunk with a sorting file
-        for distance in minimum_distance:
+        for _ in minimum_distance:
 
             # Use min val to pull the nearest noise chunk
             min_val = min(minimum_distance)
@@ -191,9 +209,11 @@ class MEAStimBlock(StimBlock):
         
         # Check if we looped through all the values. If so, no sorting files found
         if minimum_distance.size == 0:
-            print("Warning, none of the noise chunks in this experiment have typing files\n")
+            print(f"Warning, none of the noise chunks in this experiment have typing files, {nearest_noise_chunk} is None\n")
         else:
-            print(f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n")
+            if self.verbose:
+                print(f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n")
+
         return nearest_noise_chunk
         
     def __repr__(self):
