@@ -177,8 +177,8 @@ class MEAPipeline:
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  stim_block and response_block from: {os.path.splitext(self.stim_block.protocol_name)[1][1:]}\n"
         str_self += f"  analysis_chunk: {self.analysis_chunk.chunk_name}\n"
-        str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.stim_block.protocol_name)[1][1:]}_id"
-        str_self += f"  corr_dict: with {self.analysis_chunk.chunk_name}_id : calculated ei correlations"
+        str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.stim_block.protocol_name)[1][1:]}_id\n"
+        str_self += f"  corr_dict: with {self.analysis_chunk.chunk_name}_id : calculated ei correlations\n"
         return str_self
 
     def export_to_pkl(self, file_path: str):
