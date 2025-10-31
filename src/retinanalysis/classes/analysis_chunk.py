@@ -116,8 +116,13 @@ class AnalysisChunk:
         noise_data_dirs = epoch_blocks.fetch('data_dir')
         self.data_files = [os.path.basename(path) for path in noise_data_dirs]
 
-        typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id, 'algorithm': self.ss_version}
-        self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
+        # Pull typing files directly from available Analysis Directory... avoids issues with datajoint
+        # not updating typing files on existing experiments
+        typing_file_dir = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version)
+        self.typing_files = [file for file in os.listdir(typing_file_dir) if 'txt' in os.path.splitext(file)[1]]
+
+        # typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id, 'algorithm': self.ss_version}
+        # self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
 
         self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
         self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
@@ -308,12 +313,17 @@ class AnalysisChunk:
             noise_ids = [int(noise_ids)]
 
         if typing_file is None:
-            typing_file = self.typing_files[0]
-        
-        typing_file_idx = self.typing_files.index(typing_file)
+            try:
+                typing_file = self.typing_files[0]
+            except:
+                print(f'No typing files for {self.exp_name} {self.chunk_name}')
+                return
 
         if typing_file not in self.typing_files:
-            raise FileNotFoundError("Given Typing File Doesn't Exist in Analysis Chunk")
+            print(f"{typing_file} Doesn't Exist in {self.exp_name} {self.chunk_name}")
+            return
+
+        typing_file_idx = self.typing_files.index(typing_file)
         
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
