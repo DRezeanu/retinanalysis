@@ -12,6 +12,51 @@ import h5py
 from typing import (List,
                     Optional)
 
+def plot_mosaics_for_datasets(df_exp_search: pd.DataFrame, cell_types: List[int] = ['OnP', 'OffP', 'OnM', 'OffM'],
+                              preferred_typing_file: Optional[str] = None, **kwargs):
+    exp_names = df_exp_search['exp_name'].values
+    datafile_names = df_exp_search['datafile_name'].values
+
+    from retinanalysis.classes.analysis_chunk import AnalysisChunk
+
+    ls_rf_axes = []
+    for e_idx, exp in enumerate(exp_names): 
+        exp_summary = get_exp_summary(exp)
+        sorted_chunks, _ = get_noise_chunks_sorted_by_distance(exp_summary, datafile_names[e_idx])
+        # nearest_chunk = sorted_chunks[0] 
+
+        for nearest_chunk in sorted_chunks:
+            try:
+                analysis_chunk = AnalysisChunk(exp, nearest_chunk, b_load_spatial_maps=False,
+                                        include_ei=False, include_neurons=False, verbose=False)
+                break
+            except:
+                print(f'Could not use chunk {nearest_chunk}, trying next nearest.')
+        
+        if analysis_chunk is None:
+            print(f'Could not load any noise chunk for {exp}')
+            return
+
+        if preferred_typing_file is None:
+            rf_axes = analysis_chunk.plot_rfs(cell_types = cell_types, **kwargs)
+        else:
+            try:
+                rf_axes = analysis_chunk.plot_rfs(cell_types = cell_types, typing_file = preferred_typing_file, **kwargs)
+            except:
+                print(f'{preferred_typing_file} does not exist for {exp} {nearest_chunk}, using {stim.typing_files[0]}')
+                rf_axes = analysis_chunk.plot_rfs(cell_types = cell_types, **kwargs)
+        
+        try:
+            fig = rf_axes[0].get_figure()
+            fig.suptitle(f'{exp} {nearest_chunk}')
+            ls_rf_axes.append(rf_axes)
+        except:
+            print(f'\nNo RFs for {exp} {nearest_chunk}')
+    
+    return ls_rf_axes
+
+
+
 def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
     """
     Connect to local datajoint database container active inside docker.
@@ -212,7 +257,7 @@ def get_datasets_from_protocol_names(ls_protocol_names: List[str], b_exact_match
     return df
 
 
-def get_noise_chunks_sorted_by_distance(df_exp, datafile_name: str, noise_protocol_name: str, verbose=False):
+def get_noise_chunks_sorted_by_distance(df_exp, datafile_name: str, noise_protocol_name: str = 'manookinlab.protocols.SpatialNoise', verbose=False):
     prot_row = df_exp[df_exp['datafile_name']==datafile_name]
     prot_start_time = prot_row['start_time'].values[0]
     prot_end_time = prot_row['end_time'].values[0]
