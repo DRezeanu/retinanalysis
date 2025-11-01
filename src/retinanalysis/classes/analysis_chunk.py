@@ -461,21 +461,21 @@ class AnalysisChunk:
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
             noise_ids = list(filtered_df['cell_id'].values)
-            cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif noise_ids is None:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
             noise_ids = list(filtered_df['cell_id'].values)
-            cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif cell_types is None:
             filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids')
-            cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
-            cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = roi_units)
             filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
-            cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
 
         # Check that we actually have cells to plot
         if len(filtered_df) == 0:
