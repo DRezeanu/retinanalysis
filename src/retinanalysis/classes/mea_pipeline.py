@@ -113,9 +113,8 @@ class MEAPipeline:
         
         return arr_ids
 
-    # TODO: Implement Minimum_N inpyut param for plot_timecourses to match plot_rfs
     def plot_timecourses(self, protocol_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None, 
-                        **kwargs) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
+                         minimum_n: int = 1, **kwargs) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         
         if isinstance(cell_types, str):
             cell_types = [cell_types]
@@ -129,10 +128,11 @@ class MEAPipeline:
         # was initialized. This can still be None, in which case typing_file_0 will be used.
         if 'typing_file' in kwargs:
             ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
-                                                 **kwargs)
+                                                 minimum_n = minimum_n, **kwargs)
         else:
             ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
-                                                 typing_file = self.typing_file, **kwargs)
+                                                 minimum_n = minimum_n, typing_file = self.typing_file,
+                                                      **kwargs)
             
         
         return ax

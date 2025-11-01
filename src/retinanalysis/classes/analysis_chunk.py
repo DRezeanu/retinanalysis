@@ -345,6 +345,7 @@ class AnalysisChunk:
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
             filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
 
         if len(filtered_df) == 0:
             print("No data found for the given noise_ids and cell_types.")
@@ -411,7 +412,7 @@ class AnalysisChunk:
         return axs
         
     def plot_timecourses(self, noise_ids: Optional[List[int]]=None, cell_types: Optional[List[str]]=None,
-                         typing_file: Optional[str] = None, units: str = 'ms', std_scaling: float = 2,
+                         typing_file: Optional[str] = None, units: str = 'ms', std_scaling: float = 2, minimum_n: int = 1,
                          roi: Optional[Dict[str, float]] = None, roi_units: str = 'pixels') -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         """
         Method for plotting the timecourses for a given list of cell ids, cell types, 
@@ -464,18 +465,29 @@ class AnalysisChunk:
         elif noise_ids is None:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
             noise_ids = list(filtered_df['cell_id'].values)
+            cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif cell_types is None:
             filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids')
             cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
-        
+            cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = roi_units)
             filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
+            cell_types = list(filtered_df[f'typing_file_{typing_file_idx}'].unique())
 
-        # Enusre we now have values inside the cell types list
-        assert cell_types is not None, "Selected cell ids do not match any known cell type"
+        # Check that we actually have cells to plot
+        if len(filtered_df) == 0:
+            print("No data found for the given noise_ids and cell_types.")
+            return
+
+        # Remove cells velow minimum threshold
+        too_few_cells = [ct for ct in cell_types if len(filtered_df.query(f"typing_file_{typing_file_idx} == @ct")['cell_id'].values) < minimum_n]
+        
+        for ct in too_few_cells:
+            cell_types.remove(ct) 
+
 
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
         d_timecourses_by_type = get_timecourses(self, d_noise_ids_by_type)
@@ -574,6 +586,7 @@ class AnalysisChunk:
                 if not self.typing_files:
                     print('Warning, no typing files exist for this chunk, will not organize cells by type')
                     cell_ids = self.df_cell_params['cell_id'].to_numpy()
+                    available_types = None
                 else:
                     print('WARNING: Loading all STAs... this will take up a huge amount of memory')
                     if typing_file is None:
@@ -598,6 +611,7 @@ class AnalysisChunk:
                 if not self.typing_files:
                     print('Warning, no typing files exist for this chunk, will not organize cells by type')
                     cell_ids = self.df_cell_params.query('cell_id in @noise_ids')['cell_id'].to_numpy()
+                    available_types = None
                 else:
                     if typing_file is None:
                         typing_file = self.typing_files[0]
@@ -629,6 +643,7 @@ class AnalysisChunk:
         else:
             for ct_idx, ct in enumerate(available_types):
                 pass
+        
 
     def export_to_pkl(self, file_path: str):
         d_out = self.__dict__.copy()

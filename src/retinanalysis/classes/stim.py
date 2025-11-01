@@ -63,7 +63,7 @@ class StimBlock:
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
-    def regenerate_stimulus(self, ls_epochs: Optional[list]=None, **kwargs):
+    def regenerate_stimulus(self, ls_epochs: Optional[int | list]=None, **kwargs):
         """
         Regenerate the stimulus for the block based on the epochs provided.
         If no epochs are provided, it regenerates for all epochs in the block.
@@ -73,7 +73,7 @@ class StimBlock:
         
         # Convert single values into a list since the function doesn't know what to do with an int
         if isinstance(ls_epochs, int):
-            ls_epochs = list(ls_epochs)
+            ls_epochs = [ls_epochs]
         
         if self.protocol_name in D_REGEN_FXNS.keys():
             print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.block_id}")
@@ -269,7 +269,7 @@ class MEAStimGroup:
             pickle.dump(self, f)
         print(f"StimGroup exported to {file_path}")
 
-def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: list=None):
+def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None):
     ls_blocks = []
     for datafile_name in ls_datafile_names:
         block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params)
