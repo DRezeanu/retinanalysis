@@ -18,6 +18,8 @@ from typing import (cast,
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+import visionloader as vl
+import xarray as xr
 
 try:
     import importlib.resources as ir
@@ -546,6 +548,87 @@ class AnalysisChunk:
         else:
             str_self += "  d_spatial_maps not loaded\n"
         return str_self
+    
+    # TODO INCOMPLETE FUNCTION, STILL WORKING ON THIS
+    def load_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
+                  typing_file: Optional[str] = None) -> xr.DataArray:
+        """
+        Function for loading the STAs of a given list of cell types and/or noise ids. If both are given, will only
+        pull the union of the two.
+        
+        Parameters:
+        noise_ids (int or List[int]): list of cell ids, optional, default is None
+
+        cell_types (str or List[str]): list of cell types, optional, default is None
+        
+        typing_file (str): name of a typing file to use for cell type classification
+        
+        Returns:
+        all_stas (xarray DataArray): numpy array that contains all STAs. If a typing file is given and/or 
+        cell type info is available, the output will have cell type information. Otherwise it 
+        will not. 
+        """
+        
+        if noise_ids is None:
+            if cell_types is None:
+                if not self.typing_files:
+                    print('Warning, no typing files exist for this chunk, will not organize cells by type')
+                    cell_ids = self.df_cell_params['cell_id'].to_numpy()
+                else:
+                    print('WARNING: Loading all STAs... this will take up a huge amount of memory')
+                    if typing_file is None:
+                        typing_file = self.typing_files[0]
+
+                    typing_file_idx = self.typing_files.index(typing_file)
+                    cell_ids = self.df_cell_params['cell_id'].to_numpy()
+                    available_types = sorted(self.df_cell_params[f'typing_file_{typing_file_idx}'].unique())
+            else:
+                if not self.typing_files:
+                    raise ValueError('No typing files exist for this chunk, try again without cell type argument')
+                else:
+                    if typing_file is None:
+                        typing_file = self.typing_files[0]
+                    
+                    typing_file_idx = self.typing_files.index(typing_file)
+                    cell_ids = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')['cell_id'].to_numpy()
+                    available_types = sorted(self.df_cell_params.query(f'cell_id in @cell_ids')[f'typing_file_{typing_file_idx}'].unique())
+        
+        else:
+            if cell_types is None:
+                if not self.typing_files:
+                    print('Warning, no typing files exist for this chunk, will not organize cells by type')
+                    cell_ids = self.df_cell_params.query('cell_id in @noise_ids')['cell_id'].to_numpy()
+                else:
+                    if typing_file is None:
+                        typing_file = self.typing_files[0]
+
+                    typing_file_idx = self.typing_files.index(typing_file)
+                    cell_ids = self.df_cell_params.query('cell_id in @noise_ids')['cell_id'].to_numpy()
+                    available_types = sorted(self.df_cell_params.query('cell_id in @cell_ids')[f'typing_file_{typing_file_idx}'].unique())
+            else:
+                if not self.typing_files:
+                    raise ValueError('No typing files exist for this chunk, try again without the cell type')
+                else:
+                    if typing_file is None:
+                        typing_file = self.typing_files[0]
+                    
+                    typing_file_idx = self.typing_files.index(typing_file)
+                    cell_ids = self.df_cell_params.query(f'typing_file_{typing_file_idx} in cell_types')['cell_id'].to_numpy()
+                    available_types = sorted(self.df_cell_params.query(f'cell_id in @cell_ids')[f'typing_file_{typing_file_idx}'].unique()) 
+
+        
+        sta_reader = vl.STAReader(os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version), self.ss_version)
+        if available_types is None:
+            ls_stas = []
+            for cell_idx, cell_id in enumerate(cell_ids):
+                # Pull Raw STA
+                id = sta_reader.get_sta_for_cell_id(cell_id)
+                sta = np.stack([id.red, id.green, id.blue])
+                sta = np.transpose(sta, (3,1,2,0))
+                ls_stas.append(sta)
+        else:
+            for ct_idx, ct in enumerate(available_types):
+                pass
 
     def export_to_pkl(self, file_path: str):
         d_out = self.__dict__.copy()
