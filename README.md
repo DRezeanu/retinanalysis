@@ -4,7 +4,7 @@ MEA and Single Cell Ephys Analysis Package
 ## Installation
 1. Create a conda environment using python 3.11:
 ```
-conda create --name retinanalysis python=3.11)
+conda create --name retinanalysis python=3.11.13)
 ```
 
 2. Activate conda environment, cd to the package directory, and use pip and conda to install all required dependencies:
@@ -12,9 +12,6 @@ conda create --name retinanalysis python=3.11)
 conda activate retinanalysis
 cd repositories_dir/retinanalysis
 pip install -e . 
-conda install pytorch::pytorch torchvision torchaudio -c pytorch
-conda install conda-forge::ipykernel 
-conda install -c conda-forge xarray dask netCDF4 bottleneck
 ```
 
 3. Install additional requirements from Chichilnisky Vision repository:
