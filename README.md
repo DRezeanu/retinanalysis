@@ -86,6 +86,15 @@ docker compose up -d
 ```
 
 NOTE: Before importing retinanalysis, you will need to make sure this container is running in Docker 
-Desktop (or throught the terminal if you're comfortable with the Docker CLI) by clicking the play button.
+Desktop (or throught the terminal if you're comfortable with the Docker CLI). If it is running, you will
+see a stop icon, otherwise, click the play button.
 
 <img width="1382" height="832" alt="Screenshot 2025-10-24 at 3 00 20 PM" src="https://github.com/user-attachments/assets/45ee0d03-6dd7-48c4-ad38-c75e558259ed" />
+
+8. Populate database. Before you can look up anything in the database you need to fill its entries. This can take a very long time for big databases, and even longer if connecting remotely over a VPN. To populate the database the first time you import retinanalysis, run:
+```
+import retinanalysis as ra
+ra.populate_database()
+```
+If you have properly set up your config.ini file, there should be no need to give this function any input arguments.
+
