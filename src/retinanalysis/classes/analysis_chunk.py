@@ -561,7 +561,7 @@ class AnalysisChunk:
             str_self += "  d_spatial_maps not loaded\n"
         return str_self
     
-    def load_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
+    def get_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
                   typing_file: Optional[str] = None, padded: bool = True, units: str = 'stixels') -> dict:
         """
         Function for loading the STAs of a given list of cell types and/or noise ids. If both are given, will only
@@ -745,7 +745,7 @@ class AnalysisChunk:
         plt.show() on the figure.
         """
 
-        d_stas = self.load_stas(noise_ids = noise_ids, cell_types = cell_types,
+        d_stas = self.get_stas(noise_ids = noise_ids, cell_types = cell_types,
                                 typing_file = typing_file, padded = padded, units = units)
 
         all_axes = []
