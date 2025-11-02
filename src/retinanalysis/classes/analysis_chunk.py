@@ -19,7 +19,7 @@ from typing import (cast,
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 import visionloader as vl
-import xarray as xr
+from scipy.ndimage import zoom
 
 try:
     import importlib.resources as ir
@@ -561,9 +561,8 @@ class AnalysisChunk:
             str_self += "  d_spatial_maps not loaded\n"
         return str_self
     
-    # TODO INCOMPLETE FUNCTION, STILL WORKING ON THIS
-    def load_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
-                  typing_file: Optional[str] = None) -> xr.DataArray:
+    def get_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
+                  typing_file: Optional[str] = None, padded: bool = True, units: str = 'stixels') -> dict:
         """
         Function for loading the STAs of a given list of cell types and/or noise ids. If both are given, will only
         pull the union of the two.
@@ -574,27 +573,54 @@ class AnalysisChunk:
         cell_types (str or List[str]): list of cell types, optional, default is None
         
         typing_file (str): name of a typing file to use for cell type classification
+
+        padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
+        noise frame. Most STAs are cropped for the sake of memory, but it makes them inaccurate relative to the
+        stimulus. Default is True.
+
+        units (str): Either 'stixels', 'pixels', or 'microns'. This will scale the STAs to the appropriate units
+        using nearest neighbor scaling.
         
         Returns:
-        all_stas (xarray DataArray): numpy array that contains all STAs. If a typing file is given and/or 
+        all_stas (numpy array or dict of numpy arrays): numpy array that contains all STAs. If a typing file is given and/or 
         cell type info is available, the output will have cell type information. Otherwise it 
         will not. 
         """
+
+        if isinstance(noise_ids, int):
+            noise_ids = [noise_ids]
+
+        if isinstance(cell_types, str):
+            cell_types = [cell_types]
+
+        if 'pixels' in units.lower():
+            unit_scaling = self.pixels_per_stixel
+        elif 'microns' in units.lower():
+            unit_scaling = self.microns_per_stixel
+        elif 'stixels' in units.lower():
+            unit_scaling = 1
+        else:
+            raise Exception("Units must be 'pixels', 'microns' or 'stixels'")
+
         
         if noise_ids is None:
             if cell_types is None:
                 if not self.typing_files:
                     print('Warning, no typing files exist for this chunk, will not organize cells by type')
-                    cell_ids = self.df_cell_params['cell_id'].to_numpy()
+                    filtered_df = self.df_cell_params
+                    cell_ids = filtered_df['cell_id'].to_numpy()
                     available_types = None
+                    typing_file_idx = None
                 else:
                     print('WARNING: Loading all STAs... this will take up a huge amount of memory')
                     if typing_file is None:
                         typing_file = self.typing_files[0]
 
                     typing_file_idx = self.typing_files.index(typing_file)
-                    cell_ids = self.df_cell_params['cell_id'].to_numpy()
-                    available_types = sorted(self.df_cell_params[f'typing_file_{typing_file_idx}'].unique())
+
+                    filtered_df = self.df_cell_params
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
             else:
                 if not self.typing_files:
                     raise ValueError('No typing files exist for this chunk, try again without cell type argument')
@@ -603,22 +629,29 @@ class AnalysisChunk:
                         typing_file = self.typing_files[0]
                     
                     typing_file_idx = self.typing_files.index(typing_file)
-                    cell_ids = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')['cell_id'].to_numpy()
-                    available_types = sorted(self.df_cell_params.query(f'cell_id in @cell_ids')[f'typing_file_{typing_file_idx}'].unique())
+
+                    filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         
         else:
             if cell_types is None:
                 if not self.typing_files:
                     print('Warning, no typing files exist for this chunk, will not organize cells by type')
-                    cell_ids = self.df_cell_params.query('cell_id in @noise_ids')['cell_id'].to_numpy()
+
+                    filtered_df = self.df_cell_params.query('cell_id in @noise_ids')
+                    cell_ids = filtered_df['cell_id'].to_numpy()
                     available_types = None
+                    typing_file_idx = None
                 else:
                     if typing_file is None:
                         typing_file = self.typing_files[0]
 
                     typing_file_idx = self.typing_files.index(typing_file)
-                    cell_ids = self.df_cell_params.query('cell_id in @noise_ids')['cell_id'].to_numpy()
-                    available_types = sorted(self.df_cell_params.query('cell_id in @cell_ids')[f'typing_file_{typing_file_idx}'].unique())
+
+                    filtered_df = self.df_cell_params.query('cell_id in @noise_ids')
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
             else:
                 if not self.typing_files:
                     raise ValueError('No typing files exist for this chunk, try again without the cell type')
@@ -627,23 +660,191 @@ class AnalysisChunk:
                         typing_file = self.typing_files[0]
                     
                     typing_file_idx = self.typing_files.index(typing_file)
-                    cell_ids = self.df_cell_params.query(f'typing_file_{typing_file_idx} in cell_types')['cell_id'].to_numpy()
-                    available_types = sorted(self.df_cell_params.query(f'cell_id in @cell_ids')[f'typing_file_{typing_file_idx}'].unique()) 
 
-        
+                    filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids and typing_file_{typing_file_idx} in @cell_types')
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique()) 
+
+        # Pull STAs and organize by cell id alone, or nested inside a dictionary organized by cell id
         sta_reader = vl.STAReader(os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version), self.ss_version)
+
         if available_types is None:
-            ls_stas = []
-            for cell_idx, cell_id in enumerate(cell_ids):
+            id_dict = dict()
+            for cell_id in cell_ids:
                 # Pull Raw STA
-                id = sta_reader.get_sta_for_cell_id(cell_id)
-                sta = np.stack([id.red, id.green, id.blue])
+                data = sta_reader.get_sta_for_cell_id(cell_id)
+                sta = np.stack([data.red, data.green, data.blue])
                 sta = np.transpose(sta, (3,1,2,0))
-                ls_stas.append(sta)
+                if unit_scaling > 1:
+                    sta = zoom(sta, zoom = [1.0, unit_scaling, unit_scaling, 1.0], order = 0)
+                id_dict[cell_id] = sta
+
+            d_stas = id_dict
         else:
+            ct_dict = dict()
+            for ct in available_types:
+                ct_ids = filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].to_numpy()
+                id_dict = dict()
+                for cell_id in ct_ids:
+                    data = sta_reader.get_sta_for_cell_id(cell_id)
+                    sta = np.stack([data.red, data.green, data.blue])
+                    sta = np.transpose(sta, (3,1,2,0))
+
+                    if padded:
+                        left_pad = int(self.deltaXChecks)
+                        right_pad = int(self.numXChecks - self.staXChecks - self.deltaXChecks)
+                        top_pad = int(self.deltaYChecks)
+                        bottom_pad = int(self.numYChecks - self.staYChecks - self.deltaYChecks)
+
+                        pad_width_config = [(0, 0), (bottom_pad, top_pad), (left_pad, right_pad), (0, 0)]
+                        sta = np.pad(sta, pad_width_config, mode = 'constant', constant_values = 0)
+
+                    if unit_scaling > 1:
+                        sta = zoom(sta, zoom = [1.0, unit_scaling, unit_scaling, 1.0], order = 0)
+                    id_dict[cell_id] = sta
+
+                ct_dict[ct] = id_dict
+
+            d_stas = ct_dict
+                    
+
+        return d_stas
+
+    def plot_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
+                  typing_file: Optional[str] = None, cols: int = 4, padded: bool = False,
+                  units: str = 'stixels') -> List[np.ndarray] | List[Axes]:
+        """
+        Method for plotting STAs for a list of cell ids, a list of cell types, or the union of the two. The
+        user also has the option of providing a typing file to use. If there exists a typing file or one
+        is provided, the function will plot STAs in separate figures organized by cell type. One figure per
+        cell type, one STA per axis, number of axes = number of cells of that cell type.
+
+        Parameters:
+        noise_ids (int or List[int]) a single cell id or list of cell ids to be plotted. Optional, default None.
+
+        cell_types (str or List[str]) a single cell type or list of cell types to be plotted. Optional, default None. 
+
+        typing_file (str): The name of a typing file to use for linking cell types to cell ids. If no typing file is given
+        typing file [0] from the analysis chunk is used. If there are no typing files, only one figure is plotted, with no
+        cell type information.
+
+        cols (int): number of columns to use in the resulting figure(s).
+
+        padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
+        noise frame. Most STAs are cropped for the sake of memory, but it makes them inaccurate relative to the
+        stimulus. Default value for plotting purposes is False.
+
+        units (str): units to plot the STAs in. Must be stixels, pixels, or microns. Default is stixels. If other units
+        are used, the STA is scaled using nearest neighbor interpolation. 
+
+        Returns:
+        sta_axes: will return a list of Axes objects (multiple single cells of different types) or a list of numpy arrays
+        of axes (multiple cells of multiple types). 
+
+        The function will also plot the results automatically if you're in a jupyter notebook, but it does not call
+        plt.show() on the figure.
+        """
+
+        d_stas = self.get_stas(noise_ids = noise_ids, cell_types = cell_types,
+                                typing_file = typing_file, padded = padded, units = units)
+
+        all_axes = []
+        if isinstance(list(d_stas.keys())[0], str):
+            # This indicates that the dictionary is organized by cell type
+            available_types: List[str] = sorted(list(d_stas.keys()))
+            
             for ct_idx, ct in enumerate(available_types):
-                pass
-        
+                cell_ids = list(d_stas[ct].keys())
+                
+                rows = np.ceil(len(cell_ids)/cols).astype(int)
+                if len(cell_ids) > 1:
+                    fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = (5*cols, 3.5*rows),
+                                           layout = 'constrained')
+                    ax = ax.flatten()
+                else:
+                    fig, ax = plt.subplots(figsize = (5, 3.5), layout = 'constrained')
+                    ax = [ax]
+
+                for c_idx, cell_id in enumerate(cell_ids):
+                    sta = d_stas[ct][cell_id]
+                    min_index = np.unravel_index(np.argmin(sta), sta.shape) 
+                    max_index = np.unravel_index(np.argmax(sta), sta.shape) 
+
+                    if np.abs(np.min(sta)) > np.abs(np.max(sta)):
+                        timebin_to_plot = min_index[0]
+                    else:
+                        timebin_to_plot = max_index[0]
+
+                    sta_img = (sta[timebin_to_plot, :, :, :]+1)/2
+                    ax[c_idx].imshow(sta_img)
+                    ax[c_idx].set_title(f'Cell ID #{cell_id}')
+                    ax[c_idx].set_xlabel(f'{units}')
+                    ax[c_idx].set_ylabel(f'{units}')
+
+
+                if self.deltaXChecks > 0 and not padded:
+                    fig.suptitle(f'Cropped {ct} STAs')
+                else:
+                    fig.suptitle(f'{ct} STAs')
+
+                if len(cell_ids) > 1:
+                    # Delete unused axes
+                    num_axes = rows*cols
+                    empty_axes = num_axes - len(cell_ids)
+
+                    for i in range(empty_axes):
+                        fig.delaxes(ax[num_axes-1-i])
+
+                all_axes.append(ax)
+
+        else:
+            assert (isinstance(list(d_stas.keys())[0], int)),\
+            (f'The keys in the sta dict should either be ints or strs, yours is a {type(list(d_stas.keys())[0])}')
+            # This indicates the sta dictionary is organized by cell id and has no types associated with it.
+            cell_ids = list(d_stas.keys())
+
+            rows = np.ceil(len(cell_ids)/cols).astype(int)
+            fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = (5*cols, 3.5*rows),
+                                   layout = 'constrained')
+            
+            if rows*cols > 1:
+                ax = ax.flatten()
+            else:
+                ax = [ax]
+
+            for c_idx, cell_id in enumerate(cell_ids):
+                sta = d_stas[cell_id]
+                min_index = np.unravel_index(np.argmin(sta), sta.shape) 
+                max_index = np.unravel_index(np.argmax(sta), sta.shape) 
+
+                if np.abs(np.min(sta)) > np.abs(np.max(sta)):
+                    timebin_to_plot = min_index[0]
+                else:
+                    timebin_to_plot = max_index[0]
+
+                sta_img = (sta[timebin_to_plot, :, :, :]+1)/2
+                ax[c_idx].imshow(sta_img)
+                ax[c_idx].set_title(f'Cell ID #{cell_id}')
+                ax[c_idx].set_xlabel('Stixels X')
+                ax[c_idx].set_ylabel('Stixels Y')
+
+
+            if self.deltaXChecks > 0 and not padded:
+                fig.suptitle(f'Cropped STAs by Cell ID')
+            else:
+                fig.suptitle(f'STAs by Cell ID')
+
+            if len(cell_ids)>1:
+                # Delete unused axes
+                num_axes = rows*cols
+                empty_axes = num_axes - len(cell_ids)
+
+                for i in range(empty_axes):
+                    fig.delaxes(ax[num_axes-1-i])
+
+            all_axes.append(ax)
+
+        return all_axes
 
     def export_to_pkl(self, file_path: str):
         d_out = self.__dict__.copy()
