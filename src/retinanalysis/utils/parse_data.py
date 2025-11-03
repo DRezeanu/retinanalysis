@@ -2,7 +2,7 @@ import h5py
 import json
 import numpy as np
 from scipy.signal import butter, filtfilt, bessel
-from typing import Tuple
+from typing import Tuple, Optional
 import bin2py
 import os, argparse
 import re
@@ -1654,6 +1654,13 @@ class Symphony2Reader:
     def __exit__(self, exc_type, exc_value, traceback):
         self.file.close()
 
+def h5_to_datajoint_json(h5_path: Optional[str] = None, output_directory: str = '/Volumes/data-1/datajoint/mea/meta/',
+                         raw_directory: str = '/Volumes/data-1/data/raw/'):
+    basename = os.path.basename(h5_path)
+    exp_name, _ = os.path.splitext(basename)
+    out_path = os.path.join(output_directory, f'{exp_name}.json') 
+    reader = Symphony2Reader(h5_path = h5_path, out_path = out_path, mea_raw_data_path = raw_directory)
+    reader.read_write()
 
 if __name__ == '__main__':
 
