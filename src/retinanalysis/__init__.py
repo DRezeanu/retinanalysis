@@ -38,6 +38,8 @@ from .utils.regen import *
 from .utils import vision_utils
 from .utils.vision_utils import *
 
+from .utils import parse_data
+
 # Import classes last
 from . import classes
 from .classes import analysis_chunk
