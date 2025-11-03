@@ -176,6 +176,7 @@ class MEAResponseBlock(ResponseBlock):
                 self.datafile_name = datafile_name
 
         super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file, b_load_fd=b_load_fd)
+        self.amp_sample_rate = SAMPLE_RATE # MEA DAQ sample rate in Hz, analogous variable in SCResponseBlock
 
         self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei)
 
