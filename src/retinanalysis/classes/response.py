@@ -62,7 +62,7 @@ class ResponseBlock:
     Generic class for single cell or MEA response blocks. 
     """
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 h5_file: Optional[str]=None, pkl_file: Optional[str]=None):
+                 h5_file: Optional[str]=None, pkl_file: Optional[str]=None, b_load_fd: bool=True):
 
         if pkl_file is None:
             print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
