@@ -4,7 +4,7 @@ MEA and Single Cell Ephys Analysis Package
 ## Installation
 1. Create a conda environment using python 3.11:
 ```
-conda create --name retinanalysis python=3.11.13)
+conda create --name retinanalysis python=3.11.13
 ```
 
 2. Activate conda environment, cd to the package directory, and use pip and conda to install all required dependencies:
