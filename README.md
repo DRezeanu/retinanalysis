@@ -82,7 +82,7 @@ but you must add it to your .gitignore if you do this.
 
 7. cd into the new directory and run:
 ```
-docker compose up -d
+docker-compose up -d
 ```
 
 NOTE: Before importing retinanalysis, you will need to make sure this container is running in Docker 
