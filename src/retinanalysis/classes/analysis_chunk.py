@@ -383,6 +383,8 @@ class AnalysisChunk:
         for ct in too_few_cells:
             cell_types.remove(ct) 
 
+        cell_types = sorted(cell_types)
+
                 
         d_noise_ids_by_type = {ct : list(filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values) for ct in cell_types}
         d_ells_by_type, scale_factor = get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)

@@ -13,6 +13,8 @@ from matplotlib.axes import Axes
 import xarray as xr
 import matplotlib.pyplot as plt
 
+SAMPLE_RATE = 20000
+
 
 class MEAPipeline:
     """
@@ -58,9 +60,9 @@ class MEAPipeline:
             with open(pkl_file, 'rb') as f:
                 d_out = pickle.load(f)
             self.__dict__.update(d_out)
-            self.stim_block = MEAStimBlock(pkl_file=self.stim_block)
-            self.response_block = MEAResponseBlock(pkl_file=self.response_block)
-            self.analysis_chunk = AnalysisChunk(pkl_file=self.analysis_chunk)
+            self.stim_block = MEAStimBlock(pkl_file=d_out['stim_block'])
+            self.response_block = MEAResponseBlock(pkl_file=d_out['response_block'])
+            self.analysis_chunk = AnalysisChunk(pkl_file=d_out['analysis_chunk'])
             print(f"MEAPipeline loaded from {pkl_file}")
             return
         
@@ -140,7 +142,7 @@ class MEAPipeline:
         for idx, id in enumerate(self.response_block.df_spike_times['cell_id'].values):
             self.response_block.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
 
-    def plot_rfs(self, protocol_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None,
+    def plot_rfs(self, protocol_ids: Optional[List[int] | int] = None, cell_types: Optional[List[str] | str] = None,
                  minimum_n: int = 1, **kwargs) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         """
         Stub method that mainly calls AnalysisChunk.plot_rfs(). This method allows you to give a list of 
@@ -288,15 +290,45 @@ class MEAPipeline:
                      cell_types: Optional[List[str] | str] = None,
                      typing_file: Optional[str] = None, minimum_n: int = 1,
                      bins: Optional[np.ndarray | list | int] = None) -> xr.DataArray:
+        """
+        Function for creating an array of peri-stimulus time histograms (PSTHs) for a
+        list of protocol_ids, a list of cell_types, or both. As with plot_rfs() and 
+        plot_timecourses(), you can give a minimum_n value so that cell types with less
+        than the minumum number of cells are not included int he final array. 
+
+        Parameters:
+        protocol_ids (List[int] | int): A single integer ID or list of cell IDs to include
+
+        cell_types (List[str] | str): A single cell_type string or list of cell type strings
+        to include
+
+        typing_file (str): Optional. The name of a typing file to use. If none is given, then 
+        the typing file used to intantiate the MEAPipeline object will be used.
+
+        minimum_n (int): Optional, default 1. A minimum number of cells required for a cell type
+        to be included in the output array.
+
+        bins (np.ndarray | list | int): Optional. Frame times used by default. If an integer
+        is given, the spike times will be binned in that many evently spaced bins. If a list
+        is given, the values in the list are used as bin edges.
+
+        Returns:
+        psth_xarr (xr.DaraArray): an xarray DataArray with dimensions (cell_id, epoch, bin)
+        and coordinates (cell_id, epoch, cell_type, bin, bin_edges).
+        """
 
         # Bins are frame times by default
         if bins is None:
             bin_edges = np.array(self.stim_block.df_epochs.loc[0, 'frame_times_ms'])
         else:
             if isinstance(bins, int):
-                frame_times = np.array(self.stim_block.df_epochs.loc[0, 'frame_times_ms'])
-                epoch_start = frame_times[0]
-                epoch_end = frame_times[-1]
+                all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
+                all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
+
+                # epoch starts and ends in milliseconds
+                epoch_start = 0
+                epoch_end = np.mean(all_epoch_ends - all_epoch_starts)/SAMPLE_RATE*1e3
+
                 bin_edges = np.linspace(epoch_start, epoch_end, bins)
             else:
                 bin_edges = bins
@@ -320,7 +352,7 @@ class MEAPipeline:
                                    vectorize = True)
 
         psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
-        psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[:-1])})
+        psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[1:])})
 
         return psth_xarr
 
