@@ -232,8 +232,6 @@ def get_frame_times(frame_monitor, bin_rate: float=1000.0, sample_rate: float=10
     downs = np.delete(downs, short_downs)
     frame_times = ups
     frame_times = np.append(frame_times, downs)
-    # frame_times = np.append(frame_times, find_threshold_cross(frame_monitor,0.5,1))
-    # frame_times = np.append(frame_times, find_threshold_cross(frame_monitor,0.5,-1))
     frame_times = np.sort(frame_times).astype(float)
     frame_times -= np.min(frame_times)
     frame_times = np.ceil(frame_times*bin_rate/sample_rate)
@@ -961,17 +959,20 @@ class Symphony2Reader:
         except:
             self.experiment_name = None
 
-    def read_write(self):
+    def read_write(self, datajoint: bool = False):
         """ Write out the metadata as a JSON file. """
         self.metadata = self.read_file()
-        self.organize_metadata()
+        if not datajoint:
+            self.organize_metadata()
         if self.json_path is not None:
-            # Write out the JSON for the temporary MEA analysis environment.
-            if self.mea_raw_data_path is not None:
-                self.write_json(self.experiment, self.json_path) # self.write_json(self.metadata, out_path)
+            # Write out the JSON for SymphonyData.
+            if not datajoint:
+                if self.mea_raw_data_path is not None:
+                    self.write_json(self.experiment, self.json_path) 
             # Write the full experiment JSON for datajoint.
-            experiment = self.create_symphony_dict( self.metadata )
-            self.write_json(experiment, self.json_path.replace('.json','_dj.json'))
+            else:
+                experiment = self.create_symphony_dict( self.metadata )
+                self.write_json(experiment, self.json_path)
             # If this is an MEA experiment, export the text file.
             if self.mea_raw_data_path is not None:
                 self.export_summary_text(experiment, self.json_path.replace('.json','.txt'))
@@ -1092,7 +1093,6 @@ class Symphony2Reader:
         self.experiment = dict()
         self.experiment['protocol'] = protocols
         self.experiment['sources'] = self.metadata['sources']
-        # self.experiment['project'] = self.metadata['project']
 
     # Get the name of the Litke data file saved for the EpochBlock
     def get_data_file_from_block(self, block: dict):
@@ -1655,7 +1655,7 @@ def h5_to_datajoint_json(h5_path: Optional[str] = None, output_directory: str = 
     exp_name, _ = os.path.splitext(basename)
     out_path = os.path.join(output_directory, f'{exp_name}.json') 
     reader = Symphony2Reader(h5_path = h5_path, out_path = out_path, mea_raw_data_path = raw_directory)
-    reader.read_write()
+    reader.read_write(datajoint = True)
 
 if __name__ == '__main__':
 
