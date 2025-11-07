@@ -30,10 +30,35 @@ from retinanalysis.utils.datajoint_utils import get_noise_name_by_exp
 
 class AnalysisChunk:
     """
-    Class for storing data from an MEA sorting chunk created from spatial noise.
+    Class that contains data from an MEA sorting chunk created primarily from spatial noise.
+
+    This is unique to spatial noise chunks because these chunks contain '.sta'. and '.params'
+    files while regular sorting chunks and data files do not.
+
+    Init Parameters:
+    exp_name (str): The name of the experiment as seen in the 'exp_name' entry of the datajoint database
+
+    chunk_name (str): The name of the sorting chunk (e.g. 'chunk2'). This chunk must be findable in the
+    analysis directory defined by the config.ini file in the retinanalysis_root/config folder.
+
+    ss_version (str): spike sorting version, default is 'kilosort2.5'. This is mostly used to find the
+    right folder. Relevant files should be located at: 'analysis_directory/chunk_name/ss_version/'
+
+    b_load_spatial_maps (bool): Whether or not to load the spatial maps for the cells in this chunk,
+    default value is True.
+
+    pkl_file (dict | str): Optional. If you have exported an analysis chunk to a pickle file using
+    the export_to_pkl() method, you can give only this input to reload the object from the pickle file.
+
+    Init Returns:
+    AnalysisChunk object for experiment name, chunk, and ss_version given in the initializer.
+
+    Properties:
+    Use the print command on a AnalysisChunk instance to get a list of all properties contained in
+    the object
     """
     def __init__(self, exp_name: Optional[str]=None, chunk_name: Optional[str]=None, 
-                 ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None, 
+                 ss_version: str = 'kilosort2.5', pkl_file: Optional[dict | str]=None, 
                  b_load_spatial_maps: bool=True, **vu_kwargs):
 
         if pkl_file is None:
@@ -357,6 +382,8 @@ class AnalysisChunk:
         
         for ct in too_few_cells:
             cell_types.remove(ct) 
+
+        cell_types = sorted(cell_types)
 
                 
         d_noise_ids_by_type = {ct : list(filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values) for ct in cell_types}

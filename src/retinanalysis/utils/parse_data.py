@@ -971,11 +971,9 @@ class Symphony2Reader:
                 self.write_json(self.experiment, self.json_path) # self.write_json(self.metadata, out_path)
             # Write the full experiment JSON for datajoint.
             experiment = self.create_symphony_dict( self.metadata )
-            self.write_json(experiment, out_path.replace('.json','_dj.json'))
+            self.write_json(experiment, self.json_path.replace('.json','_dj.json'))
             # If this is an MEA experiment, export the text file.
-            # self.export_summary_text(experiment, self.json_path.replace('.json','.txt'))
             if self.mea_raw_data_path is not None:
-                # self.export_json(self.json_path.replace('.json','.txt'))
                 self.export_summary_text(experiment, self.json_path.replace('.json','.txt'))
 
     # Read in the hdf5 file.
@@ -1369,9 +1367,7 @@ class Symphony2Reader:
             return None
         
         block_obj = EpochBlockObj(d=epoch_block)
-        # print(epoch_block.keys())
-        # block_obj.parse_properties( d = epoch_block['properties'] )
-        # print(block_obj.properties)
+
         if (self.mea_raw_data_path is not None) and ('dataFileName' not in block_obj.properties.keys()):
             print('WARNING: No data file found in block: ')
             print(block_obj.__dict__)
@@ -1498,7 +1494,6 @@ class Symphony2Reader:
             if this_block is not None:
                 block_start_times.append( this_block['attributes']['startTimeDotNetDateTimeOffsetTicks'] )
                 block_list.append(this_block)
-        # print('Adding array pitch to dictionary: ', self.array_pitch)
         self.array_pitch_dict[group_dict['uuid']] = self.array_pitch
         # Reorder the blocks based on start time.
         try:
@@ -1680,7 +1675,6 @@ if __name__ == '__main__':
     stage_type = args.stage_type
     save_h5_path = True #args.save_h5_path
     frame_times_from_syncs = True #args.frame_times_from_syncs
-    # print(save_h5_path)
 
     if not h5_path.endswith('.h5'):
         path_split = h5_path.split('/')
@@ -1697,11 +1691,7 @@ if __name__ == '__main__':
     print('Writing to {}.'.format(out_path))
     print('Raw data path: {}'.format(raw_data_path))
 
-    # h5_path = '/data/data/h5/20230607C.h5'
-    # out_path = '/data/data/metadata/json/20230607C.json'
-    # raw_data_path = '/data/data/raw/'
 
     with Symphony2Reader(h5_path=h5_path, out_path=out_path, mea_raw_data_path=raw_data_path, stage_type=stage_type, frame_times_from_syncs=frame_times_from_syncs, save_h5_path=save_h5_path) as reader:
         reader.read_write()
-    # with Symphony2Reader(h5_path=args.h5_path, out_path=args.out_path, mea_raw_data_path=args.raw_data_path) as reader:
-    #     reader.read_write()
+
