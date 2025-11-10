@@ -2,7 +2,7 @@ import h5py
 import json
 import numpy as np
 from scipy.signal import butter, filtfilt, bessel
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 import bin2py
 import os, argparse
 import re
@@ -28,29 +28,35 @@ def get_litke_triggers(bin_path, RW_BLOCKSIZE=2000000, TTL_THRESHOLD=-1000):
     """
     epoch_starts = []
     epoch_ends = []
-    with bin2py.PyBinFileReader(bin_path, chunk_samples=RW_BLOCKSIZE, is_row_major=True) as pbfr:
-        array_id = pbfr.header.array_id
-        n_samples = pbfr.length
-        for start_idx in range(0, n_samples, RW_BLOCKSIZE):
-            n_samples_to_get = min(RW_BLOCKSIZE, n_samples - start_idx)
-            samples = pbfr.get_data_for_electrode(0, start_idx, n_samples_to_get)
-            # Find the threshold crossings at the beginning and end of each epoch.
-            below_threshold = (samples < TTL_THRESHOLD)
-            above_threshold = np.logical_not(below_threshold)
-            # Epoch starts.
-            above_to_below_threshold = np.logical_and.reduce([
-                above_threshold[:-1],
-                below_threshold[1:]
-            ])
-            # Make a Schmitt trigger at each crossing to make sure that we don't get multiple crossings within a few samples..
-            trigger_indices = np.argwhere(above_to_below_threshold) + start_idx
-            epoch_starts.append(trigger_indices[:, 0])
-            below_to_above_threshold = np.logical_and.reduce([
-                below_threshold[:-1],
-                above_threshold[1:]
-            ])
-            trigger_indices = np.argwhere(below_to_above_threshold) + start_idx
-            epoch_ends.append(trigger_indices[:, 0])
+    try:
+        with bin2py.PyBinFileReader(bin_path, chunk_samples=RW_BLOCKSIZE, is_row_major=True) as pbfr:
+            array_id = pbfr.header.array_id
+            n_samples = pbfr.length
+            for start_idx in range(0, n_samples, RW_BLOCKSIZE):
+                n_samples_to_get = min(RW_BLOCKSIZE, n_samples - start_idx)
+                samples = pbfr.get_data_for_electrode(0, start_idx, n_samples_to_get)
+                # Find the threshold crossings at the beginning and end of each epoch.
+                below_threshold = (samples < TTL_THRESHOLD)
+                above_threshold = np.logical_not(below_threshold)
+                # Epoch starts.
+                above_to_below_threshold = np.logical_and.reduce([
+                    above_threshold[:-1],
+                    below_threshold[1:]
+                ])
+                # Make a Schmitt trigger at each crossing to make sure that we don't get multiple crossings within a few samples..
+                trigger_indices = np.argwhere(above_to_below_threshold) + start_idx
+                epoch_starts.append(trigger_indices[:, 0])
+                below_to_above_threshold = np.logical_and.reduce([
+                    below_threshold[:-1],
+                    above_threshold[1:]
+                ])
+                trigger_indices = np.argwhere(below_to_above_threshold) + start_idx
+                epoch_ends.append(trigger_indices[:, 0])
+    except Exception as e:
+        print(f'ERROR: Unable to parse bin file, error: {e}')
+        array_id = None
+        n_samples = None
+        return epoch_starts, epoch_ends, array_id, n_samples 
     epoch_starts = np.concatenate(epoch_starts, axis=0)
     epoch_ends = np.concatenate(epoch_ends, axis=0)
     return epoch_starts, epoch_ends, array_id, n_samples
@@ -101,7 +107,7 @@ def butter_lowpass_filter(data, cutoff, fs, order=6):
     nyq = 0.5 * fs  # Nyquist Frequency
     normal_cutoff = cutoff / nyq
     # Get the filter coefficients 
-    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    b, a = butter(order, normal_cutoff, btype='low', analog=False, output = 'ba') # type: ignore
     y = filtfilt(b, a, data)
     return y
 
@@ -355,11 +361,11 @@ def descend_obj(obj,sep='\t'):
     """
     Iterate through groups in a HDF5 file and prints the groups and datasets names and datasets attributes
     """
-    if type(obj) in [h5py._hl.group.Group, h5py._hl.files.File]:
+    if isinstance(obj, h5py.Group) or isinstance(obj, h5py.File):
         for key in obj.keys():
             print(sep,'-',key,':',obj[key])
             descend_obj(obj[key],sep=sep+'\t')
-    elif type(obj) == h5py._hl.dataset.Dataset:
+    elif isinstance(obj, h5py.Dataset):
         for key in obj.attrs.keys():
             print(sep+'\t','-',key,':',obj.attrs[key])
 
@@ -401,7 +407,7 @@ def parse_value(value):
         return value.decode('UTF-8')
     elif isinstance(value, np.ndarray):
         return value.tolist()
-    elif isinstance(value, h5py._hl.base.Empty):
+    elif isinstance(value, h5py.Empty):
         return None
     else:
         return value
@@ -421,7 +427,7 @@ def order_list_by_start_time(lst: list, start_times: list) -> list:
         print('Error: ' + str(error))
         return lst
 
-def get_electrode_pitch_by_array_id(array_id: int) -> float:
+def get_electrode_pitch_by_array_id(array_id: int) -> str:
     """ Get the electrode pitch by the array ID. 
     Parameters:
         array_id: The array ID (str).
@@ -436,10 +442,10 @@ def get_electrode_pitch_by_array_id(array_id: int) -> float:
         pitch = '120um'
     return pitch
 
-def parse_attributes(obj: h5py._hl.group.Group) -> dict:
+def parse_attributes(obj: h5py.Group) -> dict:
     """ Parse the attributes.
     Parameters:
-        obj (h5py._hl.group.Group): The attributes group.
+        obj (h5py.Group): The attributes group.
     Returns:
         attributes (dict): The parsed attributes dictionary.
     """
@@ -447,7 +453,7 @@ def parse_attributes(obj: h5py._hl.group.Group) -> dict:
     for key, value in obj.attrs.items():
         if isinstance(value, np.bytes_):
             value = value.decode('UTF-8')
-        elif isinstance(obj, h5py._hl.base.Empty):
+        elif isinstance(obj, h5py.Empty):
             value = None
         attributes[key] = value
     return attributes
@@ -481,7 +487,7 @@ def clean_epoch_group_for_json(e_group: dict) -> dict:
         return e_group
 
 class SourceObj(object):
-    def __init__(self, d: dict=None) -> None:
+    def __init__(self, d: Optional[dict]=None) -> None:
         self.label = None
         self.uuid = None
         self.notes = list()
@@ -537,7 +543,7 @@ class SourceObj(object):
                 self.notes.append(note)
 
 class ExperimentObj(SourceObj):
-    def __init__(self, d: dict=None, rig_type: str=None) -> None:
+    def __init__(self, d: Optional[dict]=None, rig_type: Optional[str]=None) -> None:
         super().__init__(d=d)
         self.rig_type = rig_type
         if d is not None:
@@ -553,7 +559,7 @@ class ExperimentObj(SourceObj):
                 self.rig = parse_value(d['properties']['rig'])
 
 class AnimalObj(SourceObj):
-    def __init__(self, d: dict=None) -> None:
+    def __init__(self, d: Optional[dict]=None) -> None:
         super().__init__(d=d)
         self.id = None
         self.description = None
@@ -579,7 +585,7 @@ class AnimalObj(SourceObj):
                 self.species = parse_value(d['properties']['species'])
 
 class CellObj(SourceObj):
-    def __init__(self, d: dict=None) -> None:
+    def __init__(self, d: Optional[dict]=None) -> None:
         super().__init__(d=d)
         self.type = None
         if d is not None:
@@ -587,7 +593,7 @@ class CellObj(SourceObj):
                 self.type = parse_value(d['properties']['type'])
 
 class PreparationObj(SourceObj):
-    def __init__(self, d: dict=None) -> None:
+    def __init__(self, d: Optional[dict]=None) -> None:
         super().__init__(d=d)
         self.bathSolution = None
         self.preparationType = None
@@ -612,12 +618,12 @@ class ProtocolObj(object):
         self.group = None
 
 class EpochGroupObj(SourceObj):
-    def __init__(self, d: dict=None) -> None:
+    def __init__(self, d: Optional[dict]=None) -> None:
         super().__init__(d=d)
         self.epoch_blocks = list()
         self.end_time = None
         self.parse( d = d )
-    def parse(self, d: dict):
+    def parse(self, d: Optional[dict]):
         if d is not None:
             if 'endTimeDotNetDateTimeOffsetTicks' in d['attributes'].keys():
                 self.set_end_time_from_ticks( d['attributes']['endTimeDotNetDateTimeOffsetTicks'] )
@@ -648,27 +654,27 @@ class EpochGroupObj(SourceObj):
         return blocks
 
 class DataObj(object):
-    def __init__(self, d: Union[dict,h5py._hl.group.Group]=None) -> None:
+    def __init__(self, d: Optional[Union[dict, h5py.Group]]=None) -> None:
         self.uuid = None
         self.protocolID = None
         self.properties = dict()
         self.attributes = dict()
         self.start_time = None
         self.end_time = None
-        if isinstance(d, h5py._hl.group.Group):
+        if isinstance(d, h5py.Group):
             d = self.h5_to_dict(obj=d)
         self.parse_dict(d=d)
-    def h5_to_dict(self, obj: h5py._hl.group.Group) -> dict:
+    def h5_to_dict(self, obj: h5py.Group) -> dict:
         d = dict()
         attributes = parse_attributes(obj)
         d['attributes'] = attributes
         d['uuid'] = attributes['uuid']
         if 'properties' in obj.keys():
-            properties = parse_attributes(obj['properties'])
+            properties = parse_attributes(obj['properties']) #type: ignore
             self.properties = properties
             d['properties'] = properties
         return d
-    def parse_dict(self, d: dict):
+    def parse_dict(self, d: Optional[dict]):
         if d is not None:
             if 'uuid' in d['attributes'].keys():
                 self.uuid = parse_value(d['attributes']['uuid'])
@@ -681,17 +687,12 @@ class DataObj(object):
             if 'endTimeDotNetDateTimeOffsetTicks' in d['attributes'].keys():
                 endTimeDotNetDateTimeOffsetTicks = d['attributes']['endTimeDotNetDateTimeOffsetTicks']
                 self.end_time = dotnet_ticks_to_datetime(endTimeDotNetDateTimeOffsetTicks)[0]
-            # Set the properties.
-            # print('properties' in d.keys())
-            # if 'properites' in d.keys():
-            #     self.properties = d['properties']
-                # self.parse_properties(d = d['properties'])
             # Set the attributes.
             self.parse_attributes(d = d['attributes'])
             if 'protocolID' in self.attributes.keys():
                 self.protocolID = self.attributes['protocolID']
-    def parse_properties(self, d: Union[dict, h5py._hl.group.Group]):
-        if isinstance(d, h5py._hl.group.Group):
+    def parse_properties(self, d: Union[dict, h5py.Group]):
+        if isinstance(d, h5py.Group):
             self.properties = parse_attributes(d)
         else:
             # self.properties = dict()
@@ -719,22 +720,22 @@ class DataObj(object):
         self.end_time = dotnet_ticks_to_datetime(ticks)[0]
 
 class EpochBlockObj(DataObj):
-    def __init__(self, d: Union[dict,h5py._hl.group.Group]=None) -> None:
+    def __init__(self, d: Union[dict,h5py.Group]) -> None:
         super().__init__(d=d)
         self.dataFile = None
         self.parameters = dict()
-        self.arrayPitch = None
+        self.arrayPitch: Optional[str] = None
         self.epochs = list()
         if 'dataFileName' in self.properties.keys():
             self.dataFile = self.properties['dataFileName']
         if 'protocolParameters' in d.keys():
-            if isinstance(d, h5py._hl.group.Group):
-                self.parameters = parse_attributes(d['protocolParameters'])
+            if isinstance(d, h5py.Group):
+                self.parameters = parse_attributes(d['protocolParameters']) # type: ignore
             else:
                 self.parameters = d['protocolParameters']
 
 class ResponseObj(object):
-    def __init__(self, label: str=None, d: dict=None) -> None:
+    def __init__(self, label: Optional[str]=None, d: Optional[dict]=None) -> None:
         self.label = None
         self.sampleRate = None
         self.sampleRateUnits = None
@@ -802,25 +803,31 @@ class StageObj(object):
         if self.frame_data is None:
             print('No frame data found for this stage object.')
             return np.array([])
+        assert self.sample_rate is not None, 'self.sample_rate is None, cannot proceed'
         return get_frame_times_pattern_mode(self.frame_data, bin_rate=1000.0, sample_rate=self.sample_rate, updates_per_frame=self.updates_per_frame)
     def get_frame_times_lcr_video_mode(self):
         if self.frame_data is None:
             print('No frame data found for this stage object.')
             return np.array([])
+        assert self.sample_rate is not None, 'self.sample_rate is None, cannot proceed'
         return get_frame_times_lightcrafter(self.frame_data, bin_rate=1000.0, sample_rate=self.sample_rate)
     def get_frame_times_generic(self):
         if self.frame_data is None:
             print('No frame data found for this stage object.')
             return np.array([])
+        assert self.sample_rate is not None, 'self.sample_rate is None, cannot proceed'
         return get_frame_times(self.frame_data, bin_rate=1000.0, sample_rate=self.sample_rate)
     def get_frame_times(self):
         if not self.frame_times_from_syncs:
             bin_rate=1000.0
+            assert self.frame_rate is not None, 'self.frame_rate is None, cannot proceed'
             frame_step = bin_rate / self.frame_rate
             print('Frame rate: {}'.format(self.frame_rate))
             print('Sample rate: {}'.format(self.sample_rate))
             print('Frame step: {}'.format(frame_step))
+            assert self.frame_data is not None, 'self.frame_data is None, cannot proceed'
             print('Frame data length: {}'.format(len(self.frame_data)))
+            assert self.sample_rate is not None, 'self.sample_rate is None, cannot proceed'
             frame_times = np.round(np.arange(0.0,len(self.frame_data)/self.sample_rate*bin_rate,frame_step)).astype(float)
             return frame_times
         if self.device_type == 'LightCrafter':
@@ -833,7 +840,7 @@ class StageObj(object):
 
 
 class EpochObj(DataObj):
-    def __init__(self, d: Union[dict, h5py._hl.group.Group]=None) -> None:
+    def __init__(self, d: Union[dict, h5py.Group]) -> None:
         super().__init__(d=d)
         self.stage_obj = None
         self.label = None
@@ -848,9 +855,9 @@ class EpochObj(DataObj):
         if self.responses is None:
             self.responses = list()
         self.responses.append( response.__dict__ )
-    def parse_backgrounds(self, d: h5py._hl.group.Group):
+    def parse_backgrounds(self, d: h5py.Group):
         backgrounds = dict()
-        for key, value in d['backgrounds'].items():
+        for key, value in d['backgrounds'].items(): #type: ignore
             key_name = strip_uuid( key )
             bg_attrs = parse_attributes( value )
             if 'dataConfigurationSpans' in value.keys():
@@ -873,38 +880,13 @@ class EpochObj(DataObj):
             backgrounds[ key_name ] = bg_attrs
         self.backgrounds = backgrounds
         for key, value in d.items():
-            if isinstance(value, h5py._hl.group.Group):
+            if isinstance(value, h5py.Group):
                 self.backgrounds[key] = parse_attributes( value )
-    def parse_responses(self, d: h5py._hl.group.Group):
+    #TODO: Figure out why this unfinished method exists
+    def parse_responses(self, d: h5py.Group):
         pass
 
-# class EpochObj(object):
-#     def __init__(self) -> None:
-#         self.stage_obj = None
-#         self.protocolID = None
-#         self.attributes = None
-#         self.properties = None
-#         self.parameters = None
-#         self.backgrounds = list()
-#         self.responses = list()
-#         self.stimuli = list()
-#         self.frameTimesMs = None
-#         self.start_time = None
-#         self.end_time = None
-#     def set_start_time(self, start_time: datetime):
-#         self.start_time = start_time
-#     def set_end_time(self, end_time: datetime):
-#         self.end_time = end_time
-#     def set_start_time_from_ticks(self, ticks: int):
-#         self.start_time = dotnet_ticks_to_datetime(ticks)
-#     def set_end_time_from_ticks(self, ticks: int):  
-#         self.end_time = dotnet_ticks_to_datetime(ticks)
-#     def add_response(self, response: ResponseObj):
-#         if self.responses is None:
-#             self.responses = list()
-#         self.responses.append(response)
-
-
+# TODO: Figure out why this unfinished function exists
 class FrameObj(object):
     def __init__(self,
                  stage_obj: StageObj,
@@ -918,24 +900,24 @@ class FrameObj(object):
 class NpEncoder(json.JSONEncoder):
     """ Special JSON encoder for numpy types. 
     Source: https://stackoverflow.com/questions/50916422/python-typeerror-object-of-type-int64-is-not-json-serializable"""
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, bytes):
-            return obj.decode('UTF-8')
-        if isinstance(obj, h5py._hl.base.Empty):
+    def default(self, o):
+        if isinstance(o, np.integer):
+            return int(o)
+        if isinstance(o, np.floating):
+            return float(o)
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        if isinstance(o, bytes):
+            return o.decode('UTF-8')
+        if isinstance(o, h5py.Empty):
             return None
-        return super(NpEncoder, self).default(obj)
+        return super(NpEncoder, self).default(o)
 
 class Symphony2Reader:
     def __init__(self, 
                  h5_path: str, 
-                 out_path: str=None, 
-                 mea_raw_data_path: str=None, 
+                 out_path: str, 
+                 mea_raw_data_path: Optional[str]=None, 
                  stage_type: str='LightCrafter',
                  frame_times_from_syncs: bool=True,
                  save_h5_path: bool=True, 
@@ -959,26 +941,39 @@ class Symphony2Reader:
         except:
             self.experiment_name = None
 
-    def read_write(self, datajoint: bool = False):
+    def read_write(self, datajoint: Optional[bool] = None):
         """ Write out the metadata as a JSON file. """
         self.metadata = self.read_file()
-        if not datajoint:
-            self.organize_metadata()
+
+        # Only necessary when writing JSON for Symphony Data, but it does reassign
+        # the value of self.experiment so we'll run it no matter what
+        self.organize_metadata()
+            
         if self.json_path is not None:
+            assert self.metadata is not None, 'self.metadata variable is empty'
+            experiment = self.create_symphony_dict( self.metadata )
+
             # Write out the JSON for SymphonyData.
-            if not datajoint:
-                if self.mea_raw_data_path is not None:
-                    self.write_json(self.experiment, self.json_path) 
-            # Write the full experiment JSON for datajoint.
+            if datajoint is not None:
+                if not datajoint:
+                    if self.mea_raw_data_path is not None:
+                        self.write_json(self.experiment, self.json_path) 
+                # Write the full experiment JSON for datajoint.
+                else:
+                    self.write_json(experiment, self.json_path)
+
             else:
-                experiment = self.create_symphony_dict( self.metadata )
-                self.write_json(experiment, self.json_path)
+                if self.mea_raw_data_path is not None:
+                    self.write_json(self.experiment, self.json_path)
+
+                self.write_json(experiment, self.json_path.replace('.json', '_dj.json'))
+
             # If this is an MEA experiment, export the text file.
             if self.mea_raw_data_path is not None:
                 self.export_summary_text(experiment, self.json_path.replace('.json','.txt'))
 
     # Read in the hdf5 file.
-    def read_file(self):
+    def read_file(self) -> dict:
         """ Read in the hdf5 file.
         Parameters:
             file_path (str): The path to the hdf5 file.
@@ -989,9 +984,11 @@ class Symphony2Reader:
         keys = list(self.file.keys())
         for key in keys:
             # Find the experiment level.
-            if type(self.file[key]) is h5py._hl.group.Group:
+            if type(self.file[key]) is h5py.Group:
                 metadata = self.parse_file(key)
                 return metadata
+
+        raise ValueError('No metadata found')
 
     # Write out the metadata as a JSON file.
     def write_json(self, metadata, out_path):
@@ -1028,6 +1025,7 @@ class Symphony2Reader:
                 cells = exp_preparations[ii]['sources']
                 for jj in range( len(cells) ):
                     cell = CellObj( d = cells[jj] ).__dict__
+                    print(f'Cell keys: {cell.keys()}')
                     cell['epoch_groups'] = list()
                     for kk in range(len(metadata['group'])):
                         if cell['uuid'] == metadata['group'][kk]['source']['uuid']:
@@ -1049,6 +1047,7 @@ class Symphony2Reader:
     def organize_metadata(self):                     
         """ Organize the metadata according to the hierarchy. """
         # Organize by protocol.
+        assert self.metadata is not None, 'self.metadata variable is empty'
         protocol_labels = list()
         for group in self.metadata['group']:
             for block in group['block']:
@@ -1133,10 +1132,14 @@ class Symphony2Reader:
                                     protocols[ block['protocolID'] ] = list()
                                 # Get the file name.
                                 f_name = self.get_data_file_from_block(block)
+                                print(f'Identified datafile as {f_name}\n')
                                 protocols[ block['protocolID'] ].append(f_name)
                                 all_files.append(f_name)
-                                match = re.search('(\d+)', f_name)
-                                file_nums.append( int(match.group(0)) )
+                                match = re.search(r'(\d+)', f_name)
+                                if match:
+                                    file_nums.append( int(match.group(0)) )
+                                else:
+                                    print(f'Warning: no numbers found in filename: {f_name}')
                             for key, value in protocols.items():
                                 file.write('        Protocol:' + key + '\n')
                                 for v in value:
@@ -1179,10 +1182,10 @@ class Symphony2Reader:
             return []
         return missing
 
-    def parse_attributes(self, obj: h5py._hl.group.Group) -> dict:
+    def parse_attributes(self, obj: h5py.Group) -> dict:
         """ Parse the attributes.
         Parameters:
-            obj (h5py._hl.group.Group): The attributes group.
+            obj (h5py.Group): The attributes group.
         Returns:
             attributes (dict): The parsed attributes dictionary.
         """
@@ -1190,15 +1193,15 @@ class Symphony2Reader:
         for key, value in obj.attrs.items():
             if isinstance(value, np.bytes_):
                 value = value.decode('UTF-8')
-            elif isinstance(obj, h5py._hl.base.Empty):
+            elif isinstance(obj, h5py.Empty):
                 value = None
             attributes[key] = value
         return attributes
 
-    def parse_properties(self, obj) -> dict:
+    def parse_properties(self, obj: h5py.Group) -> dict:
         """ Parse the properties. 
         Parameters:
-            obj (h5py._hl.group.Group): The properties group.
+            obj (h5py.Group): The properties group.
         Returns:
             props (dict): The parsed properties dictionary.
         """
@@ -1206,12 +1209,12 @@ class Symphony2Reader:
         for key, value in obj['properties'].attrs.items():
             if isinstance(value, np.bytes_):
                 value = value.decode('UTF-8')
-            elif isinstance(obj, h5py._hl.base.Empty):
+            elif isinstance(obj, h5py.Empty):
                 value = None
             props[key] = value
         return props
 
-    def combine_parameters(self, block_params, epoch_params) -> dict:
+    def combine_parameters(self, block_params: dict, epoch_params: dict) -> dict:
         """ Combine the block and epoch parameters. 
         Parameters:
             block_params (dict): The block parameters.
@@ -1226,10 +1229,10 @@ class Symphony2Reader:
         parameters = dict(sorted(parameters.items()))
         return parameters
 
-    def parse_epoch(self, epoch, block_params: dict) -> dict:
+    def parse_epoch(self, epoch: h5py.Group, block_params: dict) -> dict:
         """ Parse the epoch. 
         Parameters:
-            epoch (h5py._hl.group.Group): The epoch group.
+            epoch (h5py.Group): The epoch group.
             block_params (dict): The block parameters.
         Returns:
             epoch_dict (dict): The parsed epoch dictionary.
@@ -1247,14 +1250,14 @@ class Symphony2Reader:
         epoch_dict['parameters'].update(params)
         # Parse the responses.
         if 'responses' in epoch.keys():
-            responses, frame_times = self.parse_responses(epoch['responses'])
+            responses, frame_times = self.parse_responses(epoch['responses']) # type: ignore
             epoch_dict['responses'] = responses
             epoch_dict['frameTimesMs'] = frame_times
             # Keep a copy down in properties for now, as this isn't currently transferred to datajoint.
             epoch_dict['properties']['frameTimesMs'] = frame_times
         # Parse the stimuli.
         if 'stimuli' in epoch.keys():
-            stimuli = self.parse_stimuli(epoch['stimuli'])
+            stimuli = self.parse_stimuli(epoch['stimuli']) # type: ignore
             epoch_dict['stimuli'] = stimuli
         # epoch_dict['uuid'] = attributes['uuid']
         return epoch_dict
@@ -1267,17 +1270,11 @@ class Symphony2Reader:
             full_path: Full reference string (type: str)
         """
         return value.name
-        # if isinstance(value, h5py._hl.dataset.Dataset):
-        #     return str(self.file[value.parent]).split('"')[1]
-        # elif isinstance(value, h5py._hl.group.Group):
-        #     return str(self.file[value.ref]).split('"')[1]
-        # else:
-        #     return None
     
-    def parse_stimuli(self, stimuli: h5py._hl.group.Group) -> dict:
+    def parse_stimuli(self, stimuli: h5py.Group) -> dict:
         """ Parse the stimuli. 
         Parameters:
-            stimuli (h5py._hl.group.Group): The stimuli group.
+            stimuli (h5py.Group): The stimuli group.
         Returns:
             stimuli_dict (dict): The parsed stimuli dictionary.
         """
@@ -1291,10 +1288,10 @@ class Symphony2Reader:
                 stimuli_dict[key_name]['h5path'] = full_path
         return stimuli_dict
 
-    def parse_responses(self, responses: h5py._hl.group.Group) -> Tuple[dict, np.ndarray]:
+    def parse_responses(self, responses: h5py.Group) -> Tuple[dict, Optional[np.ndarray]]:
         """ Parse the responses. 
         Parameters:
-            responses (h5py._hl.group.Group): The responses group.
+            responses (h5py.Group): The responses group.
         Returns:
             response_dict (dict): The parsed responses dictionary.
             frame_times (np.ndarray): The frame times.
@@ -1305,35 +1302,36 @@ class Symphony2Reader:
         for key, value in responses.items():
             key_name = strip_uuid(key)
             response_dict[key_name] = self.parse_attributes(value)
+
             # Get the full reference string within the HDF5 file.
             if self.save_h5_path:
                 full_path = self.get_reference_string(value)
                 response_dict[key_name]['h5path'] = full_path
+
             # Pull the frame monitor data.
             if ('Sync' in key) and ('data' in value.keys()):
                 found_syncs = False
                 red_sync = value['data']['quantity']
                 sample_rate = response_dict[key_name]['sampleRate']
+                assert self.current_epoch is not None, 'self.current_epoch is None'
                 if self.current_epoch.stage_obj is None:
                     self.current_epoch.stage_obj = StageObj(key_name=key_name, properties=response_dict[key_name], frame_times_from_syncs=self.frame_times_from_syncs)
                 self.current_epoch.stage_obj.set_sample_rate(sample_rate)
                 self.current_epoch.stage_obj.set_sync_data(red_sync)
-                # frame_times = get_frame_times_from_syncs(red_sync, bin_rate=1000.0, sample_rate=sample_rate)
-                # frame_times = get_frame_times_from_pwm(red_sync, bin_rate=1000.0, sample_rate=sample_rate)
+
             if ('Frame' in key) and ('data' in value.keys()) and (not found_syncs):
                 frame_monitor = value['data']['quantity']#[()]
                 sample_rate = response_dict[key_name]['sampleRate']
+                assert self.current_epoch is not None, 'self.current_epoch is None'
                 if self.current_epoch.stage_obj is None:
                     self.current_epoch.stage_obj = StageObj(key_name=key_name, properties=response_dict[key_name], frame_times_from_syncs=self.frame_times_from_syncs)
                 self.current_epoch.stage_obj.set_sample_rate(sample_rate)
                 self.current_epoch.stage_obj.set_frame_data(frame_monitor)
-                # if self.stage_type == 'LightCrafter':
-                #     frame_times = get_frame_times_lightcrafter(frame_monitor, bin_rate=1000.0, sample_rate=sample_rate)
-                # else:
-                #     frame_times = get_frame_times(frame_monitor, bin_rate=1000.0, sample_rate=sample_rate)
+
                 # Process the frame data.
                 if self.frame_times_from_syncs:
                     frame_times = self.current_epoch.stage_obj.get_frame_times()
+
         return response_dict, frame_times
 
     def parse_data_file_name(self, data_file_string: str) -> str:
@@ -1345,13 +1343,14 @@ class Symphony2Reader:
         """
         exp_string, f_name = data_file_string.split('\\')
         f_name = f_name.replace('.bin', '/')
+        assert self.experiment_name is not None, 'self.experiment_name is None'
         if exp_string[:8] == self.experiment_name[:8]:
             out_string = exp_string + '/' + f_name
         else:
             out_string = self.experiment_name + '/' + f_name
         return out_string
     
-    def parse_epoch_block(self, epoch_block: Union[dict, h5py._hl.group.Group]) -> dict:
+    def parse_epoch_block(self, epoch_block: dict) -> Optional[dict]:
         """ Parse an epoch block.
         Parameters:
             epoch_block (dict): The epoch block to parse.
@@ -1368,33 +1367,100 @@ class Symphony2Reader:
         
         block_obj = EpochBlockObj(d=epoch_block)
 
-        if (self.mea_raw_data_path is not None) and ('dataFileName' not in block_obj.properties.keys()):
-            print('WARNING: No data file found in block: ')
-            print(block_obj.__dict__)
-            litke_starts = list()
-            litke_ends = list()
-            f_name = ''
-        if 'dataFileName' in block_obj.properties.keys():
-            f_name = block_obj.properties['dataFileName']
-            f_name = self.parse_data_file_name(f_name)
-            block_obj.dataFile = f_name
-            if self.mea_raw_data_path is not None:
+        #NOTE: Modified code below sets n_samples and array_id to None since there's no file name
+        if self.mea_raw_data_path is not None:
+            if 'dataFileName' not in block_obj.properties.keys():
+                print('WARNING: No data file found in block: ')
+                print(block_obj.__dict__)
+                litke_starts = list()
+                litke_ends = list()
+                n_samples = None
+                f_name = ''
+                array_id = None
+            else:
+                f_name = block_obj.properties['dataFileName']
+                f_name = self.parse_data_file_name(f_name)
+                print(f'Parsing dataFileName: {f_name}')
+                block_obj.dataFile = f_name
+                assert self.experiment_name is not None, 'self.experiment_name is None'
                 f_path = os.path.join(self.mea_raw_data_path, self.experiment_name, f_name.split('/')[-2])
+                print(f'Will use f_path: {f_path}\n')
                 # Check for the old setup where we directly recorded the frame monitor.
                 if int(self.experiment_name[:8]) < 20220518:
                     litke_starts, litke_ends, array_id, n_samples = get_litke_triggers_old(f_path)
                 else:
                     litke_starts, litke_ends, array_id, n_samples = get_litke_triggers(f_path)
-                self.array_pitch = get_electrode_pitch_by_array_id(array_id = array_id)
-                # Check for unrecorded epochs.
-                if np.any(np.array(litke_starts) > n_samples):
-                    unrecorded_epochs = np.argwhere(np.array(litke_starts) > n_samples).ravel()
-                    print('WARNING: Unrecorded epochs found in file: ' + f_name)
-                    for bad_idx in sorted(unrecorded_epochs, reverse=True):
-                        del litke_starts[bad_idx]
-                        del litke_ends[bad_idx]
+
+                if array_id is None or n_samples is None:
+                    print(f"ERROR: Unable to parse data file {block_obj.__dict__['properties']['dataFileName']}, see error on previous line.\n")
+                    return None
+                else:
+                    self.array_pitch = get_electrode_pitch_by_array_id(array_id = array_id)
+                    # Check for unrecorded epochs.
+                    if np.any(np.array(litke_starts) > n_samples):
+                        unrecorded_epochs = np.argwhere(np.array(litke_starts) > n_samples).ravel()
+                        print('WARNING: Unrecorded epochs found in file: ' + f_name)
+                        for bad_idx in sorted(unrecorded_epochs, reverse=True):
+                            litke_starts = np.delete(litke_starts, bad_idx)
+                            litke_ends = np.delete(litke_ends, bad_idx)
+
+
+        else:
+            if 'dataFileName' not in block_obj.properties.keys():
+                print('WARNING: No data file found in block: ')
+                print(block_obj.__dict__)
+                f_name = ''
+                litke_starts = list()
+                litke_ends = list()
+                n_samples = None
+                array_id = None
+            else:
+                f_name = block_obj.properties['dataFileName']
+                f_name = self.parse_data_file_name(f_name)
+                block_obj.dataFile = f_name
+                litke_starts = list()
+                litke_ends = list()
+                n_samples = None
+                array_id = None
+
+        # NOTE: Old code. Keeping it around until we're cetrain the new more complete if/then statement
+        # works correctly
+
+        # if (self.mea_raw_data_path is not None) and ('dataFileName' not in block_obj.properties.keys()):
+        #     print('WARNING: No data file found in block: ')
+        #     print(block_obj.__dict__)
+        #     litke_starts = list()
+        #     litke_ends = list()
+        #     f_name = ''
+        # if 'dataFileName' in block_obj.properties.keys():
+        #     f_name = block_obj.properties['dataFileName']
+        #     f_name = self.parse_data_file_name(f_name)
+        #     block_obj.dataFile = f_name
+        #     if self.mea_raw_data_path is not None:
+        #         assert self.experiment_name is not None, 'self.experiment_name is None'
+        #         f_path = os.path.join(self.mea_raw_data_path, self.experiment_name, f_name.split('/')[-2])
+        #         # Check for the old setup where we directly recorded the frame monitor.
+        #         if int(self.experiment_name[:8]) < 20220518:
+        #             litke_starts, litke_ends, array_id, n_samples = get_litke_triggers_old(f_path)
+        #         else:
+        #             litke_starts, litke_ends, array_id, n_samples = get_litke_triggers(f_path)
+        #
+        #         if array_id is None or n_samples is None:
+        #             print('ERROR: unable to parse data file for block, no epochs found.')
+        #             print(block_obj.__dict__)
+        #             return None
+        #         else:
+        #             self.array_pitch = get_electrode_pitch_by_array_id(array_id = array_id)
+        #             # Check for unrecorded epochs.
+        #             if np.any(np.array(litke_starts) > n_samples):
+        #                 unrecorded_epochs = np.argwhere(np.array(litke_starts) > n_samples).ravel()
+        #                 print('WARNING: Unrecorded epochs found in file: ' + f_name)
+        #                 for bad_idx in sorted(unrecorded_epochs, reverse=True):
+        #                     litke_starts = np.delete(litke_starts, bad_idx)
+        #                     litke_ends = np.delete(litke_ends, bad_idx)
+        
         # Copy out the block parameters.
-        params = block_obj.parameters #block_obj.protocolParameters
+        params = block_obj.parameters 
         if self.array_pitch is not None:
             block_obj.arrayPitch = self.array_pitch
         # Parse the epochs.
@@ -1428,11 +1494,14 @@ class Symphony2Reader:
             if len(litke_starts) == 0:
                 print('WARNING: No Litke triggers found in file: ' + f_name)
                 litke_starts = 46969 + np.floor((start_seconds - start_seconds[0])*self.sample_rate).astype(int)
-                unrecorded_epochs = np.argwhere(np.array(litke_starts) > n_samples).ravel()
-                for bad_idx in sorted(unrecorded_epochs, reverse=True):
-                    del epoch_list[bad_idx]
-                    del frame_times[bad_idx]
-                    del litke_starts[bad_idx]
+
+                if n_samples is not None:
+                    unrecorded_epochs = np.argwhere(np.array(litke_starts) > n_samples).ravel()
+                    for bad_idx in sorted(unrecorded_epochs, reverse=True):
+                        del epoch_list[bad_idx]
+                        del frame_times[bad_idx]
+                        del litke_starts[bad_idx]
+                        
             # Calculate the number of samples between each epoch from the Symphony file.
             # !! How to deal with Windows updating the system clock in the middle of a block????
             if len(epoch_starts) < len(litke_starts):
@@ -1466,10 +1535,10 @@ class Symphony2Reader:
         block['properties']['frameTimesMs'] = frame_times
         return block
 
-    def parse_epoch_group(self, epoch_group: h5py._hl.group.Group) -> dict:
+    def parse_epoch_group(self, epoch_group: h5py.Group) -> dict:
         """Parse the epoch group.
         Parameters:
-            epoch_group: h5py._hl.group.Group
+            epoch_group: h5py.Group
         Returns:
             group_dict: dict
         """
@@ -1489,7 +1558,8 @@ class Symphony2Reader:
         # Parse the epoch blocks.
         block_list = list()
         block_start_times = list()
-        for key, value in epoch_group['epochBlocks'].items():
+        for key, value in epoch_group['epochBlocks'].items(): #type: ignore
+            print(f'Parsing epoch block {key}')
             this_block = self.parse_epoch_block(value)
             if this_block is not None:
                 block_start_times.append( this_block['attributes']['startTimeDotNetDateTimeOffsetTicks'] )
@@ -1505,16 +1575,16 @@ class Symphony2Reader:
         group_src = epoch_group['source'].attrs
         src = dict()
         if 'label' in group_src.keys():
-            src['label'] = group_src['label'].decode('UTF-8')
+            src['label'] = group_src['label'].decode('UTF-8') #type: ignore
         if 'uuid' in group_src.keys():
-            src['uuid'] = group_src['uuid'].decode('UTF-8')
+            src['uuid'] = group_src['uuid'].decode('UTF-8') #type: ignore
         group_dict['source'] = src
         return group_dict
 
-    def parse_source(self, source: h5py._hl.group.Group, parse_children: bool=True) -> dict:
+    def parse_source(self, source: h5py.Group, parse_children: bool=True) -> dict:
         """ Parse the source group.
         Parameters:
-            source (h5py._hl.group.Group): The source group.
+            source (h5py.Group): The source group.
         Returns:
             source_dict (dict): The source dictionary.
         """
@@ -1536,42 +1606,42 @@ class Symphony2Reader:
         # Check for notes.
         if 'notes' in source.keys():
             notes = source['notes']
-            source_dict['notes'] = self.parse_notes(notes)
+            source_dict['notes'] = self.parse_notes(notes) #type: ignore
         else:
             source_dict['notes'] = list()
         
         if parse_children:
             source_list = list()
-            for key, value in source['sources'].items():
+            for _, value in source['sources'].items(): #type: ignore
                 source_list.append(self.parse_source(value))
             source_dict['sources'] = source_list
         return source_dict
 
-    def parse_notes(self, notes: h5py._hl.group.Group) -> dict:
+    def parse_notes(self, notes: h5py.Group) -> List[dict]:
         """ Parse the notes group.
         Parameters:
-            notes (h5py._hl.group.Group): The notes group.
+            notes (h5py.Group): The notes group.
         Returns:
             notes_dict (dict): The notes dictionary.
         """
         notes_list = list()
         note_text = notes['text']
-        time_ticks = notes['time']['ticks']
-        time_offset = notes['time']['offsetHours']
-        for ii in range(len(note_text)):
+        time_ticks = notes['time']['ticks'] #type: ignore
+        time_offset = notes['time']['offsetHours'] #type: ignore
+        for ii in range(len(note_text)): #type: ignore
             note_dict = dict()
-            note_dict['text'] = note_text[ii].decode('UTF-8')
-            note_dict['time_ticks'] = time_ticks[ii]
-            note_dict['time_offsetHours'] = time_offset[ii]
-            date_string, _ = dotnet_ticks_to_datetime(time_ticks[ii])
+            note_dict['text'] = note_text[ii].decode('UTF-8') #type: ignore
+            note_dict['time_ticks'] = time_ticks[ii] #type: ignore
+            note_dict['time_offsetHours'] = time_offset[ii] #type: ignore
+            date_string, _ = dotnet_ticks_to_datetime(time_ticks[ii]) #type: ignore
             note_dict['datetime'] = date_string
             notes_list.append(note_dict)
         return notes_list
     
-    def parse_experiment(self, experiment: h5py._hl.group.Group) -> dict:
+    def parse_experiment(self, experiment: h5py.Group) -> dict:
         """ Parse the experiment group.
         Parameters:
-            experiment (h5py._hl.group.Group): The experiment group.
+            experiment (h5py.Group): The experiment group.
         Returns:
             experiment_dict (dict): The parsed experiment group.
         """
@@ -1592,12 +1662,12 @@ class Symphony2Reader:
         # Check for notes.
         if 'notes' in experiment.keys():
             notes = experiment['notes']
-            experiment_dict['notes'] = self.parse_notes(notes)
+            experiment_dict['notes'] = self.parse_notes(notes) #type: ignore
         else:
             experiment_dict['notes'] = list()
 
         source_list = list()
-        for key, value in experiment['sources'].items():
+        for key, value in experiment['sources'].items(): #type: ignore
             source_list.append(self.parse_source(value))
         experiment_dict['sources'] = source_list
         return experiment_dict
@@ -1611,7 +1681,7 @@ class Symphony2Reader:
             metadata (dict): The metadata for the experiment.
         """
         metadata = dict()
-        sources = self.file[exp_key]['sources']
+        sources = self.file[exp_key]['sources'] #type: ignore
         # Get the top-level/purpose node.
         # project_dict = self.parse_source(self.file[exp_key], parse_children=False)
         # project_dict = self.parse_source(self.file[exp_key], parse_children=True)
@@ -1620,7 +1690,7 @@ class Symphony2Reader:
         exp_list = list()
         group_list = list()
         group_start_times = list()
-        for _, value in sources.items():
+        for _, value in sources.items(): #type: ignore
             experiment = value['experiment']
             exp_sources = experiment['sources']
             print('Parsing experiment sources.')
@@ -1641,21 +1711,23 @@ class Symphony2Reader:
         return metadata
 
     def close(self):
+        assert self.file is not None
         self.file.close()
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        assert self.file is not None
         self.file.close()
 
-def h5_to_datajoint_json(h5_path: Optional[str] = None, output_directory: str = '/Volumes/data-1/datajoint/mea/meta/',
-                         raw_directory: str = '/Volumes/data-1/data/raw/'):
+def h5_to_datajoint_json(h5_path: str, output_directory: str = '/Volumes/data-1/datajoint/mea/meta/',
+                         raw_directory: str = '/Volumes/data-1/data/raw/', datajoint: Optional[bool] = True, **kwargs):
     basename = os.path.basename(h5_path)
     exp_name, _ = os.path.splitext(basename)
     out_path = os.path.join(output_directory, f'{exp_name}.json') 
-    reader = Symphony2Reader(h5_path = h5_path, out_path = out_path, mea_raw_data_path = raw_directory)
-    reader.read_write(datajoint = True)
+    reader = Symphony2Reader(h5_path = h5_path, out_path = out_path, mea_raw_data_path = raw_directory, **kwargs)
+    reader.read_write(datajoint = datajoint)
 
 if __name__ == '__main__':
 
