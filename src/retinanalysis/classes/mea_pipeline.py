@@ -289,7 +289,8 @@ class MEAPipeline:
     def get_psth_arr(self, protocol_ids: Optional[List[int] | int] = None,
                      cell_types: Optional[List[str] | str] = None,
                      typing_file: Optional[str] = None, minimum_n: int = 1,
-                     bins: Optional[np.ndarray | list | int] = None) -> xr.DataArray:
+                     bins: Optional[np.ndarray | list | int] = None,
+                     bin_rate: Optional[float] = None) -> xr.DataArray:
         """
         Function for creating an array of peri-stimulus time histograms (PSTHs) for a
         list of protocol_ids, a list of cell_types, or both. As with plot_rfs() and 
@@ -311,25 +312,41 @@ class MEAPipeline:
         bins (np.ndarray | list | int): Optional. Frame times used by default. If an integer
         is given, the spike times will be binned in that many evently spaced bins. If a list
         is given, the values in the list are used as bin edges.
+        
+        bin_rate (float): Optional. Default None. If a bin rate (in Hz) is given, the bins input
+        will be ignored and bin_edges will be created from the bin_rate value.
 
         Returns:
         psth_xarr (xr.DaraArray): an xarray DataArray with dimensions (cell_id, epoch, bin)
         and coordinates (cell_id, epoch, cell_type, bin, bin_edges).
         """
 
-        # Bins are frame times by default
-        if bins is None:
-            bin_edges = np.array(self.stim_block.df_epochs.loc[0, 'frame_times_ms'])
+        # Use bin_rate by default if one is given
+        if bin_rate is not None:
+            bins_per_ms = bin_rate * 1e-3
+            ms_per_bin = 1/bins_per_ms
+            all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
+            all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
+
+            # epoch starts and ends in milliseconds
+            epoch_start = 0
+            epoch_end = np.mean(all_epoch_ends - all_epoch_starts)/SAMPLE_RATE*1e3
+
+            bin_edges = np.arange(epoch_start, epoch_end, ms_per_bin) 
+        # Bins by frame times by default if no bin_rate and no bins are given
+        elif bins is None:
+            bin_edges = np.array(self.stim_block.df_epochs['frame_times_ms'].values)
         else:
+            # if no bin_rate and bins is an integer, create that many equally spaced bins
             if isinstance(bins, int):
                 all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
                 all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
 
-                # epoch starts and ends in milliseconds
                 epoch_start = 0
                 epoch_end = np.mean(all_epoch_ends - all_epoch_starts)/SAMPLE_RATE*1e3
 
                 bin_edges = np.linspace(epoch_start, epoch_end, bins)
+            # if no bin_rate and bins is a list, use that list as bin_edges
             else:
                 bin_edges = bins
 
@@ -346,13 +363,18 @@ class MEAPipeline:
             output, _ = np.histogram(arr, bin_edges)
             return output
 
-        psth_xarr = xr.apply_ufunc(apply_hist, spike_times,
+        if bins is None:
+            psth_xarr = xr.apply_ufunc(apply_hist, spike_times, bin_edges,
+                                       output_core_dims = [['bin']],
+                                       vectorize = True, dask = 'allowed')
+        else:
+            psth_xarr = xr.apply_ufunc(apply_hist, spike_times,
                                    kwargs = {'bin_edges' : bin_edges}, 
                                    input_core_dims = [[]], output_core_dims = [['bin']],
                                    vectorize = True)
 
         psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
-        psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[1:])})
+        psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[:-1])})
 
         return psth_xarr
 

@@ -203,7 +203,7 @@ def find_optimal_threshold(f_monitor: np.ndarray, sample_rate: float=10000.0) ->
         d_downs = np.diff(frame_downs)
         d_frames = np.append(d_ups, d_downs)
         frame_violations[t_idx] = len(np.where(d_frames/sample_rate*1000.0 < 32.0)[0])
-    return np.max(thresholds[np.where(frame_violations == np.min(frame_violations))])
+    return np.max(thresholds[np.where(frame_violations == np.min(frame_violations))]).astype(float)
 
 def check_frame_times(frame_times: np.ndarray, expected_frame_rate: float=60.0, bin_rate: float=1000.0):
     # Compute the minimum and maximum intervals from the expected frame rate (msec).
@@ -941,7 +941,7 @@ class Symphony2Reader:
         except:
             self.experiment_name = None
 
-    def read_write(self, datajoint: Optional[bool] = None):
+    def read_write(self, datajoint: bool = False):
         """ Write out the metadata as a JSON file. """
         self.metadata = self.read_file()
 
@@ -953,20 +953,13 @@ class Symphony2Reader:
             assert self.metadata is not None, 'self.metadata variable is empty'
             experiment = self.create_symphony_dict( self.metadata )
 
-            # Write out the JSON for SymphonyData.
-            if datajoint is not None:
-                if not datajoint:
-                    if self.mea_raw_data_path is not None:
-                        self.write_json(self.experiment, self.json_path) 
-                # Write the full experiment JSON for datajoint.
-                else:
-                    self.write_json(experiment, self.json_path)
-
-            else:
+            # Write out the MEA JSON for SymphonyData.
+            if not datajoint:
                 if self.mea_raw_data_path is not None:
-                    self.write_json(self.experiment, self.json_path)
-
-                self.write_json(experiment, self.json_path.replace('.json', '_dj.json'))
+                    self.write_json(self.experiment, self.json_path) 
+            # Write the full experiment JSON for datajoint.
+            else:
+                self.write_json(experiment, self.json_path)
 
             # If this is an MEA experiment, export the text file.
             if self.mea_raw_data_path is not None:
@@ -1384,7 +1377,7 @@ class Symphony2Reader:
                 block_obj.dataFile = f_name
                 assert self.experiment_name is not None, 'self.experiment_name is None'
                 f_path = os.path.join(self.mea_raw_data_path, self.experiment_name, f_name.split('/')[-2])
-                print(f'Will use f_path: {f_path}\n')
+                print(f'Datafile location: {f_path}\n')
                 # Check for the old setup where we directly recorded the frame monitor.
                 if int(self.experiment_name[:8]) < 20220518:
                     litke_starts, litke_ends, array_id, n_samples = get_litke_triggers_old(f_path)
@@ -1722,12 +1715,12 @@ class Symphony2Reader:
         self.file.close()
 
 def h5_to_datajoint_json(h5_path: str, output_directory: str = '/Volumes/data-1/datajoint/mea/meta/',
-                         raw_directory: str = '/Volumes/data-1/data/raw/', datajoint: Optional[bool] = True, **kwargs):
+                         raw_directory: str = '/Volumes/data-1/data/raw/', **kwargs):
     basename = os.path.basename(h5_path)
     exp_name, _ = os.path.splitext(basename)
     out_path = os.path.join(output_directory, f'{exp_name}.json') 
     reader = Symphony2Reader(h5_path = h5_path, out_path = out_path, mea_raw_data_path = raw_directory, **kwargs)
-    reader.read_write(datajoint = datajoint)
+    reader.read_write(datajoint = True)
 
 if __name__ == '__main__':
 
