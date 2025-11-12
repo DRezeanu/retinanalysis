@@ -1007,15 +1007,21 @@ class Symphony2Reader:
             rig_type = 'PATCH'
         experiment = ExperimentObj( d = metadata['sources'][0], rig_type=rig_type ).__dict__
         exp_animals = metadata['sources']
+        if not exp_animals:
+            raise ValueError('No sources found in h5 file, Animals level is empty')
         animals = list()
         for hh in range(len(exp_animals)):
             animal = AnimalObj( d = exp_animals[hh] ).__dict__
             exp_preparations = exp_animals[hh]['sources']
+            if not exp_preparations:
+                raise ValueError('Preparations level is empty, only Animal found')
             preparations = list()
             for ii in range(len(exp_preparations)):
                 preparation = PreparationObj( d = exp_preparations[ii] ).__dict__
                 cell_list = list()
                 cells = exp_preparations[ii]['sources']
+                if not cells:
+                    raise ValueError('Cells level is empty, only Preparation and Animal found')
                 for jj in range( len(cells) ):
                     cell = CellObj( d = cells[jj] ).__dict__
                     print(f'Cell keys: {cell.keys()}')

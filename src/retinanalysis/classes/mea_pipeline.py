@@ -332,10 +332,14 @@ class MEAPipeline:
             epoch_start = 0
             epoch_end = np.mean(all_epoch_ends - all_epoch_starts)/SAMPLE_RATE*1e3
 
-            bin_edges = np.arange(epoch_start, epoch_end, ms_per_bin) 
+            bin_edges = np.round(np.arange(epoch_start, epoch_end+ms_per_bin, ms_per_bin),1)
+            print(f'First 10 bin edges: {bin_edges[0:10]}')
+            n_bins = len(bin_edges)-1
         # Bins by frame times by default if no bin_rate and no bins are given
         elif bins is None:
             bin_edges = np.array(self.stim_block.df_epochs['frame_times_ms'].values)
+            print(f'First 10 bin edges: {bin_edges[0][0:10]}')
+            n_bins = len(bin_edges[0])-1
         else:
             # if no bin_rate and bins is an integer, create that many equally spaced bins
             if isinstance(bins, int):
@@ -346,9 +350,13 @@ class MEAPipeline:
                 epoch_end = np.mean(all_epoch_ends - all_epoch_starts)/SAMPLE_RATE*1e3
 
                 bin_edges = np.linspace(epoch_start, epoch_end, bins)
+                print(f'First 10 bin edges: {bin_edges[0:10]}')
+                n_bins = len(bin_edges)-1
             # if no bin_rate and bins is a list, use that list as bin_edges
             else:
                 bin_edges = bins
+                print(f'First 10 bin edges: {bin_edges[0:10]}')
+                n_bins = len(bin_edges)-1
 
 
         if typing_file is not None:
@@ -357,24 +365,25 @@ class MEAPipeline:
         spike_times = get_spike_xarr(self.response_block, protocol_ids = protocol_ids,
                                      cell_types = cell_types, minimum_n = minimum_n)
 
-        n_bins = len(bin_edges)-1
 
         def apply_hist(arr, bin_edges):
             output, _ = np.histogram(arr, bin_edges)
             return output
 
-        if bins is None:
+        if bins is None and bin_rate is None:
             psth_xarr = xr.apply_ufunc(apply_hist, spike_times, bin_edges,
                                        output_core_dims = [['bin']],
                                        vectorize = True, dask = 'allowed')
+            psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
+            psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[0][:-1])})
         else:
             psth_xarr = xr.apply_ufunc(apply_hist, spike_times,
                                    kwargs = {'bin_edges' : bin_edges}, 
                                    input_core_dims = [[]], output_core_dims = [['bin']],
                                    vectorize = True)
+            psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
+            psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[:-1])})
 
-        psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
-        psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[:-1])})
 
         return psth_xarr
 
