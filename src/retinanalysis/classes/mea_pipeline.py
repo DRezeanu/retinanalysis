@@ -328,17 +328,21 @@ class MEAPipeline:
             all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
             all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
 
-            # epoch starts and ends in milliseconds
-            epoch_start = 0
-            epoch_end = np.mean(all_epoch_ends - all_epoch_starts)/SAMPLE_RATE*1e3
+            # Pull frame times and avg frame length
+            all_frame_times = np.stack(self.stim_block.df_epochs['frame_times_ms'].values) #type: ignore
+            avg_frame_times = np.mean(all_frame_times, axis = 0)
+            avg_frame_length = np.round(np.mean(np.diff(avg_frame_times)),1)
 
-            bin_edges = np.round(np.arange(epoch_start, epoch_end+ms_per_bin, ms_per_bin),1)
-            print(f'First 10 bin edges: {bin_edges[0:10]}')
+            # define epoch start and end time in milliseconds
+            epoch_start = 0
+            epoch_end = np.mean(all_frame_times[:,-1]) #type: ignore
+            
+            # define bin edges
+            bin_edges = np.round(np.arange(epoch_start, epoch_end+avg_frame_length, ms_per_bin))
             n_bins = len(bin_edges)-1
         # Bins by frame times by default if no bin_rate and no bins are given
         elif bins is None:
             bin_edges = np.array(self.stim_block.df_epochs['frame_times_ms'].values)
-            print(f'First 10 bin edges: {bin_edges[0][0:10]}')
             n_bins = len(bin_edges[0])-1
         else:
             # if no bin_rate and bins is an integer, create that many equally spaced bins
@@ -346,16 +350,21 @@ class MEAPipeline:
                 all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
                 all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
 
-                epoch_start = 0
-                epoch_end = np.mean(all_epoch_ends - all_epoch_starts)/SAMPLE_RATE*1e3
+                # Pull frame times and avg frame length
+                all_frame_times = np.stack(self.stim_block.df_epochs['frame_times_ms'].values) #type: ignore
+                avg_frame_times = np.mean(all_frame_times, axis = 0)
+                avg_frame_length = np.round(np.mean(np.diff(avg_frame_times)),1)
 
-                bin_edges = np.linspace(epoch_start, epoch_end, bins)
-                print(f'First 10 bin edges: {bin_edges[0:10]}')
+                # define epoch start and end time in milliseconds
+                epoch_start = 0
+                epoch_end = np.mean(all_frame_times[:,-1]) #type: ignore
+
+                # define bin edges
+                bin_edges = np.linspace(epoch_start, epoch_end+avg_frame_length, bins)
                 n_bins = len(bin_edges)-1
             # if no bin_rate and bins is a list, use that list as bin_edges
             else:
                 bin_edges = bins
-                print(f'First 10 bin edges: {bin_edges[0:10]}')
                 n_bins = len(bin_edges)-1
 
 
