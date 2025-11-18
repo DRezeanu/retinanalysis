@@ -84,6 +84,11 @@ but you must add it to your .gitignore if you do this.
 ```
 docker-compose up -d
 ```
+In case that doesn't work and you have newer versions of Docker, the command syntax is:
+```
+docker compose up -d
+```
+
 
 NOTE: Before importing retinanalysis, you will need to make sure this container is running in Docker 
 Desktop (or throught the terminal if you're comfortable with the Docker CLI). If it is running, you will
