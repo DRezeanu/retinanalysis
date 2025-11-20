@@ -67,7 +67,7 @@ def get_ei_corr(vcd1: VisionCellDataTable, vcd2: VisionCellDataTable,
 
 class MEAQC():
     def __init__(self, rb: MEAResponseBlock, ac: AnalysisChunk, match_dict: dict,
-                 corr_dict: dict, refractory_period_ms: float=1.5):
+                 corr_dict: dict, refractory_period_ms: float=1.5, verbose: bool = False):
         self.rb = rb
         self.ac = ac
         self.match_dict = match_dict
@@ -79,8 +79,9 @@ class MEAQC():
         isi_bin_edges = np.linspace(0,300,601)
         isi_bins = np.array([(isi_bin_edges[i], isi_bin_edges[i+1]) for i in range(len(isi_bin_edges)-1)])
         isi_bin_max = np.argwhere(isi_bins[:,1] <= refractory_period_ms)[-1][0] + 1
-        print(f'Using {refractory_period_ms} ms refractory period.')
-        print(f'Using first {isi_bin_max} bins for refractory period calculation.')
+        if verbose:
+            print(f'Using {refractory_period_ms} ms refractory period.')
+            print(f'Using first {isi_bin_max} bins for refractory period calculation.')
         self.isi_bin_edges = isi_bin_edges
         self.isi_bin_max = isi_bin_max
         
@@ -90,29 +91,33 @@ class MEAQC():
         ls_cols = ['cell_id', 'cell_type', 'noise_spikes',
                     'noise_isi_violations', 'crf_f1', 'ei_corr',
                     'protocol_spikes', 'protocol_isi_violations',
-                    'analysis_chunk_cell_id']
+                    'noise_id']
         df_qc = pd.DataFrame(columns=ls_cols)
         ls_cell_ids = []
-        ls_analysis_chunk_cell_ids = []
+        ls_noise_ids = []
+        ls_cell_types = []
         for key, val in self.match_dict.items():
             ls_cell_ids.append(val)
-            ls_analysis_chunk_cell_ids.append(key)
+            ls_cell_types.append(self.rb.df_spike_times.query('cell_id == @val')['cell_type'].item())
+            ls_noise_ids.append(key)
         
         ls_ei_corr = []
         for key, val in self.corr_dict.items():
             ls_ei_corr.append(val)
 
         df_qc['cell_id'] = ls_cell_ids
-        df_qc['analysis_chunk_cell_id'] = ls_analysis_chunk_cell_ids
+        df_qc['noise_id'] = ls_noise_ids
 
-        df_qc['cell_type'] = self.rb.df_spike_times.loc[df_qc['cell_id'].index, 'cell_type']
+        df_qc['cell_type'] = ls_cell_types
+        # df_qc['cell_type'] = self.rb.df_spike_times.query('cell_id in @ls_cell_ids')['cell_type'].values
+        # df_qc['cell_type'] = self.rb.df_spike_times.loc[df_qc['cell_id'].index, 'cell_type']
         
         df_qc['protocol_spikes'] = get_nsps(self.rb.vcd, df_qc['cell_id'].values)
-        df_qc['noise_spikes'] = get_nsps(self.ac.vcd, df_qc['analysis_chunk_cell_id'].values)
+        df_qc['noise_spikes'] = get_nsps(self.ac.vcd, df_qc['noise_id'].values)
 
         self.protocol_isi = get_isi(self.rb.vcd, df_qc['cell_id'].values, self.isi_bin_edges) #getting incorrect number of cells...
 
-        self.noise_isi = get_isi(self.ac.vcd, df_qc['analysis_chunk_cell_id'].values, self.isi_bin_edges)
+        self.noise_isi = get_isi(self.ac.vcd, df_qc['noise_id'].values, self.isi_bin_edges)
         df_qc['noise_isi_violations'] = get_pct_refractory(self.noise_isi, self.isi_bin_max)
         df_qc['protocol_isi_violations'] = get_pct_refractory(self.protocol_isi, self.isi_bin_max)
 

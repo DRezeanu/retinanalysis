@@ -9,7 +9,7 @@ from typing import Optional
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
-def check_frame_times(frame_times: np.ndarray, frame_rate: float=60.0): 
+def check_frame_times(frame_times: np.ndarray | list, frame_rate: float=60.0): 
     """
     Check the frame times for dropped frames.
 
@@ -62,7 +62,7 @@ class ResponseBlock:
     Generic class for single cell or MEA response blocks. 
     """
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 h5_file: Optional[str]=None, pkl_file: Optional[str]=None, b_load_fd: bool=True):
+                 h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None, b_load_fd: bool=True):
 
         if pkl_file is None:
             print(f"Initializing ResponseBlock for {exp_name} block {block_id}")

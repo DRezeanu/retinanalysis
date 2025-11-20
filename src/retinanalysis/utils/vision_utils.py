@@ -3,6 +3,7 @@ from typing import (Union,
                     List,
                     Dict,
                     Tuple,
+                    Optional,
                     TYPE_CHECKING)
 
 if TYPE_CHECKING:
@@ -343,8 +344,8 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
 
     return d_timecourses_by_type
 
-def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = None,
-                   cell_types: List[str] = None, minimum_n: int = 1) -> xr.DataArray:
+def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: Optional[List[int] | int] = None,
+                   cell_types: Optional[List[str] | str] = None, minimum_n: int = 1) -> xr.DataArray:
     
     if isinstance(cell_types, str):
         cell_types = [cell_types]
@@ -391,8 +392,8 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = N
 
     return spike_time_xarr
 
-def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = None, 
-                         cell_types: List[str] = None, minimum_n:int = 1) -> dict:
+def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: Optional[List[int] | int] = None, 
+                         cell_types: Optional[List[str] | str] = None, minimum_n:int = 1) -> dict:
     
     spike_time_df = response_block.df_spike_times
 

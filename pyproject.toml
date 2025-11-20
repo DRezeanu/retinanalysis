@@ -38,7 +38,15 @@ dependencies = [
   "seaborn",
   "datajoint",
   "ipywidgets",
-  "matplotlib_venn"]
+  "matplotlib_venn",
+  "torch",
+  "torchaudio",
+  "torchvision",
+  "ipykernel",
+  "xarray",
+  "dask",
+  "netCDF4",
+  "bottleneck"]
 
 [project.urls]
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
