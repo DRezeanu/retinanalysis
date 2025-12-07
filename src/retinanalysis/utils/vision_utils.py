@@ -528,7 +528,19 @@ def ei_corr(ref_object: Union[AnalysisChunk, MEAResponseBlock], target_object: U
 
         # Pull reference eis
         ref_ids = ref_object.cell_ids
-        ref_eis = [ref_object.vcd.get_ei_for_cell(cell).ei for cell in ref_ids]
+
+        # New code ensures cells with no or broken EIs don't break cluster matching
+        ref_eis = []
+        bad_ref_ids = []
+        for cell in ref_ids:
+            try:
+                ref_eis.append(ref_object.vcd.get_ei_for_cell(cell).ei)
+            except:
+                print(f'WARNING: No ei for ref cell id {cell}, removing from cluster match')
+                bad_ref_ids.append(cell)
+        
+        good_ref_ids = [id for id in ref_ids if id not in bad_ref_ids]
+        ref_ids = good_ref_ids
 
         if n_removed_channels > 0:
             max_ref_vals = [np.array(np.max(ei, axis = 1)) for ei in ref_eis]
@@ -556,11 +568,22 @@ def ei_corr(ref_object: Union[AnalysisChunk, MEAResponseBlock], target_object: U
             ref_eis = np.array(ref_eis_mean)
         else:
             raise NameError("Method poperty must be 'full', 'time', or 'power'.")
-
-
+        
         # Pull test eis
         test_ids = target_object.cell_ids
-        test_eis = [target_object.vcd.get_ei_for_cell(cell).ei for cell in test_ids]
+
+        # New code makes sure that cells with broken or no EIs don't break cluster matching
+        test_eis = []
+        bad_test_ids = []
+        for cell in test_ids:
+            try:
+                test_eis.append(target_object.vcd.get_ei_for_cell(cell).ei)
+            except:
+                print(f'WARNING: No ei for test cell id {cell}, removing from cluster match')
+                bad_test_ids.append(cell)
+        
+        good_test_ids = [id for id in test_ids if id not in bad_test_ids]
+        test_ids = good_test_ids
 
         if n_removed_channels > 0:
             max_test_vals = [np.array(np.max(ei, axis = 1)) for ei in test_eis]
@@ -588,7 +611,6 @@ def ei_corr(ref_object: Union[AnalysisChunk, MEAResponseBlock], target_object: U
             test_eis = np.array(test_eis_mean)
         else:
             raise NameError("Method poperty must be 'full', 'space', or 'power'.")
-
 
         num_pts = ref_eis.shape[1]
 

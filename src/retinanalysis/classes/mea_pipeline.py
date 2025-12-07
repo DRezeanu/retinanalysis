@@ -71,7 +71,12 @@ class MEAPipeline:
         self.analysis_chunk = analysis_chunk
         self.typing_file = typing_file
 
-        self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
+        if self.response_block.datafile_name in self.analysis_chunk.data_files:
+            print('Protocol is part of the sorting chunk, skipping cluster matching...')
+            self.match_dict = {id : id for id in self.analysis_chunk.cell_ids}
+            self.corr_dict = {id : 1.0 for id in self.analysis_chunk.cell_ids}
+        else:
+            self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
         
         self.add_matches_to_protocol()
         self.add_types_to_protocol(typing_file_name = self.typing_file)
@@ -118,9 +123,14 @@ class MEAPipeline:
         as the source of the information.
         """
 
+        no_typing_file = False
         if typing_file_name is None:
-            typing_file = 0
-            print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
+            if len(self.analysis_chunk.typing_files) == 0:
+                print(f'No typing files found for this analysis chunk, all cells will be marked "No Typing File"')
+                no_typing_file = True
+            else:
+                typing_file = 0
+                print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
         else:
             try:
                 typing_file = self.analysis_chunk.typing_files.index(typing_file_name)
@@ -130,8 +140,12 @@ class MEAPipeline:
         
         type_dict = dict()
         for id in self.analysis_chunk.df_cell_params['cell_id']:
-            if id in self.match_dict:
+            if no_typing_file:
+                type_dict[id] = "No Typing File"
+            elif id in self.match_dict:
                 type_dict[self.match_dict[id]] = self.analysis_chunk.df_cell_params.query('cell_id == @id')[f'typing_file_{typing_file}'].values[0]
+            else:
+                pass
         
         for id in self.response_block.df_spike_times['cell_id']:
             if id in type_dict:
