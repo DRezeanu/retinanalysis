@@ -179,16 +179,29 @@ class MEAResponseBlock(ResponseBlock):
 
         epoch_starts = self.d_timing['epochStarts']
         epoch_ends = self.d_timing['epochEnds']
-
+        
         #i think if symphony crashed during recording, there might be more 1 more start than end
         #this ignores the partial epoch
         if len(epoch_ends) == len(epoch_starts)-1:
             epoch_starts = epoch_starts[:len(epoch_ends)]
-        elif len(epoch_ends) != len(epoch_starts):
-            raise ValueError("Mismatch in number of epoch starts and ends.")
 
-        # n_samples = self.d_timing['n_samples']
-        # frame_times_ms = self.d_timing['frame_times_ms']
+        # Messy fix to a weird problem where there are several erroneous epoch ends recorded
+        elif len(epoch_ends) != len(epoch_starts):
+            print(f'WARNING: Mismatch in number of epoch starts and ends. Starts = {len(epoch_starts)}, Ends = {len(epoch_ends)}, attempting to fix...')
+            avg_epoch_spacing = np.mean(np.diff(epoch_starts))
+            epoch_starts_plus = np.concatenate([epoch_starts[1:], [epoch_starts[-1]+avg_epoch_spacing]])
+
+            correct_ends = []
+            for es in epoch_starts_plus:
+                diff = [es-ee for ee in epoch_ends]
+                test = np.where(np.array(diff) > 0, np.array(diff), np.inf) 
+                target_index = np.argmin(test)
+                correct_ends.append(epoch_ends[target_index])
+            
+            if len(correct_ends) == len(epoch_starts):
+                epoch_ends = correct_ends
+            else:
+                raise ValueError(f"Correction failed: Mismatch in number of epoch starts and ends. Starts = {len(epoch_starts)}, Ends = {len(correct_ends)}")
 
         self.n_epochs = self.d_timing['n_epochs']
         for cell_id in self.cell_ids:

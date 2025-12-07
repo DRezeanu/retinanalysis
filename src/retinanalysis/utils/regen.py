@@ -18,8 +18,9 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
         fts = df_epochs.at[e_idx, 'frame_times_ms']
         pre_time = df_epochs.at[e_idx, 'preTime']
         unique_time = df_epochs.at[e_idx, 'epoch_parameters']['uniqueTime']
-        total_frames = len(fts)-1
+        repeat_time = df_epochs.at[e_idx, 'epoch_parameters']['repeatTime']
         unique_frames = len(np.where(np.logical_and((fts > pre_time),(fts <= pre_time+unique_time)))[0])
+        repeat_frames = len(np.where(np.logical_and((fts > pre_time+unique_time), (fts <= pre_time+unique_time+repeat_time)))[0])
         
         d_e_params = df_epochs.at[e_idx, 'epoch_parameters']
         d_meta = {
@@ -29,7 +30,7 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
             'numYChecks': d_e_params['numYChecks'],
             'chromaticClass': d_e_params['chromaticClass'],
             'unique_frames': unique_frames,
-            'repeat_frames': total_frames - unique_frames,
+            'repeat_frames': repeat_frames,
             'stepsPerStixel': d_e_params['stepsPerStixel'],
             'seed': d_e_params['seed'],
             'frameDwell': d_e_params['frameDwell'],
