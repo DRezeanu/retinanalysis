@@ -25,7 +25,7 @@ pip install --no-build-isolation -e .
 ```
 
 4. Create a config.ini file using the sample version below as a guide and put this config file in
-the src/retinanalysis/config directory.
+the repo, inside the retinanalysis/src/retinanalysis/config folder.
 
 ## Note for Windows Users
 
