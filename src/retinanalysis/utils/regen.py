@@ -234,15 +234,11 @@ def get_spatial_noise_frames(numXStixels: int,
     tsize = np.ceil(numFrames*tfactor/frameDwell).astype(int)
     usize = np.ceil(unique_frames*tfactor/frameDwell).astype(int)
     rsize = np.ceil(repeat_frames*tfactor/frameDwell).astype(int)
-    
+
+    # Ensure even tsize for tfactor=2 (BY) stimuli.
     if (tfactor == 2 and (tsize % 2) != 0):
         tsize += 1
         rsize += 1
-    
-    # reduce tsize for debugging
-    tsize = 10
-    usize = 10
-    rsize = 0
 
     # Generate the random grid of stixels.
     gridValues = np.zeros((tsize, int(numXStixels*numYStixels)), dtype=np.float32)
