@@ -315,9 +315,11 @@ def get_spatial_noise_frames(numXStixels: int,
     print(f'frameValues: {frameValues.shape}')
 
     # Compute crop amounts so fullGrid is centered on frameValues canvas.
-    crop = np.array([fullGrid.shape[1], fullGrid.shape[2]])/2 - np.array([frameValues.shape[1], frameValues.shape[2]])/2
+    crop_rows = (fullGrid.shape[1] - frameValues.shape[1]) / 2
+    crop_cols = (fullGrid.shape[2] - frameValues.shape[2]) / 2
+    crop = np.array([crop_rows, crop_cols])
     crop = np.floor(crop).astype(int)
-    print(f'Cropping fullGrid by {crop} pixels on top and left')
+    print(f'Cropping fullGrid by {crop[0]} pixels on top and {crop[1]} pixels on left')
 
     # Apply the jittered cropping to get frameValues from fullGrid.
     for k in range(tsize):
