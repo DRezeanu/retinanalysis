@@ -8,6 +8,7 @@ import os, argparse
 import re
 from datetime import datetime, timedelta
 from typing import Union
+import matplotlib.pyplot as plt
 
 def strip_uuid(uuid: str) -> str:
     """ Strip the UUID from the UUID string. """
@@ -26,6 +27,7 @@ def get_litke_triggers(bin_path, RW_BLOCKSIZE=2000000, TTL_THRESHOLD=-1000):
         array_id: The array ID (int).
         n_samples: The number of samples (int).
     """
+    trace = []
     epoch_starts = []
     epoch_ends = []
     try:
@@ -35,6 +37,7 @@ def get_litke_triggers(bin_path, RW_BLOCKSIZE=2000000, TTL_THRESHOLD=-1000):
             for start_idx in range(0, n_samples, RW_BLOCKSIZE):
                 n_samples_to_get = min(RW_BLOCKSIZE, n_samples - start_idx)
                 samples = pbfr.get_data_for_electrode(0, start_idx, n_samples_to_get)
+                trace.append(samples)
                 # Find the threshold crossings at the beginning and end of each epoch.
                 below_threshold = (samples < TTL_THRESHOLD)
                 above_threshold = np.logical_not(below_threshold)
@@ -59,7 +62,7 @@ def get_litke_triggers(bin_path, RW_BLOCKSIZE=2000000, TTL_THRESHOLD=-1000):
         return epoch_starts, epoch_ends, array_id, n_samples 
     epoch_starts = np.concatenate(epoch_starts, axis=0)
     epoch_ends = np.concatenate(epoch_ends, axis=0)
-    return epoch_starts, epoch_ends, array_id, n_samples
+    return epoch_starts, epoch_ends, array_id, n_samples, trace
 
 # Stopped recording frames in Labview 20220518..
 def get_litke_triggers_old(binpath, transitionThreshold = 2000):
