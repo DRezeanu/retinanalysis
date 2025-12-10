@@ -42,12 +42,11 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
         fts = df_epochs.at[e_idx, 'frame_times_ms']
         pre_time = df_epochs.at[e_idx, 'preTime']
         unique_time = df_epochs.at[e_idx, 'epoch_parameters']['uniqueTime']
-        # This is wrong
-        # total_frames = len(fts)-1
-        # unique_frames = len(np.where(np.logical_and((fts > pre_time),(fts <= pre_time+unique_time)))[0])
-        # Hack for now
-        unique_frames = int(unique_time / 16.67)  # Assuming 60 Hz refresh rate
-        total_frames = unique_frames
+        repeat_time = df_epochs.at[e_idx, 'epoch_parameters']['repeatTime']
+        
+        # TODO get saved out unique_frames, and compute total frames with state.time logic, which should be equivalent to below method.
+        unique_frames = len(np.where(np.logical_and((fts > pre_time),(fts <= pre_time+unique_time)))[0])
+        repeat_frames = len(np.where(np.logical_and((fts > pre_time+unique_time), (fts <= pre_time+unique_time+repeat_time)))[0])
         
         d_e_params = df_epochs.at[e_idx, 'epoch_parameters']
         d_meta = {
@@ -58,7 +57,7 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
             'gridSizeUm': d_e_params['gridSize'],
             'chromaticClass': d_e_params['chromaticClass'],
             'unique_frames': unique_frames,
-            'repeat_frames': total_frames - unique_frames,
+            'repeat_frames': repeat_frames,
             'stepsPerStixel': d_e_params['stepsPerStixel'],
             'seed': d_e_params['seed'],
             'frameDwell': d_e_params['frameDwell']
