@@ -6,6 +6,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 import pickle
 from typing import Optional
+import matplotlib.pyplot as plt
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
