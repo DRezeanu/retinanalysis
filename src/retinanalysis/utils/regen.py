@@ -432,10 +432,10 @@ def load_and_process_img(str_img,screen_size = np.array([1140, 1824]), # rows, c
 def get_image_paths_across_epochs(df_epochs: pd.DataFrame):
     # Each epoch has multiple images with associated name and folder
     # Return a flattened array of paths to all the images across epochs.
-    all_image_names = df_epochs['imageName'].values
+    all_image_names = get_df_dict_vals(df_epochs, 'imageName')
     all_image_names = np.concatenate([x.split(',') for x in all_image_names])
 
-    all_image_folders = df_epochs['folder'].values
+    all_image_folders = get_df_dict_vals(df_epochs, 'folder')
     all_image_folders = np.concatenate([x.split(',') for x in all_image_folders])
 
     all_image_paths = []
@@ -657,6 +657,7 @@ def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock
     split_image_paths = []
     split_onset_samples = []
     split_offset_samples = []
+    split_epoch_idx = []
     for i in range(n_epochs):
         # es = rb.d_timing['epochStarts'][i]
         for j in range(imgs_per_epoch):
@@ -674,10 +675,12 @@ def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock
             split_image_paths.append(all_image_paths[i * imgs_per_epoch + j])
             split_onset_samples.append(t_onset)
             split_offset_samples.append(t_offset)
+            split_epoch_idx.append(i)
         
     split_image_paths = np.array(split_image_paths)
     split_onset_samples = np.array(split_onset_samples)
     split_offset_samples = np.array(split_offset_samples)
+    split_epoch_idx = np.array(split_epoch_idx)
 
     # Convert onset and offset samples to ms.
     split_onset_ms = split_onset_samples / rb.amp_sample_rate * 1000
@@ -692,6 +695,7 @@ def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock
         'trial_offset_samples': split_offset_samples,
         'trial_onset_ms': split_onset_ms,
         'trial_offset_ms': split_offset_ms,
+        'trial_epoch_idx': split_epoch_idx,
     }
     return d_out
 
@@ -706,8 +710,8 @@ def load_all_present_images(df_epochs: pd.DataFrame, rb: MEAResponseBlock | SCRe
 
     Args:
         df_epochs (pd.DataFrame): Dataframe of epoch-block metadata.
-        str_parent_path (str): Parent directory to images.
         rb (MEAResponseBlock | SCResponseBlock): Responseblock with d_timing and amp_sample_rate
+        str_parent_path (str, optional): Parent directory to images.
         ds_mu (float, optional): Downscale images to these um-sized pixels. Defaults to 10.0.
         b_only_timing (bool, optional): Return only transition timing. Defaults to False.
 
@@ -716,10 +720,16 @@ def load_all_present_images(df_epochs: pd.DataFrame, rb: MEAResponseBlock | SCRe
 
     Returns:
         dict: Dictionary with:
+            - 'all_image_paths': (n_images,) Full paths to images.
+            - 'u_image_paths': (n_unique_images,) Unique image paths.
+            - 'repeats': (n_unique_images,) number of repeats for each unique image.
+            - 'trial_image_paths': (n_trials,) image paths for each individual image flash.
+            - 'trial_onset_samples': (n_trials,)  image flash onsets in samples
+            - 'trial_offset_samples': (n_trials,) image flash offsets in samples.
+            - 'trial_onset_ms': (n_trials,) image flash onsets in ms
+            - 'trial_offset_ms': (n_trials,) image flash offsets in ms.
+            - 'trial_epoch_idx': (n_trials,) epoch index for each individual image flash.
             - 'image_data': (n_images, rows, cols) array of images.
-            - 'all_image_paths': (n_images,) array of full paths to images.
-            - 'u_image_paths': (n_unique_images,) array of unique image paths.
-            - 'repeats': (n_unique_images,) array of number of repeats for each unique image.
             - 'd_display_params': Dictionary with display parameters.
     """
     # Get transition timing and associated image paths.
