@@ -612,12 +612,13 @@ def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock
         if last_img_offset > n_expected_stim_frames:
             # Find last image offset that fits within the available frames.
             last_img_idx = np.where(img_offset_frames[i] <= n_expected_stim_frames)[0][-1]
-            
+
             # Reset imgs_per_epoch to last img index.
             imgs_per_epoch = last_img_idx + 1
-            print(f'Due to state.time duration and visibility controller, {n_expected_stim_frames} frames were visible.')
+            print(f'\nDue to state.time duration and visibility controller, {n_expected_stim_frames} frames were visible.')
+            print(f'But last image offset frame {last_img_offset} exceeds {n_expected_stim_frames} frames.')
             print(f'Epoch {i} thus only showed {imgs_per_epoch} images.')
-            print(f'Assuming {imgs_per_epoch} is the correct number of images per epoch for all epochs.')
+            print(f'Assuming {imgs_per_epoch} is the correct number of images per epoch for all epochs.\n')
 
             # Recompute onset/offset frames based on new imgs_per_epoch
             img_onset_frames, img_offset_frames = compute_image_onset_offset_frames(
