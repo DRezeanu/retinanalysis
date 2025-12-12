@@ -834,27 +834,31 @@ def get_h5_file(exp_name: str) -> str:
 
 
 
-def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str]=None):
+def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str]=None, b_load_fd: Optional[bool]=False):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
-    print(f'Loading frame monitor data from {str_h5} ...')
     r_q = get_epochblock_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
     
     df_frame = df.query('device_name == "Frame Monitor"')
     df_frame = df_frame.reset_index(drop=True)
 
-    frame_h5paths = df_frame['h5path'].values
+    if b_load_fd:
+        print(f'Loading frame monitor data from {str_h5} ...')
+        frame_h5paths = df_frame['h5path'].values
 
-    # Collect data
-    frame_data = []
-    with h5py.File(str_h5, 'r') as f:
-        for h5path in frame_h5paths:
-            trace = f[h5path]['data']['quantity']
-            frame_data.append(trace)
-    
-    frame_data = np.array(frame_data)
-    print(f'Loaded {frame_data.shape} frame_data.\n')
+        # Collect data
+        frame_data = []
+        with h5py.File(str_h5, 'r') as f:
+            for h5path in frame_h5paths:
+                trace = f[h5path]['data']['quantity']
+                frame_data.append(trace)
+        
+        frame_data = np.array(frame_data)
+        print(f'Loaded {frame_data.shape} frame_data.\n')
+    else:
+        frame_data = np.array([])
+        print('Skipping loading frame monitor data.\n')
 
     sample_rates = df_frame['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:

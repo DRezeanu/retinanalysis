@@ -86,11 +86,10 @@ class ResponseBlock:
         self.block_id = block_id    
         self.h5_file = h5_file
         self.d_timing = dju.get_epochblock_timing(self.exp_name, self.block_id)
-        if b_load_fd:
-            frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
-        else:
-            frame_data = np.array([])
-            frame_sample_rate = None
+        
+        frame_data, frame_sample_rate = dju.get_epochblock_frame_data(
+            self.exp_name, self.block_id, 
+            str_h5=self.h5_file, b_load_fd=b_load_fd)    
         self.frame_data = frame_data
         self.frame_sample_rate = frame_sample_rate
 
