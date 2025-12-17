@@ -9,6 +9,8 @@ import retinanalysis.utils.regen as regen
 import pickle
 from retinanalysis.classes.analysis_chunk import get_noise_name_by_exp
 from typing import Optional
+from retinanalysis.config.settings import ANALYSIS_DIR
+import os
 
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
@@ -192,10 +194,15 @@ class MEAStimBlock(StimBlock):
             nearest_noise_chunk = nearest_noise_chunk.reset_index(drop = True).loc[0, 'chunk_name']
 
             # Check if this chunk has a typing file
-            noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
-            noise_chunk_id = noise_chunk_id.fetch('id')[0]
+            
+            # New way to check for typing files... avoids missing typing files in database
+            ss_version = os.listdir(os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk))[0]
+            typing_file_path = os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version)
+            typing_files = [file for file in os.listdir(typing_file_path) if '.txt' in file]
 
-            typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
+            # noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
+            # noise_chunk_id = noise_chunk_id.fetch('id')[0]
+            # typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
 
             # If there's no typing file, remove the minimum value and try again
             if len(typing_files) == 0:
