@@ -6,6 +6,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 import pickle
 from typing import Optional
+import matplotlib.pyplot as plt
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
@@ -62,16 +63,17 @@ class ResponseBlock:
     Generic class for single cell or MEA response blocks. 
     """
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None):
+                 h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None, b_load_fd: bool=True):
 
         if pkl_file is None:
             print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
-            print(f"Initializing ResponseBlock for {exp_name} block {block_id} from pickle file.")
+            print(f"Initializing ResponseBlock from pickle file.")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
+                print(f"  pkl_file: {pkl_file}")
                 with open(pkl_file, 'rb') as f:
                     d_out = pickle.load(f)
             else:
@@ -85,7 +87,11 @@ class ResponseBlock:
         self.block_id = block_id    
         self.h5_file = h5_file
         self.d_timing = dju.get_epochblock_timing(self.exp_name, self.block_id)
-        frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
+        if b_load_fd:
+            frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
+        else:
+            frame_data = np.array([])
+            frame_sample_rate = None
         self.frame_data = frame_data
         self.frame_sample_rate = frame_sample_rate
 
@@ -106,14 +112,22 @@ class ResponseBlock:
             pickle.dump(d_out, f)
         print(f"ResponseBlock exported to {file_path}")
 
+    def plot_frame_monitor(self, e_idx=0, xlim=(0,1)):
+        f, ax = plt.subplots(figsize=(10,4))
+        fd = self.frame_data[e_idx]
+        time = np.arange(fd.shape[0]) / self.frame_sample_rate
+        ax.plot(time, fd)
+        for ft in self.d_timing['frameTimesMs'][e_idx]:
+            ax.axvline(x=ft * 1e-3, color='r', linestyle='--')
+        ax.set_xlim(*xlim)
+
 
 class SCResponseBlock(ResponseBlock):
-
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
                  h5_file: Optional[str]=None, pkl_file: Optional[str]=None,
-                 b_spiking: bool=False, **detector_kwargs):
+                 b_spiking: bool=False, b_load_fd: bool=True, **detector_kwargs):
 
-        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file)
+        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file, b_load_fd=b_load_fd)
 
         if pkl_file is not None:
             return
@@ -147,7 +161,7 @@ class MEAResponseBlock(ResponseBlock):
 
     def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None,
-                 h5_file: Optional[str]=None, include_ei: bool=True):
+                 h5_file: Optional[str]=None, include_ei: bool=True, b_load_fd: bool=True):
 
         # If pkl_file is provided, block_id can be None.
         block_id = None
@@ -161,8 +175,9 @@ class MEAResponseBlock(ResponseBlock):
                 # Set the ss_version and datafile_name for loading VCD.
                 self.ss_version = ss_version
                 self.datafile_name = datafile_name
-        
-        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file)
+
+        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file, b_load_fd=b_load_fd)
+        self.amp_sample_rate = SAMPLE_RATE # MEA DAQ sample rate in Hz, analogous variable in SCResponseBlock
 
         self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei)
 
@@ -171,7 +186,7 @@ class MEAResponseBlock(ResponseBlock):
             return
         
         self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
-        self.cell_ids = self.vcd.get_cell_ids()
+        self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
         self.get_spike_times()
 
     def get_spike_times(self):
@@ -179,29 +194,6 @@ class MEAResponseBlock(ResponseBlock):
 
         epoch_starts = self.d_timing['epochStarts']
         epoch_ends = self.d_timing['epochEnds']
-        
-        #i think if symphony crashed during recording, there might be more 1 more start than end
-        #this ignores the partial epoch
-        if len(epoch_ends) == len(epoch_starts)-1:
-            epoch_starts = epoch_starts[:len(epoch_ends)]
-
-        # Messy fix to a weird problem where there are several erroneous epoch ends recorded
-        elif len(epoch_ends) != len(epoch_starts):
-            print(f'WARNING: Mismatch in number of epoch starts and ends. Starts = {len(epoch_starts)}, Ends = {len(epoch_ends)}, attempting to fix...')
-            avg_epoch_spacing = np.mean(np.diff(epoch_starts))
-            epoch_starts_plus = np.concatenate([epoch_starts[1:], [epoch_starts[-1]+avg_epoch_spacing]])
-
-            correct_ends = []
-            for es in epoch_starts_plus:
-                diff = [es-ee for ee in epoch_ends]
-                test = np.where(np.array(diff) > 0, np.array(diff), np.inf) 
-                target_index = np.argmin(test)
-                correct_ends.append(epoch_ends[target_index])
-            
-            if len(correct_ends) == len(epoch_starts):
-                epoch_ends = correct_ends
-            else:
-                raise ValueError(f"Correction failed: Mismatch in number of epoch starts and ends. Starts = {len(epoch_starts)}, Ends = {len(correct_ends)}")
 
         self.n_epochs = self.d_timing['n_epochs']
         for cell_id in self.cell_ids:
@@ -241,7 +233,9 @@ class MEAResponseBlock(ResponseBlock):
         n_max_bins = int(np.max(ls_bins))
         return n_max_bins
     
-    def bin_spike_times_by_frames(self, stride: int=1):
+    def bin_spike_times_by_frames(self): # , stride: int=1
+        stride = 1
+        # TODO implement stride > 1 with interpolating bw frame times.
         frame_times_ms = self.d_timing['frameTimesMs']
         if int(self.exp_name[:8]) < 20230926:
             marginal_frame_rate = 60.31807657 # Upper bound on the frame rate to make sure that we don't miss any frames.
@@ -278,7 +272,30 @@ class MEAResponseBlock(ResponseBlock):
         print(f'Mean frame rate: {mean_frame_rate:.2f} Hz\n')
         self.mean_frame_rate = mean_frame_rate
         self.bin_rate = bin_rate
-        self.binned_time = np.arange(0, n_max_bins) / self.bin_rate * 1000 # in ms
+        self.time_bins_ms = np.arange(0, n_max_bins) / self.bin_rate * 1000 # in ms
+
+    def bin_spike_times_at_rate(self, bin_rate: float, b_count: bool=True):
+        n_bins = self.get_max_bins_for_rate(bin_rate)
+        time_bins = np.arange(n_bins + 1) / bin_rate * 1000 # in ms
+        n_cells = len(self.cell_ids)
+        
+        binned_spikes = np.zeros((n_cells, self.n_epochs, n_bins))
+        for i_cell in tqdm(self.df_spike_times.index, desc='Binning spikes for cells'):
+            sts = self.df_spike_times.at[i_cell, 'spike_times']
+            for j_epoch in range(self.n_epochs):
+                e_sts = sts[j_epoch]
+
+                bs = np.histogram(e_sts, bins=time_bins)[0]
+                binned_spikes[i_cell, j_epoch, :] = bs
+        
+        if not b_count:
+            binned_spikes *= bin_rate
+        
+        self.df_spike_times['binned_spikes'] = [binned_spikes[i_cell, :, :] for i_cell in range(n_cells)]
+        
+        self.binned_spikes = binned_spikes
+        self.bin_rate = bin_rate
+        self.time_bins_ms = time_bins[:-1]
 
 
     def __repr__(self):

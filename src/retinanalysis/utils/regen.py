@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import cv2
 from typing import Optional
+from retinanalysis.classes.response import MEAResponseBlock, SCResponseBlock
 
 def get_df_dict_vals(df, key, col_name='epoch_parameters'):
     vals = np.array([d[key] for d in df[col_name].values])
@@ -314,7 +315,7 @@ def get_spatial_noise_frames(numXStixels: int,
         stimulus[:,:,:,1] = frameValues
         stimulus[:,:,:,2] = frameValues
     
-    # Deal with the frame dwell. TODO: optimize with np.repeat
+    # Deal with the frame dwell.
     if frameDwell > 1:
         stim = np.zeros((numFrames, numYChecks, numXChecks, 3), dtype=np.float32)
         for k in range(numFrames):
@@ -385,10 +386,12 @@ def load_and_process_img(str_img,screen_size = np.array([1140, 1824]), # rows, c
 
 
 def get_image_paths_across_epochs(df_epochs: pd.DataFrame):
-    all_image_names = df_epochs['imageName'].values
+    # Each epoch has multiple images with associated name and folder
+    # Return a flattened array of paths to all the images across epochs.
+    all_image_names = get_df_dict_vals(df_epochs, 'imageName')
     all_image_names = np.concatenate([x.split(',') for x in all_image_names])
 
-    all_image_folders = df_epochs['folder'].values
+    all_image_folders = get_df_dict_vals(df_epochs, 'folder')
     all_image_folders = np.concatenate([x.split(',') for x in all_image_folders])
 
     all_image_paths = []
@@ -398,23 +401,300 @@ def get_image_paths_across_epochs(df_epochs: pd.DataFrame):
     all_image_paths = np.array(all_image_paths)
     return all_image_paths
 
+def get_old_presentimages_transitions(df_epochs: pd.DataFrame,
+                                      frame_rate=59,
+                                      stride=1,
+                                      pre_flash_time=0.25,
+                                      verbose=True):
+    # Method for old versions of PresentImages protocol that used state.time for transitions.
+    n_trials = len(df_epochs)
+    pre_time = df_epochs.at[0, 'epoch_parameters']['preTime'] * 1e-3
+    flash_time = df_epochs.at[0, 'epoch_parameters']['flashTime'] * 1e-3
+    gap_time = df_epochs.at[0, 'epoch_parameters']['gapTime'] * 1e-3
+    tail_time = df_epochs.at[0, 'epoch_parameters']['tailTime'] * 1e-3
+    stim_time = df_epochs.at[0, 'epoch_parameters']['stimTime'] * 1e-3
 
-def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str, 
-                        ds_mu: float=10.0):
-    # Given dataframe of epoch metadata, load all unique flashed images.
-    # Return dataarray of unique images with coords of image name.
-    # Or alternatively dictionary with 'unique_images' array and 'image_names' list.
-    # Let's start with dictionary.
-    # ds_mu = 10 => Downscale to 10x10 um pixels
+    total_time = pre_time + stim_time + tail_time
 
-    # Get unique image paths
-    print('Loading flashed images...')
+    total_frames = np.round(frame_rate * total_time).astype(int)
+    frame_time = 1 / frame_rate
+
+    # Generate state.time for each frame
+    state_time = np.arange(0, total_frames * frame_time, frame_time)
+
+    n_flashes = int(np.floor(stim_time / (flash_time + gap_time)))
+
+    pre_bins = (state_time < pre_time).sum() * stride
+    stim_bins = ((state_time >= pre_time) &
+                 (state_time < pre_time + stim_time)).sum() * stride
+    tail_bins = (state_time >= pre_time + stim_time).sum() * stride
+
+    total_bins = pre_bins + stim_bins + tail_bins
+
+    state_time -= pre_time
+    ls_flash_bins = np.zeros((n_trials, n_flashes), dtype=int)
+    ls_gap_bins = np.zeros((n_trials, n_flashes), dtype=int)
+    for i in range(n_trials):
+        for j in range(n_flashes):
+            flash_bins = ((state_time >= j * (flash_time + gap_time))
+                          & (state_time <= (j * (flash_time + gap_time) +
+                                            flash_time))).sum()
+            flash_bins = flash_bins * stride
+            gap_bins = ((state_time >= (j *
+                                        (flash_time + gap_time) + flash_time))
+                        & (state_time < (j + 1) *
+                           (flash_time + gap_time))).sum()
+            gap_bins = gap_bins * stride
+            # ls_flash_bins.append(flash_bins)
+            # ls_gap_bins.append(gap_bins)
+            ls_flash_bins[i, j] = flash_bins
+            ls_gap_bins[i, j] = gap_bins
+
+    upper_lim = np.max(ls_flash_bins) + np.max(ls_gap_bins)
+    # pre_flash_time must be min of pre_time and input
+    pre_flash_time = min(pre_flash_time, pre_time)
+
+    pre_flash_bins = np.round(pre_flash_time * frame_rate).astype(int) * stride
+
+    final_bins = upper_lim + pre_flash_bins
+
+    if verbose:
+        print(
+            f"Total time: {total_time}s, Total frames: {total_frames}, Frame time: {frame_time:.4f}s"
+        )
+        print(f"Made state time of shape {state_time.shape}")
+        print(f"Number of flashes: {n_flashes}")
+        print(
+            f"Pre bins: {pre_bins}, Stim bins: {stim_bins}, Tail bins: {tail_bins}"
+        )
+        print(f"Total bins: {total_bins}")
+        print(
+            f"Unique flash bins: {np.unique(ls_flash_bins, return_counts=True)}"
+        )
+        print(f"Unique gap bins: {np.unique(ls_gap_bins, return_counts=True)}")
+        print(f"Pre flash time: {pre_flash_time:.4f}s")
+        print(f"Pre flash bins: {pre_flash_bins}")
+
+    d_out = {
+        'n_trials': n_trials,
+        'n_flashes': n_flashes,
+        'pre_bins': pre_bins,
+        'stim_bins': stim_bins,
+        'tail_bins': tail_bins,
+        'final_bins': final_bins,
+        'pre_flash_bins': pre_flash_bins,
+        'flash_bins': np.unique(ls_flash_bins)[0],
+        'ls_flash_bins': np.array(ls_flash_bins),
+        'ls_gap_bins': np.array(ls_gap_bins)
+    }
+    return d_out
+
+def compute_image_onset_offset_frames(n_epochs, imgs_per_epoch, pre_frames, epoch_flash_frames, epoch_gap_frames):
+    # Utility for computing PresentImages img onset and offset frames
+    img_onset_frames = np.zeros((n_epochs, imgs_per_epoch), dtype=int)
+    img_offset_frames = np.zeros((n_epochs, imgs_per_epoch), dtype=int)
+    
+    for i in range(n_epochs):
+        img_onset_frames[i, 0] = pre_frames
+        img_offset_frames[i, 0] = pre_frames + epoch_flash_frames[i, 0]
+
+        for j in range(imgs_per_epoch-1):
+            n_frames_for_img = epoch_flash_frames[i, j] + epoch_gap_frames[i, j]
+            img_onset_frames[i, j+1] = img_onset_frames[i, j] + n_frames_for_img
+            img_offset_frames[i, j+1] = img_onset_frames[i, j+1] + epoch_flash_frames[i, j+1]
+    
+    return img_onset_frames, img_offset_frames
+
+def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock | SCResponseBlock):
+    # Get stage_frame_rate
+    stage_frame_rates = get_df_dict_vals(df_epochs, 'frameRate')
+    
+    # Check there's only one stage frame rate.
+    if len(np.unique(stage_frame_rates)) > 1:
+        raise ValueError(f'Multiple stage frame rates found: {np.unique(stage_frame_rates)}. Please ensure all epochs have the same stage_frame_rate.')
+    else:
+        print(f'Using stage frame rate: {stage_frame_rates[0]} Hz')
+    stage_frame_rate = stage_frame_rates[0]
+
+    # Get epoch block parameters.
+    pre_time = get_df_dict_vals(df_epochs, 'preTime')[0]
+    stim_time = get_df_dict_vals(df_epochs, 'stimTime')[0]
+    imgs_per_epoch = get_df_dict_vals(df_epochs, 'imagesPerEpoch')[0]
+    imgs_per_epoch = int(imgs_per_epoch)
+
+    # Check if 'flashFrames' key exists. If not, use method for old protocol version.
+    if 'flashFrames' not in df_epochs.at[0, 'epoch_parameters'].keys():
+        print("flashFrames key not found in epoch_parameters. Using old method for transition bins.")
+        d_bins = get_old_presentimages_transitions(df_epochs, frame_rate=stage_frame_rate, stride=1, verbose=True)
+        epoch_flash_frames = d_bins['ls_flash_bins']
+        epoch_gap_frames = d_bins['ls_gap_bins']
+        
+    else:
+        # Frame counts for each epoch
+        epoch_flash_frames = get_df_dict_vals(df_epochs, 'flashFrames')
+        epoch_gap_frames = get_df_dict_vals(df_epochs, 'gapFrames')
+        
+        # It's constant for every flash in newer versions, so repeat it imgs_per_epoch times
+        epoch_flash_frames = np.repeat(np.array(epoch_flash_frames)[:, np.newaxis], imgs_per_epoch, axis=1)
+        epoch_gap_frames = np.repeat(np.array(epoch_gap_frames)[:, np.newaxis], imgs_per_epoch, axis=1)
+
+    # Ensure ints
+    epoch_flash_frames = epoch_flash_frames.astype(int)
+    epoch_gap_frames = epoch_gap_frames.astype(int)
+
+    pre_frames = np.floor(pre_time * 1e-3 * stage_frame_rate).astype(int)
+    # Correct for LCR Stage error of missing first frame by subtracting 1 frame
+    pre_frames -= 1
+    print(f'Using {pre_frames} pre frames, {stage_frame_rate} Hz stage frame rate.')
+    print(f'Protocol had {imgs_per_epoch} images per epoch, {np.unique(epoch_flash_frames)} flash frames, {np.unique(epoch_gap_frames)} gap frames.')
+
+    n_epochs = len(df_epochs)
+
+    img_onset_frames, img_offset_frames = compute_image_onset_offset_frames(
+        n_epochs, imgs_per_epoch, pre_frames, 
+        epoch_flash_frames, epoch_gap_frames
+    )
+    # Check if all images were shown or if last few weren't due to state.time duration.
+    for i in range(n_epochs):
+        n_frames = len(rb.d_timing['frameTimesMs'][i])
+        n_expected_stim_frames = np.floor(stim_time/1e3 * stage_frame_rate).astype(int)
+        
+        # There should at least be this many stim frames, otherwise something went really wrong with delivery or frame time detection.
+        if n_frames < n_expected_stim_frames:
+            raise ValueError(f'Epoch {i} had only {n_frames} frames, but expected {n_expected_stim_frames} frames for {stim_time} s stimulus time at {stage_frame_rate} Hz stage frame rate.')
+        
+        # Check if last image offset is within the expected number of frames.
+        last_img_offset = img_offset_frames[i, -1]
+        if last_img_offset > n_expected_stim_frames:
+            # Find last image offset that fits within the available frames.
+            last_img_idx = np.where(img_offset_frames[i] <= n_expected_stim_frames)[0][-1]
+
+            # Reset imgs_per_epoch to last img index.
+            imgs_per_epoch = last_img_idx + 1
+            print(f'\nDue to state.time duration and visibility controller, {n_expected_stim_frames} frames were visible.')
+            print(f'But last image offset frame {last_img_offset} exceeds {n_expected_stim_frames} frames.')
+            print(f'Epoch {i} thus only showed {imgs_per_epoch} images.')
+            print(f'Assuming {imgs_per_epoch} is the correct number of images per epoch for all epochs.\n')
+
+            # Recompute onset/offset frames based on new imgs_per_epoch
+            img_onset_frames, img_offset_frames = compute_image_onset_offset_frames(
+                n_epochs, imgs_per_epoch, pre_frames, 
+                epoch_flash_frames, epoch_gap_frames
+            )
+        break
+
     all_image_paths = get_image_paths_across_epochs(df_epochs)
     u_image_paths, u_repeats = np.unique(all_image_paths, return_counts=True)
     repeats = np.unique(u_repeats)
-    print(f'Found {len(u_image_paths)} unique images to load.')
+    # if len(repeats) > 1:
+        # raise NotImplementedError(f'Found images with different number of repeats: {repeats}. Please ensure all images have the same number of repeats.')
+    # repeats = repeats[0]
+    print(f'Found {len(u_image_paths)} unique images.')
     print(f'Found {repeats} repeats across all images.')
     print(f'These are named: {u_image_paths[0]} - {u_image_paths[-1]}')
+
+    # Convert frame times ms to samples
+    frame_times_samples = []
+    avg_frame_rates = []
+    for i in range(n_epochs):
+        e_fts = rb.d_timing['frameTimesMs'][i] 
+        e_fts = np.array(e_fts)
+        e_fts *= rb.amp_sample_rate / 1000
+        e_fts = np.round(e_fts).astype(int)
+        frame_times_samples.append(e_fts)
+
+        avg_frame_rate = rb.amp_sample_rate / np.mean(np.diff(e_fts))
+        avg_frame_rates.append(avg_frame_rate)
+        
+    # Compute average frame rate, mainly for logging.
+    avg_frame_rate = np.mean(avg_frame_rates)
+    print(f'Average empirical frame rate: {avg_frame_rate:.4f} Hz')
+
+    split_image_paths = []
+    split_onset_samples = []
+    split_offset_samples = []
+    split_epoch_idx = []
+    for i in range(n_epochs):
+        # es = rb.d_timing['epochStarts'][i]
+        for j in range(imgs_per_epoch):
+            # Indexing explanation
+            # eg-if 15 pre_frames, index 14 gives onset of last pre frame, 
+            # index 15 gives onset of first flash frame
+            t_onset = frame_times_samples[i][img_onset_frames[i, j]] 
+            t_offset = frame_times_samples[i][img_offset_frames[i, j]]
+            # t_delta = t_offset - t_onset
+
+            # Offset by epoch start samples
+            # t_onset += es
+            # t_offset += es
+            
+            split_image_paths.append(all_image_paths[i * imgs_per_epoch + j])
+            split_onset_samples.append(t_onset)
+            split_offset_samples.append(t_offset)
+            split_epoch_idx.append(i)
+        
+    split_image_paths = np.array(split_image_paths)
+    split_onset_samples = np.array(split_onset_samples)
+    split_offset_samples = np.array(split_offset_samples)
+    split_epoch_idx = np.array(split_epoch_idx)
+
+    # Convert onset and offset samples to ms.
+    split_onset_ms = split_onset_samples / rb.amp_sample_rate * 1000
+    split_offset_ms = split_offset_samples / rb.amp_sample_rate * 1000
+
+    d_out = {
+        'all_image_paths': all_image_paths,
+        'u_image_paths': u_image_paths,
+        'repeats': repeats,
+        'trial_image_paths': split_image_paths,
+        'trial_onset_samples': split_onset_samples,
+        'trial_offset_samples': split_offset_samples,
+        'trial_onset_ms': split_onset_ms,
+        'trial_offset_ms': split_offset_ms,
+        'trial_epoch_idx': split_epoch_idx,
+    }
+    return d_out
+
+
+def load_all_present_images(df_epochs: pd.DataFrame, rb: MEAResponseBlock | SCResponseBlock,
+                            str_parent_path: str=None, 
+                            ds_mu: float=10.0, b_only_timing: bool=False)-> dict:
+    """
+    Load all unique flashed images and their onset/offset timing.
+    
+    Return dictionary with 'unique_images' array and 'image_names' list.
+
+    Args:
+        df_epochs (pd.DataFrame): Dataframe of epoch-block metadata.
+        rb (MEAResponseBlock | SCResponseBlock): Responseblock with d_timing and amp_sample_rate
+        str_parent_path (str, optional): Parent directory to images.
+        ds_mu (float, optional): Downscale images to these um-sized pixels. Defaults to 10.0.
+        b_only_timing (bool, optional): Return only transition timing. Defaults to False.
+
+    Raises:
+        ValueError: If multiple magnification factors are found across epochs.
+
+    Returns:
+        dict: Dictionary with:
+            - 'all_image_paths': (n_images,) Full paths to images.
+            - 'u_image_paths': (n_unique_images,) Unique image paths.
+            - 'repeats': (n_unique_images,) number of repeats for each unique image.
+            - 'trial_image_paths': (n_trials,) image paths for each individual image flash.
+            - 'trial_onset_samples': (n_trials,)  image flash onsets in samples
+            - 'trial_offset_samples': (n_trials,) image flash offsets in samples.
+            - 'trial_onset_ms': (n_trials,) image flash onsets in ms
+            - 'trial_offset_ms': (n_trials,) image flash offsets in ms.
+            - 'trial_epoch_idx': (n_trials,) epoch index for each individual image flash.
+            - 'image_data': (n_images, rows, cols) array of images.
+            - 'd_display_params': Dictionary with display parameters.
+    """
+    # Get transition timing and associated image paths.
+    d_transitions = get_present_images_transitions(df_epochs, rb)
+    if b_only_timing:
+        return d_transitions
+
+    if str_parent_path is None:
+        raise ValueError('str_parent_path must be provided if b_only_timing is False.')
 
     # Get display parameters.
     d_epoch_params = df_epochs.iloc[0]['epoch_parameters']
@@ -439,7 +719,9 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
     print(f'Using {ds_mu} um pixel size, {d_display_params["ds_pix"]} pixels per um, '
           f'{d_display_params["ds_screen_size"]} resampled screen size')
 
+    # Load all images at desired downsampling factor.
     all_images = []
+    u_image_paths = d_transitions['u_image_paths']
     for str_path in tqdm.tqdm(u_image_paths, desc='Loading images'):
         str_full_path = os.path.join(str_parent_path, str_path)
         img = load_and_process_img(str_full_path, 
@@ -449,13 +731,9 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
         all_images.append(img)
     all_images = np.array(all_images)
 
-    d_output = {
-        'image_data': all_images,
-        'all_image_paths': all_image_paths,
-        'u_image_paths': u_image_paths,
-        'repeats': repeats,
-        'd_display_params': d_display_params
-    }
+    d_output = d_transitions
+    d_output['image_data'] = all_images
+    d_output['d_display_params'] = d_display_params
 
     return d_output
 
