@@ -21,7 +21,7 @@ pip install .
 ```
 If the above fails with "Module Not Found: Cython" error, try running:
 ```
-pip install --no-build-isolation -e .
+pip install --no-build-isolation .
 ```
 
 4. Create a config.ini file using the sample version below as a guide and put this config file in
