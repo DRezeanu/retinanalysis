@@ -385,7 +385,7 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: Optional[List
 
     coords = {'epoch' : np.arange(response_block.n_epochs),
             'cell_id' : filtered_df['cell_id'].values,
-            'cell_type' : ('cell_id', filtered_df['cell_type'].values),
+            'cell_type' : ('cell_id', np.asarray(filtered_df['cell_type'].values, dtype = 'U')),
             'noise_id' : ('cell_id', filtered_df['noise_id'].values)}
 
     spike_time_xarr = xr.DataArray(spike_time_arr, dims = dims, coords = coords)
