@@ -71,7 +71,12 @@ class MEAPipeline:
         self.analysis_chunk = analysis_chunk
         self.typing_file = typing_file
 
-        self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
+        if self.response_block.datafile_name in self.analysis_chunk.data_files:
+            print('Protocol is part of the sorting chunk, skipping cluster matching...')
+            self.match_dict = {id : id for id in self.analysis_chunk.cell_ids}
+            self.corr_dict = {id : 1.0 for id in self.analysis_chunk.cell_ids}
+        else:
+            self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
         
         self.add_matches_to_protocol()
         self.add_types_to_protocol(typing_file_name = self.typing_file)
@@ -118,9 +123,14 @@ class MEAPipeline:
         as the source of the information.
         """
 
+        no_typing_file = False
         if typing_file_name is None:
-            typing_file = 0
-            print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
+            if len(self.analysis_chunk.typing_files) == 0:
+                print(f'No typing files found for this analysis chunk, all cells will be marked "No Typing File"')
+                no_typing_file = True
+            else:
+                typing_file = 0
+                print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
         else:
             try:
                 typing_file = self.analysis_chunk.typing_files.index(typing_file_name)
@@ -130,8 +140,12 @@ class MEAPipeline:
         
         type_dict = dict()
         for id in self.analysis_chunk.df_cell_params['cell_id']:
-            if id in self.match_dict:
+            if no_typing_file:
+                type_dict[id] = "No Typing File"
+            elif id in self.match_dict:
                 type_dict[self.match_dict[id]] = self.analysis_chunk.df_cell_params.query('cell_id == @id')[f'typing_file_{typing_file}'].values[0]
+            else:
+                pass
         
         for id in self.response_block.df_spike_times['cell_id']:
             if id in type_dict:
@@ -289,7 +303,8 @@ class MEAPipeline:
     def get_psth_arr(self, protocol_ids: Optional[List[int] | int] = None,
                      cell_types: Optional[List[str] | str] = None,
                      typing_file: Optional[str] = None, minimum_n: int = 1,
-                     bins: Optional[np.ndarray | list | int] = None) -> xr.DataArray:
+                     bins: Optional[np.ndarray | list | int] = None,
+                     bin_rate: Optional[float] = None) -> xr.DataArray:
         """
         Function for creating an array of peri-stimulus time histograms (PSTHs) for a
         list of protocol_ids, a list of cell_types, or both. As with plot_rfs() and 
@@ -311,27 +326,60 @@ class MEAPipeline:
         bins (np.ndarray | list | int): Optional. Frame times used by default. If an integer
         is given, the spike times will be binned in that many evently spaced bins. If a list
         is given, the values in the list are used as bin edges.
+        
+        bin_rate (float): Optional. Default None. If a bin rate (in Hz) is given, the bins input
+        will be ignored and bin_edges will be created from the bin_rate value.
 
         Returns:
         psth_xarr (xr.DaraArray): an xarray DataArray with dimensions (cell_id, epoch, bin)
         and coordinates (cell_id, epoch, cell_type, bin, bin_edges).
         """
 
-        # Bins are frame times by default
-        if bins is None:
-            bin_edges = np.array(self.stim_block.df_epochs.loc[0, 'frame_times_ms'])
+        # Use bin_rate by default if one is given
+        if bin_rate is not None:
+            bins_per_ms = bin_rate * 1e-3
+            ms_per_bin = 1/bins_per_ms
+            all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
+            all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
+
+            # Pull frame times and avg frame length
+            all_frame_times = np.stack(self.stim_block.df_epochs['frame_times_ms'].values) #type: ignore
+            avg_frame_times = np.mean(all_frame_times, axis = 0)
+            avg_frame_length = np.round(np.mean(np.diff(avg_frame_times)),1)
+
+            # define epoch start and end time in milliseconds
+            epoch_start = 0
+            epoch_end = np.mean(all_frame_times[:,-1]) #type: ignore
+            
+            # define bin edges
+            bin_edges = np.round(np.arange(epoch_start, epoch_end+avg_frame_length, ms_per_bin))
+            n_bins = len(bin_edges)-1
+        # Bins by frame times by default if no bin_rate and no bins are given
+        elif bins is None:
+            bin_edges = np.array(self.stim_block.df_epochs['frame_times_ms'].values)
+            n_bins = len(bin_edges[0])-1
         else:
+            # if no bin_rate and bins is an integer, create that many equally spaced bins
             if isinstance(bins, int):
                 all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
                 all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
 
-                # epoch starts and ends in milliseconds
-                epoch_start = 0
-                epoch_end = np.mean(all_epoch_ends - all_epoch_starts)/SAMPLE_RATE*1e3
+                # Pull frame times and avg frame length
+                all_frame_times = np.stack(self.stim_block.df_epochs['frame_times_ms'].values) #type: ignore
+                avg_frame_times = np.mean(all_frame_times, axis = 0)
+                avg_frame_length = np.round(np.mean(np.diff(avg_frame_times)),1)
 
-                bin_edges = np.linspace(epoch_start, epoch_end, bins)
+                # define epoch start and end time in milliseconds
+                epoch_start = 0
+                epoch_end = np.mean(all_frame_times[:,-1]) #type: ignore
+
+                # define bin edges
+                bin_edges = np.linspace(epoch_start, epoch_end+avg_frame_length, bins)
+                n_bins = len(bin_edges)-1
+            # if no bin_rate and bins is a list, use that list as bin_edges
             else:
                 bin_edges = bins
+                n_bins = len(bin_edges)-1
 
 
         if typing_file is not None:
@@ -340,19 +388,25 @@ class MEAPipeline:
         spike_times = get_spike_xarr(self.response_block, protocol_ids = protocol_ids,
                                      cell_types = cell_types, minimum_n = minimum_n)
 
-        n_bins = len(bin_edges)-1
 
         def apply_hist(arr, bin_edges):
             output, _ = np.histogram(arr, bin_edges)
             return output
 
-        psth_xarr = xr.apply_ufunc(apply_hist, spike_times,
+        if bins is None and bin_rate is None:
+            psth_xarr = xr.apply_ufunc(apply_hist, spike_times, bin_edges,
+                                       output_core_dims = [['bin']],
+                                       vectorize = True, dask = 'allowed')
+            psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
+            psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[0][:-1])})
+        else:
+            psth_xarr = xr.apply_ufunc(apply_hist, spike_times,
                                    kwargs = {'bin_edges' : bin_edges}, 
                                    input_core_dims = [[]], output_core_dims = [['bin']],
                                    vectorize = True)
+            psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
+            psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[:-1])})
 
-        psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
-        psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[1:])})
 
         return psth_xarr
 

@@ -17,15 +17,11 @@ pip install -e .
 3. Install additional requirements from Chichilnisky Vision repository:
 ```
 cd repositories_dir/artificial-retina-software-pipeline/utilities/ (external requirement from Chichilnisky lab)
-pip install .
-```
-If the above fails with "Module Not Found: Cython" error, try running:
-```
-pip install --no-build-isolation -e .
+pip install --no-build-isolation .
 ```
 
 4. Create a config.ini file using the sample version below as a guide and put this config file in
-the src/retinanalysis/config directory.
+the repo, inside the retinanalysis/src/retinanalysis/config folder.
 
 ## Note for Windows Users
 
