@@ -701,8 +701,9 @@ def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock
 
     d_out = {
         'all_image_paths': all_image_paths, # 2D array of shape (n_epochs, n_images)
+        'repeats': repeats, # Unique numbers of repeats across images
+        # Rest are 1D arrays of shape (n_epochs * n_images,) with data for each image trial.
         'u_image_paths': u_image_paths,
-        'repeats': repeats,
         'trial_image_paths': split_image_paths,
         'trial_onset_samples': split_onset_samples,
         'trial_offset_samples': split_offset_samples,
