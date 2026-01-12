@@ -429,20 +429,38 @@ def load_and_process_img(str_img,screen_size = np.array([1140, 1824]), # rows, c
     return frame
 
 
-def get_image_paths_across_epochs(df_epochs: pd.DataFrame):
+def get_image_paths_across_epochs(df_epochs: pd.DataFrame, n_actual_imgs_per_epoch: Optional[int]=None):
     # Each epoch has multiple images with associated name and folder
-    # Return a flattened array of paths to all the images across epochs.
+    # Return a 2D (epoch, images) array of paths to images.
     all_image_names = get_df_dict_vals(df_epochs, 'imageName')
-    all_image_names = np.concatenate([x.split(',') for x in all_image_names])
+    all_image_names = np.stack([x.split(',') for x in all_image_names])
 
     all_image_folders = get_df_dict_vals(df_epochs, 'folder')
-    all_image_folders = np.concatenate([x.split(',') for x in all_image_folders])
+    all_image_folders = np.stack([x.split(',') for x in all_image_folders])
+    n_epochs  = len(all_image_names)
+    print(f'Found {n_epochs} epochs metadata, each with: ')
+    num_imgs_across_epochs = [len(x) for x in all_image_names]
+    num_folders_across_epochs = [len(x) for x in all_image_folders]
+    
+    # Assert all are identical
+    assert np.all(np.array(num_imgs_across_epochs) == num_imgs_across_epochs[0]), "Not all epochs have same number of images!"
+    assert np.all(np.array(num_folders_across_epochs) == num_folders_across_epochs[0]), "Not all epochs have same number of folders!"
+    assert num_imgs_across_epochs[0] == num_folders_across_epochs[0], "Number of image names and folders do not match!"
+    print(f'{num_imgs_across_epochs[0]} images per epoch')
 
-    all_image_paths = []
-    for folder, name in zip(all_image_folders, all_image_names):
-        str_path = os.path.join(folder, name)
-        all_image_paths.append(str_path)
-    all_image_paths = np.array(all_image_paths)
+    if n_actual_imgs_per_epoch is not None:
+        print(f'Using {n_actual_imgs_per_epoch} images per epoch as specified.')
+        all_image_names = all_image_names[:, :n_actual_imgs_per_epoch]
+        all_image_folders = all_image_folders[:, :n_actual_imgs_per_epoch]
+
+    # Populate full paths = 'folder/name'
+    all_image_paths = np.zeros(all_image_names.shape, dtype=object)
+    for i in range(n_epochs):
+        for j in range(all_image_names.shape[1]):
+            str_path = os.path.join(all_image_folders[i, j], all_image_names[i, j])
+            all_image_paths[i, j] = str_path
+    
+    
     return all_image_paths
 
 def get_old_presentimages_transitions(df_epochs: pd.DataFrame,
@@ -627,8 +645,9 @@ def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock
             )
         break
 
-    all_image_paths = get_image_paths_across_epochs(df_epochs)
-    u_image_paths, u_repeats = np.unique(all_image_paths, return_counts=True)
+    # Get image paths of shape [epoch, images]
+    all_image_paths = get_image_paths_across_epochs(df_epochs, n_actual_imgs_per_epoch=imgs_per_epoch)
+    u_image_paths, u_repeats = np.unique(all_image_paths.flatten(), return_counts=True)
     repeats = np.unique(u_repeats)
     # if len(repeats) > 1:
         # raise NotImplementedError(f'Found images with different number of repeats: {repeats}. Please ensure all images have the same number of repeats.')
@@ -659,20 +678,14 @@ def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock
     split_offset_samples = []
     split_epoch_idx = []
     for i in range(n_epochs):
-        # es = rb.d_timing['epochStarts'][i]
         for j in range(imgs_per_epoch):
             # Indexing explanation
             # eg-if 15 pre_frames, index 14 gives onset of last pre frame, 
             # index 15 gives onset of first flash frame
             t_onset = frame_times_samples[i][img_onset_frames[i, j]] 
             t_offset = frame_times_samples[i][img_offset_frames[i, j]]
-            # t_delta = t_offset - t_onset
-
-            # Offset by epoch start samples
-            # t_onset += es
-            # t_offset += es
             
-            split_image_paths.append(all_image_paths[i * imgs_per_epoch + j])
+            split_image_paths.append(all_image_paths[i, j])
             split_onset_samples.append(t_onset)
             split_offset_samples.append(t_offset)
             split_epoch_idx.append(i)
@@ -687,7 +700,7 @@ def get_present_images_transitions(df_epochs: pd.DataFrame, rb: MEAResponseBlock
     split_offset_ms = split_offset_samples / rb.amp_sample_rate * 1000
 
     d_out = {
-        'all_image_paths': all_image_paths,
+        'all_image_paths': all_image_paths, # 2D array of shape (n_epochs, n_images)
         'u_image_paths': u_image_paths,
         'repeats': repeats,
         'trial_image_paths': split_image_paths,
