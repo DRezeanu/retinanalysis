@@ -497,6 +497,7 @@ class MEAPipeline:
 
 def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: Optional[str] = None,
                     typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
+                    rb_ss_version: str='kilosort2.5',
                     ls_params: Optional[list] = None, b_load_fd: bool = True):
     """
     Helper function for initializing an MEAPipeline from metadata.

@@ -220,32 +220,32 @@ def append_sorting_files(chunk_id: int, algorithm: str, sorting_dir: str):
 
 def append_sorting_chunk(experiment_id: int, chunk_name: str, chunk_path: str):
     SortingChunk.insert1({'experiment_id': experiment_id, 'chunk_name': chunk_name})
-    chunk_id = max_id(SortingChunk)
-    for algorithm in os.listdir(chunk_path):
-        if 'kilosort' not in algorithm:
-            print(f'Populator not implemented for {algorithm}')
-            continue
+    # chunk_id = max_id(SortingChunk)
+    # for algorithm in os.listdir(chunk_path):
+    #     if 'kilosort' not in algorithm:
+    #         print(f'Populator not implemented for {algorithm}')
+    #         continue
         
-        algorithm_dir = os.path.join(chunk_path, algorithm)
-        if 'cluster_KSLabel.tsv' not in os.listdir(algorithm_dir):
-            print(f"Could not find cluster_KSLabel.tsv in {algorithm_dir}")
-            continue
+    #     algorithm_dir = os.path.join(chunk_path, algorithm)
+    #     if 'cluster_KSLabel.tsv' not in os.listdir(algorithm_dir):
+    #         print(f"Could not find cluster_KSLabel.tsv in {algorithm_dir}")
+    #         continue
 
-        cluster_list = []
-        with open(os.path.join(algorithm_dir, 'cluster_KSLabel.tsv')) as f:
-            # tsv where first column is "cluster_id", add each one to the database
-            for line in f:
-                if line.startswith('cluster_id'):
-                    continue
-                cluster_id = int(line.split('\t')[0])
-                ### THIS NEXT LINE IS VERY IMPORTANT: CLUSTER_ID IS ZERO-INDEXED IN THIS ONE LOCATION.
-                ### BUT EVERYWHERE ELSE IT IS ONE-INDEXED BECAUSE MATLAB IS ONE-INDEXED.
-                ### SO HERE WE WILL ADD ONE TO THE CLUSTER_IDS AND USE THAT AS THE SOURCE-OF-TRUTH.
-                cluster_id += 1
-                cluster_list.append({"chunk_id": chunk_id, "algorithm": algorithm, "cluster_id": cluster_id})
+    #     cluster_list = []
+    #     with open(os.path.join(algorithm_dir, 'cluster_KSLabel.tsv')) as f:
+    #         # tsv where first column is "cluster_id", add each one to the database
+    #         for line in f:
+    #             if line.startswith('cluster_id'):
+    #                 continue
+    #             cluster_id = int(line.split('\t')[0])
+    #             ### THIS NEXT LINE IS VERY IMPORTANT: CLUSTER_ID IS ZERO-INDEXED IN THIS ONE LOCATION.
+    #             ### BUT EVERYWHERE ELSE IT IS ONE-INDEXED BECAUSE MATLAB IS ONE-INDEXED.
+    #             ### SO HERE WE WILL ADD ONE TO THE CLUSTER_IDS AND USE THAT AS THE SOURCE-OF-TRUTH.
+    #             cluster_id += 1
+    #             cluster_list.append({"chunk_id": chunk_id, "algorithm": algorithm, "cluster_id": cluster_id})
 
-        SortedCell.insert(cluster_list)
-        append_sorting_files(chunk_id, algorithm, algorithm_dir)
+    #     SortedCell.insert(cluster_list)
+        # append_sorting_files(chunk_id, algorithm, algorithm_dir)
 
 def append_experiment_analysis(experiment_id: int, exp_name: str):
     print(f"Adding analysis for experiment {experiment_id}, {exp_name}")
