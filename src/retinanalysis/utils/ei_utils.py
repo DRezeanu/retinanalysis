@@ -55,6 +55,16 @@ def reshape_ei(ei: np.ndarray, sorted_electrodes: np.ndarray,
 
     return reshaped_ei
 
+def get_ei_ts_min(ei, e_idxs, shape=(16, 32)):
+    n_markers = len(e_idxs)
+    ei_ts_min = np.zeros(n_markers)
+    for i in range(n_markers):
+        y, x = np.unravel_index(e_idxs[i], shape)
+        ei_ts = ei[y, x, :]
+        ei_ts_min[i] = np.argmin(ei_ts)
+    return ei_ts_min
+
+
 def get_top_electrodes(n_ID: int, vcd: VisionCellDataTable, n_interval=2, n_markers=5, b_sort=True):
     # Reshape EI timeseries
     ei = vcd.get_ei_for_cell(n_ID).ei
@@ -72,12 +82,7 @@ def get_top_electrodes(n_ID: int, vcd: VisionCellDataTable, n_interval=2, n_mark
 
     # Sort top_idx by argmin of EI time series
     if b_sort:
-        amin_ei_ts = np.zeros(n_markers)
-        for i in range(n_markers):
-            y, x = np.unravel_index(top_idx[i], ei_map.shape)
-            # ei_ts = ei_grid[:, y, x]
-            ei_ts = ei[y, x, :]
-            amin_ei_ts[i] = np.argmin(ei_ts)
+        amin_ei_ts = get_ei_ts_min(ei, top_idx, ei_map.shape)
         top_idx = top_idx[np.argsort(amin_ei_ts)]
 
     return top_idx
@@ -131,7 +136,7 @@ def plot_ei_spatial_map(ei_map, sorted_electrodes, top_idx, axs=None, n_ID=None,
     return ax
 
 def plot_ei_timeseries(ei, sorted_electrodes, top_idx, 
-axs=None, c='C2', label=None, b_vline=True, b_title=False):
+    axs=None, c='C2', label=None, b_vline=True, b_title=False):
     """
     Plot the EI timeseries for the selected electrodes.
     """
@@ -204,3 +209,160 @@ def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None,
 
     plt.tight_layout()
     return axs
+
+
+def compute_ei_map_grid(
+    ei: np.ndarray,
+    channel_positions: np.ndarray) -> np.ndarray:
+    from scipy.interpolate import griddata
+
+    if ei.shape[0] != 512:
+        print(f'Warning: Expected EI shape (512, n_timepoints), got {ei.shape}')
+
+    xrange = (np.min(channel_positions[:, 0]), np.max(channel_positions[:, 0]))
+    yrange = (np.min(channel_positions[:, 1]), np.max(channel_positions[:, 1]))
+
+    y_dim = 30 # Fixed y dimension for scaling
+    x_dim = int((xrange[1] - xrange[0])/(yrange[1] - yrange[0]) * y_dim) # x dim is proportional to y dim
+
+    x_e = np.linspace(xrange[0], xrange[1], x_dim)
+    y_e = np.linspace(yrange[0], yrange[1], y_dim)
+
+    grid_x, grid_y = np.meshgrid(x_e, y_e)
+    grid_x = grid_x.T
+    grid_y = grid_y.T
+
+    # ei_energy = np.log10(np.mean(np.power(ei, 2), axis=1) + .000000001)
+    ei_energy = np.log10(np.max(np.abs(ei), axis=1) + 1e-9)
+    ei_energy_grid = griddata(
+        channel_positions, ei_energy, 
+        (grid_x, grid_y), method='linear', 
+        fill_value=np.median(ei_energy))
+
+    return ei_energy_grid.T
+
+def plot_test(n_ID, vcd):
+    import matplotlib.colors as mcolors
+    
+    sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
+
+    ei, ei_map = get_ei_and_map(n_ID, vcd)
+    top_idx = get_top_electrodes(n_ID, vcd, n_interval=1, n_markers=20, b_sort=True)
+    ei_ts_min = get_ei_ts_min(ei, top_idx, ei_map.shape)
+    diff = np.abs(np.diff(ei_ts_min))
+
+    # Get idx where ts diff is > threshold
+    threshold_delta = 1
+    idx_large_diff = np.where(diff >= threshold_delta)[0]
+
+    top_idx = top_idx[idx_large_diff]
+    diff = diff[idx_large_diff]
+    c_idx = sorted_electrodes[top_idx]
+
+    # Electrode locations
+    electrode_map = vcd.get_electrode_map()
+    elec_locs = electrode_map[c_idx]
+
+    # Compute speeds
+    speeds = []
+    for i in range(len(elec_locs)-1):
+        dist = np.linalg.norm(elec_locs[i+1] - elec_locs[i])
+        dt = diff[i]
+        speed = dist / dt
+        speeds.append(speed)
+    cmap = plt.get_cmap('viridis')
+    norm = mcolors.Normalize(vmin=min(speeds), vmax=max(speeds))
+    f, ax = plt.subplots(figsize=(6, 3))
+    ax.scatter(elec_locs[:, 0], elec_locs[:, 1], c='k', s=40)
+    for i in range(len(elec_locs)-1):
+        cval = speeds[i]
+        color = cmap(norm(cval))
+        ax.plot([elec_locs[i, 0], elec_locs[i+1, 0]], [elec_locs[i, 1], elec_locs[i+1, 1]],
+                color=color, lw=3)
+        # ax.text(elec_locs[i, 0], elec_locs[i, 1], f"{cval:.2f}", color='k')
+    # Overlap ei map
+    ei_map = compute_ei_map_grid(vcd.get_ei_for_cell(n_ID).ei, electrode_map)
+
+    ax.imshow(ei_map[::-1], cmap='hot', alpha=0.3, 
+    extent=[electrode_map[:,0].min(), electrode_map[:,0].max(),
+            electrode_map[:,1].min(), electrode_map[:,1].max()], aspect='auto')
+    
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    plt.colorbar(sm, ax=ax, label='Propagation speed (distance/frame)')
+    ax.set_title(f"Spike propagation speed for cell {n_ID}")
+    
+
+
+
+
+def plot_spike_propagation_speed(n_ID: int, vcd, n_markers=5, n_interval=2, ax=None, cmap='viridis'):
+    """
+    Plot spike propagation speed between spatially closest high-amplitude electrodes.
+    Lines are colored by speed (distance/time).
+    """
+    # Get EI and electrode map
+    ei = vcd.get_ei_for_cell(n_ID).ei
+    electrode_map = vcd.get_electrode_map()  # shape (512, 2)
+    sorted_electrodes = sort_electrode_map(electrode_map)
+    ei = reshape_ei(ei, sorted_electrodes)
+    ei_map = np.max(np.abs(ei), axis=2)
+    ei_map = np.log10(ei_map + 1e-6)
+
+    # Get top electrodes (indices in flattened grid)
+    top_idx = get_top_electrodes(n_ID, vcd, n_interval=n_interval, n_markers=n_markers, b_sort=True)
+    # Get their (y, x) grid positions and original electrode indices
+    grid_pos = [np.unravel_index(idx, ei_map.shape) for idx in top_idx]
+    elec_idx = [sorted_electrodes[idx] for idx in top_idx]
+    # Get their physical locations
+    elec_locs = np.array([electrode_map[eidx] for eidx in elec_idx])  # shape (n_markers, 2)
+
+    # Get time of minimum for each
+    min_times = []
+    for (y, x) in grid_pos:
+        ei_ts = ei[y, x, :]
+        min_times.append(np.argmin(ei_ts))
+    min_times = np.array(min_times)
+
+    # Find spatially closest pairs (using KDTree for efficiency)
+    from scipy.spatial import KDTree
+    tree = KDTree(elec_locs)
+    pairs = []
+    for i, loc in enumerate(elec_locs):
+        dists, idxs = tree.query(loc, k=2)  # k=2: self and nearest neighbor
+        j = idxs[1]  # idxs[0] is self
+        if i < j:  # avoid duplicates
+            pairs.append((i, j, dists[1]))
+
+    # Calculate speeds and prepare for plotting
+    speeds = []
+    for i, j, dist in pairs:
+        dt = abs(min_times[j] - min_times[i])
+        if dt == 0:
+            speed = np.nan  # avoid division by zero
+        else:
+            speed = dist / dt
+        speeds.append(speed)
+    speeds = np.array(speeds)
+
+    # Plot
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 6))
+    ax.scatter(elec_locs[:, 0], elec_locs[:, 1], c='k', s=40, zorder=2)
+    norm = mcolors.Normalize(vmin=np.nanmin(speeds), vmax=np.nanmax(speeds))
+    cmap = plt.get_cmap(cmap)
+    for idx, (i, j, dist) in enumerate(pairs):
+        cval = speeds[idx]
+        # color = plt.get_cmap(cmap)(mcolors.Normalize()(cval if np.isfinite(cval) else 0))
+        color = cmap(norm(cval)) if np.isfinite(cval) else (0.5, 0.5, 0.5, 1.0)
+        ax.plot([elec_locs[i, 0], elec_locs[j, 0]], [elec_locs[i, 1], elec_locs[j, 1]],
+                color=color, lw=3, zorder=1)
+        # Optionally, annotate speed
+        # ax.text((elec_locs[i, 0]+elec_locs[j, 0])/2, (elec_locs[i, 1]+elec_locs[j, 1])/2, f"{cval:.2f}", color='k')
+
+    # Colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=mcolors.Normalize(vmin=np.nanmin(speeds), vmax=np.nanmax(speeds)))
+    plt.colorbar(sm, ax=ax, label='Propagation speed (distance/frame)')
+    ax.set_title(f"Spike propagation speed for cell {n_ID}")
+    ax.set_xlabel("x (μm)")
+    ax.set_ylabel("y (μm)")
+    return ax, speeds
