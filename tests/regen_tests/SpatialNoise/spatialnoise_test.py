@@ -139,6 +139,9 @@ def load_true_frames(str_mat, ds_shape, n_pre_frames=16):
 
     print(f'Loaded {s_frames.shape} shape true stimulus frames from {str_mat}')
 
+    if ds_shape is None:
+        return s_frames
+
     # Downsample to ds_shape
     ds_frames = np.zeros((s_frames.shape[0], ds_shape[0], ds_shape[1], 3), dtype=np.float32)
     for i in range(s_frames.shape[0]):
