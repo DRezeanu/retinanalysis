@@ -303,6 +303,300 @@ def load_all_present_images(df_epochs: pd.DataFrame, str_parent_path: str,
 
     return d_output
 
+def make_variable_mean_bars(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_lines_only:True, b_noise_only: bool=True, str_generator_dir=None):
+    if str_generator_dir is None:
+        str_generator_dir = str_pkg_dir
+    
+    exp_name = int(exp_name[:8])
+    import matlab.engine #type: ignore
+    print('Starting matlab engine for stim regen.')
+    eng = matlab.engine.start_matlab()
+    eng.addpath(str_pkg_dir)
+    print('Started engine and added pkg to path.')
+    preTime = matlab.double(df_epochs.loc[0,'preTime'])
+    tailTime = matlab.double(df_epochs.loc[0,'tailTime'])
+    stimTime = matlab.double(df_epochs.loc[0,'stimTime'])
+    noiseSeeds = matlab.double([df_epochs.loc[i,'noiseSeed'] for i in df_epochs.index])
+    numChecksXs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksX'] for i in df_epochs.index])
+    backgroundIntensity = matlab.double([df_epochs.loc[0, 'epoch_parameters']['backgroundIntensity']])
+    frameDwell = matlab.double([df_epochs.loc[0, 'epoch_parameters']['frameDwell']])
+    binaryNoise = matlab.double([df_epochs.loc[0, 'epoch_parameters']['binaryNoise']])
+    noiseStdv = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noiseStdv']])
+    backgroundFrameDwells = matlab.double([df_epochs.loc[i,'epoch_parameters']['backgroundFrameDwell'] for i in df_epochs.index])
+    pairedBars = matlab.double([df_epochs.loc[0, 'epoch_parameters']['pairedBars']])
+    startDims = matlab.double([df_epochs.loc[i, 'epoch_parameters']['startDim'] for i in df_epochs.index])
+    trackEnds = matlab.double([df_epochs.loc[i ,'epoch_parameters']['trackEnd'] for i in df_epochs.index])
+    trackFrames = matlab.double([df_epochs.loc[0, 'epoch_parameters']['trackFrames']])
+    numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
+    if b_noise_only:
+        low_means = matlab.double([0.5 for _ in df_epochs.index])
+        high_means = matlab.double([0.5 for _ in df_epochs.index])
+        print('Using 0.5 means for noise only regen.')
+    else:
+        low_means = matlab.double([df_epochs.loc[i,'epoch_parameters']['lowMean'] for i in df_epochs.index])
+        high_means = matlab.double([df_epochs.loc[i,'epoch_parameters']['highMean'] for i in df_epochs.index])
+        print(f'Using epoch low/high means for regen, first epoch: {low_means[0]}, {high_means[0]}')
+    numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
+    # if exp_name < 20250806:
+    if b_lines_only:
+        _, line_mat = eng.util.regenerateVariableMeanBars(b_lines_only, exp_name, noiseSeeds, numChecksXs, preTime,  stimTime, tailTime, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, low_means, high_means, backgroundFrameDwells, pairedBars, startDims, trackEnds, trackFrames, numChecksYs, nargout=2);
+    else:
+        stimulus, line_mat = eng.util.regenerateVariableMeanBars(b_lines_only, exp_name, noiseSeeds, numChecksXs, preTime,  stimTime, tailTime, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, low_means, high_means, backgroundFrameDwells, pairedBars, startDims, trackEnds, trackFrames, numChecksYs, nargout=2);
+        stimulus = np.array(stimulus);
+    line_mat = np.array(line_mat);
+    eng.quit()
+
+    trackEnds_arr = [df_epochs.loc[i,'epoch_parameters']['trackEnd'] for i in df_epochs.index]
+    trackFrame = int(df_epochs.loc[0,'epoch_parameters']['trackFrames'])
+    
+    stim_transitions = []
+    for e_idx in df_epochs.index:
+        # interval = df_epochs.at[e_idx, 'backgroundFrameDwell']
+        interval = df_epochs['epoch_parameters'][e_idx]['backgroundFrameDwell']
+        preFrames = int(np.round(60 * df_epochs.at[e_idx, 'preTime'] / 1e3))
+        frame_transitions_ls = []
+        if trackEnds_arr[e_idx]:
+            for i in range(preFrames+1, line_mat.shape[1]-trackFrame+1):
+                if (i-preFrames) % interval == 0:
+                    frame_transitions_ls.append(i-1) #adjust to 0-indexing
+        else:
+            for i in range(preFrames+1, line_mat.shape[1]):
+                if (i-preFrames) % interval == 0:
+                    frame_transitions_ls.append(i-1) #adjust to 0-indexing
+        stim_transitions.append(frame_transitions_ls)
+    
+    increment_frames = []
+    decrement_frames = []
+    for e_idx in df_epochs.index:
+        interval = df_epochs['epoch_parameters'][e_idx]['backgroundFrameDwell']
+        preFrames = int(np.round(60 * df_epochs.at[e_idx, 'preTime'] / 1e3))
+        startsDim = df_epochs['epoch_parameters'][e_idx]['startDim']
+        if startsDim:
+            increment_frames.append(stim_transitions[e_idx][::2])
+            decrement_frames.append(stim_transitions[e_idx][1::2])
+        else:
+            increment_frames.append(stim_transitions[e_idx][1::2])
+            decrement_frames.append(stim_transitions[e_idx][::2])
+   
+    if b_lines_only:
+        d_output = {
+            'line_mat': line_mat,
+            'stim_transitions': stim_transitions,
+            'increment_frames': increment_frames,
+            'decrement_frames': decrement_frames,
+        }
+    else:
+        d_output = {
+            'stim_frames': stimulus,
+            'line_mat': line_mat,
+            'stim_transitions': stim_transitions,
+            'increment_frames': increment_frames,
+            'decrement_frames': decrement_frames,
+        }
+    return d_output
+
+def make_bars_and_gain(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_lines_only:True):
+
+    exp_name = int(exp_name[:8])
+    import matlab.engine #type: ignore
+    print('Starting matlab engine for stim regen.')
+    eng = matlab.engine.start_matlab()
+    eng.addpath(str_pkg_dir)
+    print('Started engine and added pkg to path.')
+    preTime = matlab.double(df_epochs.loc[0,'preTime'])
+    tailTime = matlab.double(df_epochs.loc[0,'tailTime'])
+    stimTime = matlab.double(df_epochs.loc[0,'stimTime'])
+    noiseSeeds = matlab.double([df_epochs.loc[i,'noiseSeed'] for i in df_epochs.index])
+    numChecksXs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksX'] for i in df_epochs.index])
+    backgroundIntensity = matlab.double([df_epochs.loc[0, 'epoch_parameters']['backgroundIntensity']])
+    frameDwell = matlab.double([df_epochs.loc[0, 'epoch_parameters']['frameDwell']])
+    binaryNoise = matlab.double([df_epochs.loc[0, 'epoch_parameters']['binaryNoise']])
+    noiseStdv = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noiseStdv']])
+    
+    pairedBars = matlab.double([df_epochs.loc[0, 'epoch_parameters']['pairedBars']])
+    startDims = matlab.double([df_epochs.loc[i, 'epoch_parameters']['startDim'] for i in df_epochs.index])
+    trackEnds = matlab.double([df_epochs.loc[i ,'epoch_parameters']['trackEnd'] for i in df_epochs.index])
+    trackFrames = matlab.double([df_epochs.loc[0, 'epoch_parameters']['trackFrames']])
+    numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
+
+    low_means = matlab.double([df_epochs.loc[i, 'epoch_parameters']['backgroundIntensity'] for i in df_epochs.index])
+    high_means = matlab.double([df_epochs.loc[i, 'epoch_parameters']['backgroundIntensity'] for i in df_epochs.index])
+    backgroundFrameDwells = matlab.double([1000 for _ in df_epochs.index])
+
+    numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
+    # if exp_name < 20250806:
+    if b_lines_only:
+        _, line_mat = eng.util.regenerateVariableMeanBars(b_lines_only, exp_name, noiseSeeds, numChecksXs, preTime,  stimTime, tailTime, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, low_means, high_means, backgroundFrameDwells, pairedBars, startDims, trackEnds, trackFrames, numChecksYs, nargout=2);
+    else:
+        stimulus, line_mat = eng.util.regenerateVariableMeanBars(b_lines_only, exp_name, noiseSeeds, numChecksXs, preTime,  stimTime, tailTime, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, low_means, high_means, backgroundFrameDwells, pairedBars, startDims, trackEnds, trackFrames, numChecksYs, nargout=2);
+        stimulus = np.array(stimulus);
+    line_mat = np.array(line_mat);
+    eng.quit()
+
+    trackEnds_arr = [df_epochs.loc[i,'epoch_parameters']['trackEnd'] for i in df_epochs.index]
+    trackFrame = int(df_epochs.loc[0,'epoch_parameters']['trackFrames'])
+
+    gain_trace = regenerate_projector_gain(df_epochs, str_pkg_dir)
+
+    stim_transitions = []
+    increment_frames = []
+    decrement_frames = []
+
+    for epoch_idx in range(len(df_epochs)):
+        stim_transitions.append(np.where(np.diff(gain_trace[epoch_idx,:]) != 0)[0] + 1)
+        increment_frames.append(np.where(np.diff(gain_trace[epoch_idx,:]) > 0)[0] + 1)
+        decrement_frames.append(np.where(np.diff(gain_trace[epoch_idx,:]) < 0)[0] + 1)
+
+    if b_lines_only:
+        d_output = {
+            'line_mat': line_mat,
+            'gain_trace': gain_trace,
+            'stim_transitions': stim_transitions,
+            'increment_frames': increment_frames,
+            'decrement_frames': decrement_frames,
+        }
+
+    else:
+        d_output = {
+            'stim_frames': stimulus,
+            'line_mat': line_mat,
+            'gain_trace': gain_trace,
+            'stim_transitions': stim_transitions,
+            'increment_frames': increment_frames,
+            'decrement_frames': decrement_frames,
+        }
+
+    return d_output
+
+def regenerate_projector_gain(df_epochs, str_pkg_dir):
+    import matlab.engine #type: ignore
+    print('Starting matlab engine for stim regen.')
+    eng = matlab.engine.start_matlab()
+    eng.addpath(str_pkg_dir)
+
+    preTime = matlab.double(df_epochs.loc[0,'preTime'])
+    tailTime = matlab.double(df_epochs.loc[0,'tailTime'])
+    stimTime = matlab.double(df_epochs.loc[0,'stimTime'])
+
+    gainValues_arr = []
+    stepDurations_arr = []
+    for epoch_idx in range(len(df_epochs)):
+        gains_epoch = matlab.double([df_epochs.loc[epoch_idx,'epoch_parameters']['projGainMeans'][i] for i in range(len(df_epochs.loc[epoch_idx,'epoch_parameters']['projGainMeans']))])
+        stepDurations = matlab.double([df_epochs.loc[epoch_idx,'epoch_parameters']['projStepDurations'][i] for i in range(len(df_epochs.loc[epoch_idx,'epoch_parameters']['projStepDurations']))])
+
+        gainValues_arr.append(gains_epoch)
+        stepDurations_arr.append(stepDurations)
+
+
+    upperLimit = matlab.double(1)
+    lowerLimit = matlab.double(0)
+    sampleRate = matlab.double(df_epochs.loc[0,'epoch_parameters']['sampleRate'])
+
+    gain_trace = eng.util.regenerateProjectorGain(preTime, stimTime, tailTime, 
+                                            stepDurations_arr, gainValues_arr, upperLimit, lowerLimit, sampleRate, nargout=1)
+
+    gain_trace = np.array(gain_trace)
+    return gain_trace
+
+
+def make_checkerboard_noise_project(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_lines_only:True, b_noise_only: bool=True):
+    exp_name = int(exp_name[:8])
+    import matlab.engine #type: ignore
+    print('Starting matlab engine for stim regen.')
+    eng = matlab.engine.start_matlab()
+    eng.addpath(str_pkg_dir)
+    print('Started engine and added pkg to path.')
+    preTime = matlab.double(df_epochs.loc[0,'preTime'])
+    tailTime = matlab.double(df_epochs.loc[0,'tailTime'])
+    stimTime = matlab.double(df_epochs.loc[0,'stimTime'])
+    noiseSeeds = matlab.double([df_epochs.loc[i,'noiseSeed'] for i in df_epochs.index])
+    numChecksXs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksX'] for i in df_epochs.index])
+    backgroundIntensity = matlab.double([df_epochs.loc[0, 'epoch_parameters']['backgroundIntensity']])
+    frameDwell = matlab.double([df_epochs.loc[0, 'epoch_parameters']['frameDwell']])
+    binaryNoise = matlab.double([df_epochs.loc[0, 'epoch_parameters']['binaryNoise']])
+    noiseStdv = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noiseStdv']])
+    if b_noise_only:
+        if exp_name<20250806:
+            backgroundRatios = matlab.double([0 for _ in df_epochs.index])
+        else:
+            backgroundRatios = matlab.double([1.0 for _ in df_epochs.index])
+    else:
+        backgroundRatios = matlab.double([df_epochs.loc[i,'epoch_parameters']['backgroundRatio'] for i in df_epochs.index])
+    backgroundFrameDwells = matlab.double([df_epochs.loc[i,'epoch_parameters']['backgroundFrameDwell'] for i in df_epochs.index])
+    pairedBars = matlab.double([df_epochs.loc[0, 'epoch_parameters']['pairedBars']])
+    if b_noise_only:
+        noSplitField = matlab.double([1.0])
+    else:
+        noSplitField = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noSplitField']])
+    contrastJumps = matlab.double(df_epochs.loc[0, 'epoch_parameters']['contrastJumps'])
+    numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
+    # if exp_name < 20250806:
+    if b_lines_only:
+        stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(b_noise_only, exp_name, preTime,  tailTime, stimTime, noiseSeeds, numChecksXs, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, backgroundRatios, backgroundFrameDwells, pairedBars, noSplitField, contrastJumps, numChecksYs, nargout=3);
+    else:
+        stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(exp_name, preTime,  tailTime, stimTime, noiseSeeds, numChecksXs, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, backgroundRatios, backgroundFrameDwells, pairedBars, noSplitField, contrastJumps, numChecksYs, nargout=3);
+        stimulus = np.array(stimulus);
+    line_mat = np.array(line_mat);
+    contrast_mat = np.array(contrast_mat);
+    eng.quit()
+
+    canvas_size_pix = df_epochs.loc[0,'epoch_parameters']['canvasSize']
+    stixel_size_um = df_epochs.loc[0,'epoch_parameters']['stixelSize']
+    mu_per_pix = df_epochs.loc[0,'microns_per_pixel']
+    canvas_size_stix = (int(np.round(canvas_size_pix[0] * mu_per_pix / stixel_size_um)),
+                            int(np.round(canvas_size_pix[1] * mu_per_pix / stixel_size_um)))
+    stixel_size_pix = int(np.round(stixel_size_um / mu_per_pix))
+    x_offset_pix = df_epochs.loc[0,'epoch_parameters']['xOffset']
+    y_offset_pix = df_epochs.loc[0,'epoch_parameters']['yOffset']
+    x_offset_stix = int(np.round(x_offset_pix / stixel_size_pix))
+    y_offset_stix = int(np.round(y_offset_pix / stixel_size_pix))
+
+    if not b_lines_only:
+        stimulus_cropped = np.ones_like(stimulus) * int((255*df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']))
+    lines_cropped = np.ones_like(line_mat) * df_epochs.loc[0,'epoch_parameters']['backgroundIntensity']
+    if x_offset_pix > 0:
+        offset = np.abs(x_offset_stix)
+        if not b_lines_only:
+            stimulus_cropped[:, offset:, :, :] = stimulus[:, :-offset, :, :]
+        lines_cropped[offset:, :, :] = line_mat[:-offset, :, :]
+    elif x_offset_pix < 0:
+        offset = np.abs(x_offset_stix)
+        if not b_lines_only:
+            stimulus_cropped[:, :-offset, :, :] = stimulus[:, offset:, :, :]
+        lines_cropped[:-offset, :, :] = line_mat[offset:, :, :]
+    else:
+        if not b_lines_only:
+            stimulus_cropped = stimulus
+        lines_cropped = line_mat
+    if y_offset_pix != 0:
+        raise NotImplementedError('Y offset cropping not implemented yet.')
+    
+    stim_transitions = []
+    for e_idx in df_epochs.index:
+        # interval = df_epochs.at[e_idx, 'backgroundFrameDwell']
+        interval = df_epochs['epoch_parameters'][e_idx]['backgroundFrameDwell']
+        preFrames = int(np.round(60 * df_epochs.at[e_idx, 'preTime'] / 1e3))
+        frame_transitions_ls = []
+        for i in range(preFrames, lines_cropped.shape[1]):
+            if i-preFrames % interval == 0:
+                frame_transitions_ls.append(i)
+        stim_transitions.append(frame_transitions_ls)
+    
+    if b_lines_only:
+        d_output = {
+            'line_mat': lines_cropped,
+            'contrast_mat': contrast_mat,
+            'stim_transitions': stim_transitions,
+        }
+    else:
+        d_output = {
+            'stim_frames': stimulus_cropped,
+            'line_mat': lines_cropped,
+            'contrast_mat': contrast_mat,
+            'stim_transitions': stim_transitions,
+        }
+    return d_output
+
 def make_doves_perturbation_alpha(df_epochs: pd.DataFrame,
     str_pkg_dir: str, exp_name: str, b_noise_only: bool=True):
     # This protocol was basically bugged before 20250805,
