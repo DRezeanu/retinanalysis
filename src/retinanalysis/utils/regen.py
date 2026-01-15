@@ -310,11 +310,12 @@ def get_spatial_noise_frames(numXStixels: int,
     print(f'frameValues: {frameValues.shape}')
 
     # Compute crop amounts so fullGrid is centered on frameValues canvas.
-    crop_rows = (fullGrid.shape[1] - frameValues.shape[1]) / 2
-    crop_cols = (fullGrid.shape[2] - frameValues.shape[2]) / 2
-    crop = np.array([crop_rows, crop_cols])
-    crop = np.floor(crop).astype(int)
-    print(f'Cropping fullGrid by {crop[0]} pixels on top and {crop[1]} pixels on left')
+    crop_Y = (fullGrid.shape[1] - frameValues.shape[1]) / 2
+    crop_X = (fullGrid.shape[2] - frameValues.shape[2]) / 2
+    print(f'Precise Crop X: {crop_X:.2f}, Crop Y: {crop_Y:.2f}')
+    crop_Y = np.round(crop_Y).astype(int)
+    crop_X = np.round(crop_X).astype(int)
+    print(f'Rounded Crop X: {crop_X}, Crop Y: {crop_Y}')
 
     # Apply the jittered cropping to get frameValues from fullGrid.
     for k in range(tsize):
@@ -323,20 +324,54 @@ def get_spatial_noise_frames(numXStixels: int,
         
         # For debugging: full pixel space
         # print(f'Frame {k}: x_offset: {x_offset}, y_offset: {y_offset}')
-        # frameValues[k,:,:] = fullGrid[k, y_offset : int(numYChecks)+y_offset, x_offset : int(numXChecks)+x_offset]
         # x_offset *= gridSizePix
         # y_offset *= gridSizePix
 
         # Y jitter moves up and adds to crop from the top.
-        y_offset += crop[0]
-        
+        y_offset += crop_Y
+    
         # X jitter moves right, so subtracts from crop from the left.
-        x_offset = crop[1] - x_offset
+        x_offset = crop_X - x_offset
+        
+        # X start and ends
+        grid_x_start = x_offset
+        grid_x_end = x_offset + numXChecks
+        frame_x_start = 0
+        frame_x_end = numXChecks
+
+        # Y start and ends
+        grid_y_start = y_offset
+        grid_y_end = y_offset + numYChecks
+        frame_y_start = 0
+        frame_y_end = numYChecks
+        
+        # For X, need to check if grid_x_start< 0
+        # If so, then get frameValues index for leaving left edge gray.
+        if grid_x_start < 0:
+            frame_x_start = -grid_x_start
+            grid_x_start = 0
+            grid_x_end = numXChecks - frame_x_start
+            
+        # For both X and Y, need to check if grid_end > fullGrid
+        # If so, then get frameValues index for leaving right/bottom edge gray.
+        if grid_y_end > fullGrid.shape[1]:
+            n_bottom_gray = grid_y_end - fullGrid.shape[1]
+            frame_y_end = numYChecks - n_bottom_gray
+            grid_y_end = fullGrid.shape[1]
+
+        if grid_x_end > fullGrid.shape[2]:
+            n_right_gray = grid_x_end - fullGrid.shape[2]
+            frame_x_end = numXChecks - n_right_gray
+            grid_x_end = fullGrid.shape[2]
+
+        # Assign the larger grid values to the final display frame values.
+        frameValues[k, frame_y_start:frame_y_end, frame_x_start:frame_x_end] = fullGrid[
+            k, 
+            grid_y_start:grid_y_end, 
+            grid_x_start:grid_x_end]
 
         # For debugging: full pixel space
         # frameValues[k,:,:] = fullGrid[k, y_offset : canvasSize[0]+y_offset, x_offset : canvasSize[1]+x_offset]
-
-        frameValues[k,:,:] = fullGrid[k, y_offset : numYChecks+y_offset, x_offset : numXChecks+x_offset]
 
     # Create your output stimulus. (t, y, x, 3 color channels)
     t_downsampled = np.ceil(tsize/tfactor).astype(int)
