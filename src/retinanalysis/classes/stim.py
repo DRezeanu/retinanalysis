@@ -255,8 +255,8 @@ class MEAStimGroup:
         self.parameter_names = ls_blocks[0].parameter_names
         self.datafile_names = datafile_names
         self.df_epochs = pd.concat([block.df_epochs for block in ls_blocks], ignore_index=True)
+        self.df_epochs = self.df_epochs.rename(columns = {'epoch_index':'datafile_epoch_index'})
         self.df_epochs.index = self.df_epochs.index.rename('epoch_index')
-        self.df_epochs = self.df_epochs.reset_index(drop=False)
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
@@ -276,9 +276,9 @@ class MEAStimGroup:
             pickle.dump(self, f)
         print(f"StimGroup exported to {file_path}")
 
-def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None):
+def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None, verbose: bool = False):
     ls_blocks = []
     for datafile_name in ls_datafile_names:
-        block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params)
+        block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params, verbose = verbose)
         ls_blocks.append(block)
     return MEAStimGroup(ls_blocks)
