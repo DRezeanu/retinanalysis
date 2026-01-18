@@ -250,6 +250,13 @@ class MEAStimGroup:
         if len(set(datafile_names)) != len(datafile_names):
             raise ValueError(f"StimBlocks must have unique datafile_names, but found: {datafile_names}")
         
+        # Find noise chunk that's closest to the majority of blocks
+        nearest_chunks = np.array([block.nearest_noise_chunk for block in ls_blocks])
+        vals, counts = np.unique(nearest_chunks, return_counts = True)
+        max_count_idx = np.argmax(counts)
+        self.nearest_noise_chunk = vals[max_count_idx]
+
+
         self.ls_blocks = ls_blocks
         self.exp_name = ls_blocks[0].exp_name
         self.parameter_names = ls_blocks[0].parameter_names

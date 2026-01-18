@@ -208,10 +208,23 @@ class MEAResponseBlock(ResponseBlock):
         # If pkl_file is provided, everything else is already loaded in parent init.
         if pkl_file is not None:
             return
+
         
         self.protocol_name = self.d_block_summary['protocol_name']
         self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
-        self.d_eis = {id : self.vcd.get_ei_for_cell(id).ei for id in self.cell_ids}
+
+        self.d_eis = dict()
+        bad_ids = []
+        for id in self.cell_ids:
+            try:
+                self.d_eis[id] = self.vcd.get_ei_for_cell(id).ei
+            except:
+                print(f'WARNING: No ei for ref cell id {id}, removing from {self.datafile_name} ResponseBlock')
+                bad_ids.append(id)
+
+        mask = ~np.isin(self.cell_ids, bad_ids)
+        self.cell_ids = self.cell_ids[mask]
+        
         self.get_spike_times()
 
     def get_spike_times(self):
@@ -412,6 +425,8 @@ class MEAResponseGroup:
         mean_eis = np.mean(all_eis, axis = 0)
         mean_eis = {id : mean_eis[idx] for idx, id in enumerate(self.cell_ids)}
 
+
+        self.ls_blocks = ls_blocks
         self.block_ids = [block.block_id for block in ls_blocks]
         self.exp_name = ls_blocks[0].exp_name
         self.ss_version = ls_blocks[0].ss_version
@@ -421,6 +436,8 @@ class MEAResponseGroup:
         self.df_spike_times = df_spike_times
         self.d_timing = d_timing
         self.d_eis = mean_eis
+        self.d_timecourses = None
+        self.d_ISIs = None
 
         if b_load_fd:
             

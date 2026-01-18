@@ -1,6 +1,10 @@
 import numpy as np
-from retinanalysis.classes.response import MEAResponseBlock
-from retinanalysis.classes.stim import MEAStimBlock
+from retinanalysis.classes.response import (MEAResponseBlock,
+                                            MEAResponseGroup,
+                                            make_mea_response_group)
+from retinanalysis.classes.stim import (MEAStimBlock,
+                                        MEAStimGroup,
+                                        make_mea_stim_group)
 from retinanalysis.classes.analysis_chunk import AnalysisChunk
 from retinanalysis.utils.vision_utils import cluster_match, get_spike_xarr
 import os
@@ -49,34 +53,50 @@ class MEAPipeline:
     the object
     """
 
-    def __init__(self, stim_block: Optional[MEAStimBlock] = None, response_block: Optional[MEAResponseBlock] = None,
+    def __init__(self, stim: Optional[MEAStimBlock | MEAStimGroup] = None,
+                 response: Optional[MEAResponseBlock | MEAResponseGroup] = None,
                  analysis_chunk: Optional[AnalysisChunk] = None, typing_file: Optional[str] = None,
-                 pkl_file: Optional[str] = None):
+                 verbose: bool = True, pkl_file: Optional[str] = None):
+        
+        self.verbose = verbose
 
         if pkl_file is None:
-            if stim_block is None or response_block is None or analysis_chunk is None:
+            if stim is None or response is None or analysis_chunk is None:
                 raise ValueError("Either stim_block, response_block, and analysis_chunk must be provided or pkl_file.")
         else:
             with open(pkl_file, 'rb') as f:
                 d_out = pickle.load(f)
             self.__dict__.update(d_out)
-            self.stim_block = MEAStimBlock(pkl_file=d_out['stim_block'])
-            self.response_block = MEAResponseBlock(pkl_file=d_out['response_block'])
-            self.analysis_chunk = AnalysisChunk(pkl_file=d_out['analysis_chunk'])
-            print(f"MEAPipeline loaded from {pkl_file}")
+            self.stim = MEAStimBlock(pkl_file=d_out['stim_block'], verbose = self.verbose)
+            self.response = MEAResponseBlock(pkl_file=d_out['response_block'], verbose = self.verbose)
+            self.analysis_chunk = AnalysisChunk(pkl_file=d_out['analysis_chunk'], verbose = self.verbose)
+            if self.verbose:
+                print(f"MEAPipeline loaded from {pkl_file}")
             return
         
-        self.stim_block = stim_block
-        self.response_block = response_block
+        if isinstance(stim, MEAStimBlock) or isinstance(stim, MEAStimGroup):
+            self.stim = stim
+            self.response = response
+        else:
+            raise ValueError("Stimulus is neither a StimBlock or a StimGroup")
+
         self.analysis_chunk = analysis_chunk
         self.typing_file = typing_file
 
-        if self.response_block.datafile_name in self.analysis_chunk.data_files:
-            print('Protocol is part of the sorting chunk, skipping cluster matching...')
-            self.match_dict = {id : id for id in self.analysis_chunk.cell_ids}
-            self.corr_dict = {id : 1.0 for id in self.analysis_chunk.cell_ids}
-        else:
-            self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response_block)
+        if isinstance(self.response, MEAResponseBlock):
+            if self.response.datafile_name in self.analysis_chunk.data_files:
+                print('Protocol is part of the sorting chunk, skipping cluster matching...')
+                self.match_dict = {id : id for id in self.analysis_chunk.cell_ids}
+                self.corr_dict = {id : 1.0 for id in self.analysis_chunk.cell_ids}
+            else:
+                self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response, verbose = self.verbose)
+        elif isinstance(self.response, MEAResponseGroup):
+            if all(r in self.analysis_chunk.data_files for r in self.response.datafile_names):
+                print('Response Group is part of the same sorting chunk, skipping cluster matching...')
+                self.match_dict = {id : id for id in self.analysis_chunk.cell_ids}
+                self.corr_dict = {id : 1.0 for id in self.analysis_chunk.cell_ids}
+            else:
+                self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.response, verbose = self.verbose)
         
         self.add_matches_to_protocol()
         self.add_types_to_protocol(typing_file_name = self.typing_file)
@@ -91,16 +111,16 @@ class MEAPipeline:
         MEAResponseBlock.df_spike_times dataframe.
         """
         inverse_match_dict = {val : key for key, val in self.match_dict.items()}
-        for id in self.response_block.df_spike_times['cell_id']:
+        for id in self.response.df_spike_times['cell_id']:
             if id in inverse_match_dict:
                 pass
             else:
                 inverse_match_dict[id] = 0
 
-        for idx, id in enumerate(self.response_block.df_spike_times['cell_id'].values):
-            self.response_block.df_spike_times.at[idx, 'noise_id'] = inverse_match_dict[id]
+        for idx, id in enumerate(self.response.df_spike_times['cell_id'].values):
+            self.response.df_spike_times.at[idx, 'noise_id'] = inverse_match_dict[id]
         
-        self.response_block.df_spike_times['noise_id'] = self.response_block.df_spike_times['noise_id'].astype(int)
+        self.response.df_spike_times['noise_id'] = self.response.df_spike_times['noise_id'].astype(int)
 
     def add_types_to_protocol(self, typing_file_name: Optional[str] = None) -> None:
         """
@@ -126,15 +146,18 @@ class MEAPipeline:
         no_typing_file = False
         if typing_file_name is None:
             if len(self.analysis_chunk.typing_files) == 0:
-                print(f'No typing files found for this analysis chunk, all cells will be marked "No Typing File"')
+                if self.verbose:
+                    print(f'No typing files found for this analysis chunk, all cells will be marked "No Typing File"')
                 no_typing_file = True
             else:
                 typing_file = 0
-                print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
+                if self.verbose:
+                    print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
         else:
             try:
                 typing_file = self.analysis_chunk.typing_files.index(typing_file_name)
-                print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
+                if self.verbose:
+                    print(f"Using {self.analysis_chunk.typing_files[typing_file]} for classification.\n")
             except:
                 raise FileNotFoundError(f"{typing_file_name} Not Found in Analysis Chunk")
         
@@ -148,14 +171,14 @@ class MEAPipeline:
             else:
                 pass
         
-        for id in self.response_block.df_spike_times['cell_id']:
+        for id in self.response.df_spike_times['cell_id']:
             if id in type_dict:
                 pass
             else:
                 type_dict[id] = "Unmatched"
 
-        for idx, id in enumerate(self.response_block.df_spike_times['cell_id'].values):
-            self.response_block.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
+        for idx, id in enumerate(self.response.df_spike_times['cell_id'].values):
+            self.response.df_spike_times.at[idx, 'cell_type'] = type_dict[id]
 
     def plot_rfs(self, protocol_ids: Optional[List[int] | int] = None, cell_types: Optional[List[str] | str] = None,
                  minimum_n: int = 1, **kwargs) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
@@ -279,12 +302,12 @@ class MEAPipeline:
             protocol_ids = [int(protocol_ids)]
 
         if protocol_ids is None and cell_types is None:
-            protocol_ids = list(self.response_block.df_spike_times['cell_id'].values)
+            protocol_ids = list(self.response.df_spike_times['cell_id'].values)
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only type is given, pull only ids that correspond to that type
         elif protocol_ids is None:
-            protocol_ids = list(self.response_block.df_spike_times.query('cell_type in @cell_types')['cell_id'].values)
+            protocol_ids = list(self.response.df_spike_times.query('cell_type in @cell_types')['cell_id'].values)
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
 
         # If only ids are given, pull all ids regardless of type
@@ -293,7 +316,7 @@ class MEAPipeline:
 
         # If both are given, pull only ids that match both the cell types and the cell ids given
         else:
-            filtered_protocol_ids = self.response_block.df_spike_times.query('cell_type in @cell_types and cell_id in @protocol_ids')['cell_id'].values
+            filtered_protocol_ids = self.response.df_spike_times.query('cell_type in @cell_types and cell_id in @protocol_ids')['cell_id'].values
             noise_ids = [key for key, val in self.match_dict.items() if val in filtered_protocol_ids]
 
         if len(noise_ids) == 0:
@@ -340,11 +363,11 @@ class MEAPipeline:
         if bin_rate is not None:
             bins_per_ms = bin_rate * 1e-3
             ms_per_bin = 1/bins_per_ms
-            all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
-            all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
+            all_epoch_starts = np.array(self.response.d_timing['epochStarts'])
+            all_epoch_ends = np.array(self.response.d_timing['epochEnds'])
 
             # Pull frame times and avg frame length
-            all_frame_times = np.stack(self.stim_block.df_epochs['frame_times_ms'].values) #type: ignore
+            all_frame_times = np.stack(self.stim.df_epochs['frame_times_ms'].values) #type: ignore
             avg_frame_times = np.mean(all_frame_times, axis = 0)
             avg_frame_length = np.round(np.mean(np.diff(avg_frame_times)),1)
 
@@ -357,16 +380,16 @@ class MEAPipeline:
             n_bins = len(bin_edges)-1
         # Bins by frame times by default if no bin_rate and no bins are given
         elif bins is None:
-            bin_edges = np.array(self.stim_block.df_epochs['frame_times_ms'].values)
+            bin_edges = np.array(self.stim.df_epochs['frame_times_ms'].values)
             n_bins = len(bin_edges[0])-1
         else:
             # if no bin_rate and bins is an integer, create that many equally spaced bins
             if isinstance(bins, int):
-                all_epoch_starts = np.array(self.response_block.d_timing['epochStarts'])
-                all_epoch_ends = np.array(self.response_block.d_timing['epochEnds'])
+                all_epoch_starts = np.array(self.response.d_timing['epochStarts'])
+                all_epoch_ends = np.array(self.response.d_timing['epochEnds'])
 
                 # Pull frame times and avg frame length
-                all_frame_times = np.stack(self.stim_block.df_epochs['frame_times_ms'].values) #type: ignore
+                all_frame_times = np.stack(self.stim.df_epochs['frame_times_ms'].values) #type: ignore
                 avg_frame_times = np.mean(all_frame_times, axis = 0)
                 avg_frame_length = np.round(np.mean(np.diff(avg_frame_times)),1)
 
@@ -386,7 +409,7 @@ class MEAPipeline:
         if typing_file is not None:
             self.add_types_to_protocol(typing_file_name = typing_file)
 
-        spike_times = get_spike_xarr(self.response_block, protocol_ids = protocol_ids,
+        spike_times = get_spike_xarr(self.response, protocol_ids = protocol_ids,
                                      cell_types = cell_types, minimum_n = minimum_n)
 
 
@@ -472,9 +495,18 @@ class MEAPipeline:
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
-        str_self += f"  stim_block and response_block from: {os.path.splitext(self.stim_block.protocol_name)[1][1:]}\n"
-        str_self += f"  analysis_chunk: {self.analysis_chunk.chunk_name}\n"
-        str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.stim_block.protocol_name)[1][1:]}_id\n"
+
+        if isinstance(self.stim, MEAStimBlock) and isinstance(self.response, MEAResponseBlock):
+            str_self += f"  Stim Block and Response Block from: {os.path.splitext(self.response.protocol_name)[1][1:]}\n"
+            str_self += f"  Stim Block from datafile {self.stim.datafile_name}.\n"
+            str_self += f"  Response Block from datafile {self.response.datafile_name}.\n"
+        elif isinstance(self.stim, MEAStimGroup) and isinstance(self.response, MEAResponseGroup):
+            str_self += f"  Stim Group and Response Group from: {os.path.splitext(self.response.protocol_name)[1][1:]}\n"
+            str_self += f"  MEA Stim Group from datafiles {self.stim.datafile_names}.\n"
+            str_self += f"  MEA Response Group from datafiles {self.response.datafile_names}.\n"
+
+        str_self += f"  analysis_chunk: {self.analysis_chunk.chunk_name}\n"  
+        str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.response.protocol_name)[1][1:]}_id\n"
         str_self += f"  corr_dict: with {self.analysis_chunk.chunk_name}_id : calculated ei correlations\n"
         return str_self
 
@@ -485,9 +517,9 @@ class MEAPipeline:
         """
         d_out = self.__dict__.copy()
         # For StimBlock, ResponseBlock, and AnalysisChunk, get only the __dict__ attribute
-        d_out['stim_block'] = self.stim_block.__dict__
-        d_out['response_block'] = self.response_block.__dict__
-        d_out['analysis_chunk'] = self.analysis_chunk.__dict__
+        d_out['stim_block'] = self.stim.__dict__
+        d_out['response_block'] = self.response.__dict__
+        d_out['analysis_chunk'] = self.response.__dict__
         # Pop out vcd from response_block and analysis_chunk
         d_out['response_block'].pop('vcd', None)
         d_out['analysis_chunk'].pop('vcd', None)
@@ -496,9 +528,9 @@ class MEAPipeline:
             pickle.dump(d_out, f)
         print(f"MEAPipeline exported to {file_path}")
 
-def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: Optional[str] = None,
+def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_chunk_name: Optional[str] = None,
                     typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
-                    ls_params: Optional[list] = None):
+                        ls_params: Optional[list] = None, verbose: bool = True):
     """
     Helper function for initializing an MEAPipeline from metadata.
 
@@ -524,11 +556,19 @@ def create_mea_pipeline(exp_name: str, datafile_name: str, analysis_chunk_name: 
     given datafile, and the AnalysisChunk for the given noise chunk or, if none is given, the nearest noise chunk.
     """
     # TODO StimGroup and ResponseGroup functionality
-    s = MEAStimBlock(exp_name, datafile_name, ls_params)
-    r = MEAResponseBlock(exp_name, datafile_name, ss_version)
+    if isinstance(datafile_name, list):
+        s = make_mea_stim_group(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
+        r = make_mea_response_group(exp_name, datafile_name, b_load_fd = True, verbose = verbose)
+
+    elif isinstance(datafile_name, str):
+        s = MEAStimBlock(exp_name, datafile_name, ls_params, verbose = verbose)
+        r = MEAResponseBlock(exp_name, datafile_name, ss_version, verbose = verbose)
+
     if analysis_chunk_name is None:
         analysis_chunk_name = s.nearest_noise_chunk
-        print(f'Using {analysis_chunk_name} for AnalysisChunk\n')
-    ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version)
-    pipeline = MEAPipeline(stim_block = s, response_block = r, analysis_chunk = ac, typing_file = typing_file)
+        if verbose:
+            print(f'Using {analysis_chunk_name} for AnalysisChunk\n')
+
+    ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version, verbose = verbose)
+    pipeline = MEAPipeline(stim = s, response = r, analysis_chunk = ac, typing_file = typing_file, verbose = verbose)
     return pipeline
