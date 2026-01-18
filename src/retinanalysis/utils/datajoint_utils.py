@@ -806,13 +806,16 @@ def get_h5_file(exp_name: str) -> str:
 
 
 
-def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str]=None):
+def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str]=None, verbose: bool = True):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
-    print(f'Loading frame monitor data from {str_h5} ...')
+
+    if verbose:
+        print(f'Loading frame monitor data from {str_h5} ...')
+
     r_q = get_epochblock_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
-    
+
     df_frame = df.query('device_name == "Frame Monitor"')
     df_frame = df_frame.reset_index(drop=True)
 
@@ -826,7 +829,8 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str
             frame_data.append(trace)
     
     frame_data = np.array(frame_data)
-    print(f'Loaded {frame_data.shape} frame_data.\n')
+    if verbose:
+        print(f'Loaded {frame_data.shape} frame_data.\n')
 
     sample_rates = df_frame['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:
@@ -835,10 +839,13 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str
 
     return frame_data, sample_rate
 
-def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=None):
+def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=None, verbose:bool = True):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
-    print(f'Loading Amp1 data from {str_h5} ...')
+
+    if verbose:
+        print(f'Loading Amp1 data from {str_h5} ...')
+
     r_q = get_epochblock_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
     
@@ -855,7 +862,8 @@ def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=
             amp_data.append(trace)
     
     amp_data = np.array(amp_data)
-    print(f'Loaded {amp_data.shape} amp_data.\n')
+    if verbose:
+        print(f'Loaded {amp_data.shape} amp_data.\n')
 
     sample_rates = df_amp['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:

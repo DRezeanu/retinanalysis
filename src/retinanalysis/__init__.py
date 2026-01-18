@@ -56,7 +56,9 @@ from .classes import response
 from .classes.response import (ResponseBlock,
                                MEAResponseBlock,
                                SCResponseBlock,
-                               check_frame_times)
+                               MEAResponseGroup,
+                               check_frame_times,
+                               make_mea_response_group)
 
 from .classes import qc
 from .classes.qc import MEAQC

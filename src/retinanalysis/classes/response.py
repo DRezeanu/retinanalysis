@@ -1,11 +1,17 @@
-import retinanalysis.utils.datajoint_utils as dju
-import retinanalysis.utils.vision_utils as vu
+from retinanalysis.utils.datajoint_utils import (get_epochblock_amp_data,
+                                                 get_epochblock_frame_data,
+                                                 get_epochblock_timing,
+                                                 get_block_id_from_datafile,
+                                                 get_exp_summary)
+
+from retinanalysis.utils.vision_utils import get_protocol_vcd
 from retinanalysis.utils.spike_detector import detector
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 import pickle
-from typing import Optional
+from typing import (Optional,
+                    List)
 import matplotlib.pyplot as plt
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
@@ -63,42 +69,55 @@ class ResponseBlock:
     Generic class for single cell or MEA response blocks. 
     """
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None, b_load_fd: bool=True):
+                 h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None, b_load_fd: bool=True,
+                 verbose: bool = True):
+
+        self.verbose = verbose
 
         if pkl_file is None:
-            print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
+            if self.verbose:
+                print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
-            print(f"Initializing ResponseBlock from pickle file.")
+            if self.verbose:
+                print(f"Initializing ResponseBlock from pickle file.")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
-                print(f"  pkl_file: {pkl_file}")
+                if self.verbose:
+                    print(f"  pkl_file: {pkl_file}")
                 with open(pkl_file, 'rb') as f:
                     d_out = pickle.load(f)
             else:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            print(f"ResponseBlock loaded from {pkl_file}")
+            if self.verbose:
+                print(f"ResponseBlock loaded from {pkl_file}")
             return
 
         self.exp_name = exp_name
         self.block_id = block_id    
         self.h5_file = h5_file
-        self.d_timing = dju.get_epochblock_timing(self.exp_name, self.block_id)
+        self.d_timing = get_epochblock_timing(self.exp_name, self.block_id)
+
         if b_load_fd:
-            frame_data, frame_sample_rate = dju.get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file)    
+            frame_data, frame_sample_rate = get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file, verbose = self.verbose)    
         else:
             frame_data = np.array([])
             frame_sample_rate = None
+
         self.frame_data = frame_data
         self.frame_sample_rate = frame_sample_rate
+        exp_summary = get_exp_summary(self.exp_name)
+        self.d_block_summary = exp_summary.query('block_id == @block_id').iloc[0].to_dict()
+
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
         str_self += f"  frame_sample_rate: {self.frame_sample_rate} Hz\n"
         str_self += f"  frame_data shape: {self.frame_data.shape}\n"
@@ -125,15 +144,17 @@ class ResponseBlock:
 class SCResponseBlock(ResponseBlock):
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
                  h5_file: Optional[str]=None, pkl_file: Optional[str]=None,
-                 b_spiking: bool=False, b_load_fd: bool=True, **detector_kwargs):
+                 b_spiking: bool=False, b_load_fd: bool=True, verbose: bool = True, **detector_kwargs):
 
-        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file, b_load_fd=b_load_fd)
+        self.verbose = verbose
+
+        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file, b_load_fd=b_load_fd, verbose = self.verbose)
 
         if pkl_file is not None:
             return
-
+        
         self.b_spiking = b_spiking
-        amp_data, sample_rate = dju.get_epochblock_amp_data(self.exp_name, self.block_id, str_h5=self.h5_file)
+        amp_data, sample_rate = get_epochblock_amp_data(self.exp_name, self.block_id, str_h5=self.h5_file, verbose = self.verbose)
         self.amp_data = amp_data
         self.amp_sample_rate = sample_rate
         if b_spiking:
@@ -161,7 +182,10 @@ class MEAResponseBlock(ResponseBlock):
 
     def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None,
-                 h5_file: Optional[str]=None, include_ei: bool=True, b_load_fd: bool=True):
+                 h5_file: Optional[str]=None, include_ei: bool=True, b_load_fd: bool=True,
+                 verbose: bool = True):
+
+        self.verbose = verbose
 
         # If pkl_file is provided, block_id can be None.
         block_id = None
@@ -171,22 +195,23 @@ class MEAResponseBlock(ResponseBlock):
                 raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
             else:
                 # If exp_name and datafile_name are provided, get block_id from datafile_name
-                block_id = dju.get_block_id_from_datafile(exp_name, datafile_name)
+                block_id = get_block_id_from_datafile(exp_name, datafile_name)
                 # Set the ss_version and datafile_name for loading VCD.
                 self.ss_version = ss_version
                 self.datafile_name = datafile_name
 
-        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file, b_load_fd=b_load_fd)
+        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file, b_load_fd=b_load_fd, verbose = self.verbose)
         self.amp_sample_rate = SAMPLE_RATE # MEA DAQ sample rate in Hz, analogous variable in SCResponseBlock
 
-        self.vcd = vu.get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei)
+        self.vcd = get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei, verbose = self.verbose)
 
         # If pkl_file is provided, everything else is already loaded in parent init.
         if pkl_file is not None:
             return
         
-        self.protocol_name = vu.get_protocol_from_datafile(self.exp_name, self.datafile_name)
+        self.protocol_name = self.d_block_summary['protocol_name']
         self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
+        self.d_eis = {id : self.vcd.get_ei_for_cell(id).ei for id in self.cell_ids}
         self.get_spike_times()
 
     def get_spike_times(self):
@@ -306,7 +331,7 @@ class MEAResponseBlock(ResponseBlock):
         str_self += f"  ss_version: {self.ss_version}\n"
         str_self += f"  n_epochs: {self.n_epochs}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
-        str_self += f"  df_spike_times with shape: {self.df_spike_times.shape}\n"
+        str_self += f"  df_spike_times with times for {self.df_spike_times.shape[0]} cells\n"
         str_self += f"  block_id: {self.block_id}\n"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
         str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
@@ -320,3 +345,126 @@ class MEAResponseBlock(ResponseBlock):
         with open(file_path, 'wb') as f:
             pickle.dump(d_out, f)
         print(f"MEAResponseBlock exported to {file_path}")
+
+class MEAResponseGroup:
+
+    def __init__(self, ls_blocks: List[MEAResponseBlock], b_load_fd: bool = False, verbose: bool = True):
+
+        self.verbose = verbose
+
+        if not all(block.exp_name == ls_blocks[0].exp_name for block in ls_blocks):
+            raise ValueError("All ResponseBlocks must have the same exp_name")
+
+        if not all(block.protocol_name == ls_blocks[0].protocol_name for block in ls_blocks):
+            raise ValueError("All ResponseBlocks must have the same protocol_name")
+
+        if not all(block.d_block_summary['chunk_name'] == ls_blocks[0].d_block_summary['chunk_name'] for block in ls_blocks):
+            raise ValueError("All ResponseBlocks must be from the same chunk")
+
+        datafile_names = [block.datafile_name for block in ls_blocks]
+        if len(set(datafile_names)) != len(datafile_names):
+            raise ValueError(f"ResponseBlocks must have unique datafile_names, but found {datafile_names}")
+
+        if self.verbose:
+            print(f"\nGenerating MEA Response Block from {ls_blocks[0].protocol_name} datafiles")
+
+        # Pull only cell ids that are common to all blocks in this group
+        all_ids = [set(block.cell_ids) for block in ls_blocks]
+        self.cell_ids = list(set.intersection(*all_ids))
+
+        # Concatenate spike times and recreate df_spike_times
+        ls_spike_times = []
+        for id in self.cell_ids:
+            concat_spike_times = []
+            for block in ls_blocks:
+                block_times = block.df_spike_times.query('cell_id == @id')['spike_times'].item()
+                concat_spike_times += block_times
+            ls_spike_times.append(concat_spike_times)
+
+        df_spike_times = pd.DataFrame({'cell_id' : self.cell_ids,
+                                       'spike_times' : ls_spike_times})
+
+        # Recreate d_timing dictionary by concatenating values that need to be joined
+        d_timing = {'exp_name' : ls_blocks[0].d_block_summary['exp_name'],
+                    'block_ids' : [block.block_id for block in ls_blocks],
+                    'frameTimesMs': [times for block in ls_blocks for times in block.d_timing['frameTimesMs']],
+                    'epochStarts' : [starts for block in ls_blocks for starts in block.d_timing['epochStarts']],
+                    'epochEnds' : [ends for block in ls_blocks for ends in block.d_timing['epochEnds']],
+                    'n_samples' : [block.d_timing['n_samples'] for block in ls_blocks],
+                    'n_epochs' : [block.d_timing['n_epochs'] for block in ls_blocks],
+                    'pre_time_ms' : [block.d_timing['pre_time_ms'] for block in ls_blocks],
+                    'stim_time_ms' : [block.d_timing['stim_time_ms'] for block in ls_blocks],
+                    'tail_time_ms' : [block.d_timing['tail_time_ms'] for block in ls_blocks],
+                    'stage_frame_rate' : ls_blocks[0].d_timing['stage_frame_rate'],
+                    'actual_onset_times_ms' : [onsets for block in ls_blocks for onsets in block.d_timing['actual_onset_times_ms']],
+                    'actual_offset_times_ms' : [offsets for block in ls_blocks for offsets in block.d_timing['actual_offset_times_ms']]}
+
+        # Combine EIs
+        if self.verbose:
+            print("Generating average EI for all cells")
+
+        all_eis = []
+        for block in ls_blocks:
+            ls_eis = [block.vcd.get_ei_for_cell(id).ei for id in self.cell_ids]
+            all_eis.append(ls_eis)
+
+        all_eis = np.stack(all_eis)
+        mean_eis = np.mean(all_eis, axis = 0)
+        mean_eis = {id : mean_eis[idx] for idx, id in enumerate(self.cell_ids)}
+
+        self.block_ids = [block.block_id for block in ls_blocks]
+        self.exp_name = ls_blocks[0].exp_name
+        self.ss_version = ls_blocks[0].ss_version
+        self.n_epochs = np.sum([block.n_epochs for block in ls_blocks])
+        self.protocol_name = ls_blocks[0].protocol_name
+        self.datafile_names = datafile_names
+        self.df_spike_times = df_spike_times
+        self.d_timing = d_timing
+        self.d_eis = mean_eis
+
+        if b_load_fd:
+            
+            if all(block.frame_sample_rate is None for block in ls_blocks) or all(block.frame_sample_rate is not None for block in ls_blocks):
+
+                if self.verbose:
+                    print("Loading and concatenating frame monitor data for all datafiles...\n")
+
+                if ls_blocks[0].frame_sample_rate is None:
+                    frame_monitor_data = [get_epochblock_frame_data(block.exp_name, block.block_id, str_h5=block.h5_file) for block in ls_blocks]    
+                    frame_sample_rates = [data for _, data in frame_monitor_data]
+                    self.frame_sample_rates = frame_sample_rates
+                    frame_data = np.array([data for data, _ in frame_monitor_data])
+                    self.frame_data = np.reshape(frame_data, (-1, frame_data.shape[2]))
+                else:
+                    self.frame_sample_rates = [block.frame_sample_rate for block in ls_blocks]
+                    frame_data = np.array([block.frame_data for block in ls_blocks])
+                    self.frame_data = np.reshape(frame_data, (-1, frame_data.shape[2]))
+            else:
+                raise ValueError("Some ResponseBlocks have frame data and some don't, they must all be uniform")
+
+        else:
+            self.frame_sample_rates = None 
+            self.frame_data = np.array([])
+
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  datafile_names: {self.datafile_names}\n"
+        str_self += f"  protocol_name: {self.protocol_name}\n"
+        str_self += f"  ss_version: {self.ss_version}\n"
+        str_self += f"  n_epochs: {self.n_epochs}\n"
+        str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
+        str_self += f"  df_spike_times with times for {self.df_spike_times.shape[0]} cells\n"
+        str_self += f"  block_ids: {self.block_ids}\n"
+        str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
+        str_self += f"  frame_sample_rates: {self.frame_sample_rates}\n"
+        str_self += f"  frame_data shape: {self.frame_data.shape}\n"
+        return str_self
+
+
+
+def make_mea_response_group(exp_name: str, ls_datafile_names: List[str], b_load_fd: bool = False, verbose: bool = True):
+
+    response_blocks = [MEAResponseBlock(exp_name, datafile_name, b_load_fd = b_load_fd, verbose = verbose) for datafile_name in ls_datafile_names]
+
+    return MEAResponseGroup(ls_blocks = response_blocks, b_load_fd = b_load_fd, verbose = verbose)
