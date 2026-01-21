@@ -101,17 +101,33 @@ class AnalysisChunk:
         self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
         self.cell_ids = np.array(self.vcd.get_cell_ids())
 
-        self.d_eis = dict()
-        bad_ids = []
-        for id in self.cell_ids:
-            try:
-                self.d_eis[id] = self.vcd.get_ei_for_cell(id).ei
-            except:
-                print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
-                bad_ids.append(id)
+        if 'include_ei' in vu_kwargs:
+            if vu_kwargs['include_ei'] == False:
+                pass
+            else:
+                self.d_eis = dict()
+                bad_ids = []
+                for id in self.cell_ids:
+                    try:
+                        self.d_eis[id] = self.vcd.get_ei_for_cell(id).ei
+                    except:
+                        print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
+                        bad_ids.append(id)
 
-        mask = ~np.isin(self.cell_ids, bad_ids)
-        self.cell_ids = self.cell_ids[mask]
+                mask = ~np.isin(self.cell_ids, bad_ids)
+                self.cell_ids = self.cell_ids[mask]
+        else:
+            self.d_eis = dict()
+            bad_ids = []
+            for id in self.cell_ids:
+                try:
+                    self.d_eis[id] = self.vcd.get_ei_for_cell(id).ei
+                except:
+                    print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
+                    bad_ids.append(id)
+
+            mask = ~np.isin(self.cell_ids, bad_ids)
+            self.cell_ids = self.cell_ids[mask]
 
         self.d_timecourses = dict()
         for id in self.cell_ids:

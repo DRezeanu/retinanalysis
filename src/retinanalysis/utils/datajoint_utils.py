@@ -55,7 +55,7 @@ def plot_mosaics_for_datasets(df_exp_search: pd.DataFrame,
         for nearest_chunk in sorted_chunks:
             try:
                 analysis_chunk = AnalysisChunk(exp, nearest_chunk, b_load_spatial_maps=False,
-                                        include_ei=False, include_neurons=False, verbose=False)
+                                        include_ei=False, include_neurons=False, verbose=True)
                 break
             except Exception as e:
                 print(f'Could not use chunk {nearest_chunk}, trying next nearest. Error: {e}')
