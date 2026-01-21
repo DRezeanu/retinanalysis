@@ -4,7 +4,10 @@ from retinanalysis.utils.datajoint_utils import (get_epochblock_amp_data,
                                                  get_block_id_from_datafile,
                                                  get_exp_summary)
 
-from retinanalysis.utils.vision_utils import get_protocol_vcd
+from retinanalysis.config.settings import ANALYSIS_DIR
+from retinanalysis.utils.vision_utils import (get_protocol_vcd,
+                                              cluster_match)
+
 from retinanalysis.utils.spike_detector import detector
 import numpy as np
 import pandas as pd
@@ -13,6 +16,7 @@ import pickle
 from typing import (Optional,
                     List)
 import matplotlib.pyplot as plt
+import os
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
@@ -256,7 +260,7 @@ class MEAResponseBlock(ResponseBlock):
                 d_spike_times['spike_times'].append(all_spike_times)
             except Exception as e:
                 print(f"WARNING: No spike times found for cell {cell_id}.\n Error: {e}")
-        self.df_spike_times = pd.DataFrame(d_spike_times)
+        self.df_spike_times: pd.DataFrame = pd.DataFrame(d_spike_times)
 
     def get_max_bins_for_rate(self, bin_rate: float):
         # bin_rate: float, in Hz
@@ -335,6 +339,95 @@ class MEAResponseBlock(ResponseBlock):
         self.bin_rate = bin_rate
         self.time_bins_ms = time_bins[:-1]
 
+    def add_cell_types(self, noise_chunk: Optional[str] = None, typing_file: Optional[str] = None):
+
+        import retinanalysis
+        from retinanalysis.classes.analysis_chunk import AnalysisChunk
+        try:
+            import importlib.resources as ir
+        except:
+            import importlib_resources as ir #type: ignore
+
+        cell_types_list_path = str(ir.files(retinanalysis) / "assets/cell_types.csv")
+        cell_types_list = pd.read_csv(cell_types_list_path)
+        cell_types = cell_types_list['cell_types'].values
+
+        if noise_chunk is None:
+            from retinanalysis.classes.stim import MEAStimBlock
+            stim_block = MEAStimBlock(self.exp_name, self.datafile_name, verbose = False) 
+            noise_chunk = stim_block.nearest_noise_chunk
+            analysis_chunk = AnalysisChunk(self.exp_name, noise_chunk, self.ss_version,
+                                           b_load_spatial_maps = False, verbose = False)
+
+            if typing_file is None:
+                if len(analysis_chunk.typing_files) == 0:
+                    raise ValueError(f"No typing files for nearest noise {noise_chunk}")
+                else:
+                    print(f"No typing file provided, using {analysis_chunk.typing_files[0]}")
+                    typing_file = analysis_chunk.typing_files[0]
+            else:
+                assert typing_file in analysis_chunk.typing_files, f"Typing file {typing_file} not found in noise chunk {noise_chunk}"
+
+        else:
+            analysis_chunk = AnalysisChunk(self.exp_name, noise_chunk, self.ss_version,
+                                           b_load_spatial_maps = False, verbose = False)
+            if typing_file is None:
+                if len(analysis_chunk.typing_files) == 0:
+                    raise ValueError(f"No typing files for nearest noise {noise_chunk}")
+                else:
+                    print(f"No typing file provided, using {analysis_chunk.typing_files[0]}")
+                    typing_file = analysis_chunk.typing_files[0]
+
+            else:
+                assert typing_file in analysis_chunk.typing_files, f"Typing file {typing_file} not found in noise chunk {noise_chunk}"
+
+                
+
+
+
+        assert noise_chunk is not None and typing_file is not None
+
+        # Cluster Match
+        self.match_dict, _ = cluster_match(analysis_chunk, self, verbose = self.verbose) 
+        inverse_match_dict = {value: key for key, value in self.match_dict.items()}
+        noise_ids = [inverse_match_dict[id] if id in inverse_match_dict.keys() else 0 for id in self.cell_ids]
+
+
+        # Pull types from classification file
+        file_path = os.path.join(ANALYSIS_DIR, self.exp_name, noise_chunk, self.ss_version, typing_file)
+
+        d_result = dict()
+        with open(file_path, 'r') as file:
+           for line in file:
+                # Split each line into key and value using the specified delimiter
+                key, value = map(str.strip, line.split(' ', 1))
+                sub_values = value.split('/')
+                
+                # Add key-value pair to the dictionary
+                if int(key) in self.match_dict.keys():
+                    d_result[self.match_dict[int(key)]] = sub_values[:-1]
+
+        for idx, id in enumerate(self.cell_ids):
+            if id in d_result.keys():
+
+                for ctype in cell_types:
+                    if ctype in d_result[id]:
+                        d_result[id] = ctype
+                        break
+            else:
+                d_result[id] = 'Unknown'
+            
+            if 'All' in d_result[id]:
+                d_result[id] = 'Unknown'
+
+            if noise_ids[idx] == 0:
+                d_result[id] = 'Ummatched'
+            
+        
+        classification = [d_result[id] for id in self.cell_ids]
+        self.df_spike_times['noise_id'] = noise_ids
+        self.df_spike_times['cell_type'] = classification
+
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
@@ -394,7 +487,7 @@ class MEAResponseGroup:
                 concat_spike_times += block_times
             ls_spike_times.append(concat_spike_times)
 
-        df_spike_times = pd.DataFrame({'cell_id' : self.cell_ids,
+        df_spike_times: pd.DataFrame = pd.DataFrame({'cell_id' : self.cell_ids,
                                        'spike_times' : ls_spike_times})
 
         # Recreate d_timing dictionary by concatenating values that need to be joined
@@ -462,6 +555,92 @@ class MEAResponseGroup:
         else:
             self.frame_sample_rates = None 
             self.frame_data = np.array([])
+
+    def add_cell_types(self, noise_chunk: Optional[str] = None, typing_file: Optional[str] = None):
+
+        import retinanalysis
+        from retinanalysis.classes.analysis_chunk import AnalysisChunk
+        try:
+            import importlib.resources as ir
+        except:
+            import importlib_resources as ir #type: ignore
+
+        cell_types_list_path = str(ir.files(retinanalysis) / "assets/cell_types.csv")
+        cell_types_list = pd.read_csv(cell_types_list_path)
+        cell_types = cell_types_list['cell_types'].values
+
+        if noise_chunk is None:
+            from retinanalysis.classes.stim import make_mea_stim_group
+            stim_group = make_mea_stim_group(self.exp_name, self.datafile_names, verbose = False)
+            noise_chunk = stim_group.nearest_noise_chunk
+            analysis_chunk = AnalysisChunk(self.exp_name, noise_chunk, self.ss_version,
+                                           b_load_spatial_maps = False, verbose = False)
+
+            if typing_file is None:
+                if len(analysis_chunk.typing_files) == 0:
+                    raise ValueError(f"No typing files for nearest noise {noise_chunk}")
+                else:
+                    print(f"No typing file provided, using {analysis_chunk.typing_files[0]}")
+                    typing_file = analysis_chunk.typing_files[0]
+            else:
+                assert typing_file in analysis_chunk.typing_files, f"Typing file {typing_file} not found in noise chunk {noise_chunk}"
+
+        else:
+            analysis_chunk = AnalysisChunk(self.exp_name, noise_chunk, self.ss_version,
+                                           b_load_spatial_maps = False, verbose = False)
+            if typing_file is None:
+                if len(analysis_chunk.typing_files) == 0:
+                    raise ValueError(f"No typing files for nearest noise {noise_chunk}")
+                else:
+                    print(f"No typing file provided, using {analysis_chunk.typing_files[0]}")
+                    typing_file = analysis_chunk.typing_files[0]
+
+            else:
+                assert typing_file in analysis_chunk.typing_files, f"Typing file {typing_file} not found in noise chunk {noise_chunk}"
+
+
+        assert noise_chunk is not None and typing_file is not None
+
+        # Cluster Match
+        self.match_dict, _ = cluster_match(analysis_chunk, self, verbose = self.verbose) 
+        inverse_match_dict = {value: key for key, value in self.match_dict.items()}
+        noise_ids = [inverse_match_dict[id] if id in inverse_match_dict.keys() else 0 for id in self.cell_ids]
+
+
+        # Pull types from classification file
+        file_path = os.path.join(ANALYSIS_DIR, self.exp_name, noise_chunk, self.ss_version, typing_file)
+
+        d_result = dict()
+        with open(file_path, 'r') as file:
+           for line in file:
+                # Split each line into key and value using the specified delimiter
+                key, value = map(str.strip, line.split(' ', 1))
+                sub_values = value.split('/')
+                
+                # Add key-value pair to the dictionary
+                if int(key) in self.match_dict.keys():
+                    d_result[self.match_dict[int(key)]] = sub_values[:-1]
+
+        for idx, id in enumerate(self.cell_ids):
+            if id in d_result.keys():
+
+                for ctype in cell_types:
+                    if ctype in d_result[id]:
+                        d_result[id] = ctype
+                        break
+            else:
+                d_result[id] = 'Unknown'
+            
+            if 'All' in d_result[id]:
+                d_result[id] = 'Unknown'
+
+            if noise_ids[idx] == 0:
+                d_result[id] = 'Ummatched'
+            
+        
+        classification = [d_result[id] for id in self.cell_ids]
+        self.df_spike_times['noise_id'] = noise_ids
+        self.df_spike_times['cell_type'] = classification
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"

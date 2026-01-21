@@ -17,6 +17,7 @@ from retinanalysis.utils import (DATA_DIR,
 
 import os
 import numpy as np
+from pandas import DataFrame
 # from retinanalysis.utils.datajoint_utils import get_exp_summary
 from visionloader import load_vision_data
 
@@ -162,8 +163,10 @@ def cluster_match(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGrou
                 
             # Pull the index of the highest remaing correlation
             best_match = np.argmax(max_corrs)
+
             # Pull that correlation value
             max_corr = max_corrs[best_match]
+
             # Pull the index of that correlation value
             max_ind = max_inds[best_match]     
 
@@ -287,7 +290,10 @@ def cluster_match(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGrou
 
 def get_protocol_from_datafile(exp_name: str, datafile_name: str) -> str:
     exp_summary = get_exp_summary(exp_name)
+
+    assert exp_summary is not None, f"Experiment summary failed to generate for {exp_name}, {datafile_name}"
     protocol_name = exp_summary.query('datafile_name == @datafile_name').reset_index(drop = True)
+
     return protocol_name.loc[0,'protocol_name']
 
 def get_classification_file_path(classification_file_name: str, exp_name: str, chunk_name: str, 
@@ -366,7 +372,13 @@ def get_spike_xarr(response_block: MEAResponseBlock | MEAResponseGroup,
     if isinstance(protocol_ids, int):
         protocol_ids = [protocol_ids]
 
-    spike_time_df = response_block.df_spike_times
+    
+    # Check that cell_type data included in spike times dataframe, if not, add it
+    if 'cell_type' not in response_block.df_spike_times.columns:
+        response_block.add_cell_types()
+        spike_time_df = response_block.df_spike_times
+    else:
+        spike_time_df = response_block.df_spike_times
 
     if protocol_ids is None and cell_types is None:
         filtered_df = spike_time_df
@@ -388,7 +400,7 @@ def get_spike_xarr(response_block: MEAResponseBlock | MEAResponseGroup,
         if len(filtered_df.query('cell_type == @ct').values) < minimum_n:
             print(f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})...")
             indices = filtered_df.query('cell_type == @ct').index
-            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True)
+            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True) #type: ignore 
 
 
     spike_time_arr = [filtered_df.loc[cell_idx, 'spike_times'] for cell_idx in filtered_df.index]
@@ -409,7 +421,12 @@ def get_spike_dict(response_block: MEAResponseBlock | MEAResponseGroup,
                    protocol_ids: Optional[List[int] | int] = None, 
                    cell_types: Optional[List[str] | str] = None, minimum_n:int = 1) -> dict:
     
-    spike_time_df = response_block.df_spike_times
+    # Check that cell_type data included in spike times dataframe, if not, add it
+    if 'cell_type' not in response_block.df_spike_times.columns:
+        response_block.add_cell_types()
+        spike_time_df = response_block.df_spike_times
+    else:
+        spike_time_df = response_block.df_spike_times
     
     if protocol_ids is None and cell_types is None:
         filtered_df = spike_time_df
@@ -431,7 +448,7 @@ def get_spike_dict(response_block: MEAResponseBlock | MEAResponseGroup,
         if len(filtered_df.query('cell_type == @ct').values) < minimum_n:
             print(f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})...")
             indices = filtered_df.query('cell_type == @ct').index
-            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True)
+            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True) #type: ignore
 
     d_spike_times = dict()
     for ct in cell_types:
@@ -447,14 +464,14 @@ def get_spike_dict(response_block: MEAResponseBlock | MEAResponseGroup,
 
     return d_spike_times
 
-def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[AnalysisChunk, MEAResponseBlock],
+def classification_transfer(analysis_chunk: AnalysisChunk, target_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
                                  ss_version: Optional[str] = None, input_typing_file: Optional[str] = None, 
                             output_typing_file: str = 'RA_autoClassification.txt', verbose: bool = True, **kwargs):
 
-    """Transfer classification between analysis an chunk and another analysis chunk or a response block
+    """Transfer classification between an analysis chunk and another analysis chunk or a response block
     Inputs:
         analysis_chunk: AnalysisChunk
-        target_object: AnalysisChunk or ResponseBlock 
+        target_object: AnalysisChunk or ResponseBlock or ResponseGroup
         ss_version: str such as 'kilosort2.5', if None, uses same ss_version as analysis_chunk
         input_typing_file: str, filename of classification file to use, if None will use
                             the first typing file in analysis_chunk.typing_files
