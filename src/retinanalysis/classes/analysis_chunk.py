@@ -101,6 +101,7 @@ class AnalysisChunk:
         self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
         self.cell_ids = np.array(self.vcd.get_cell_ids())
 
+        # Pull EIs into an EI dictionary (if include_ei param is true)
         if 'include_ei' in vu_kwargs:
             if vu_kwargs['include_ei'] == False:
                 pass
@@ -129,6 +130,7 @@ class AnalysisChunk:
             mask = ~np.isin(self.cell_ids, bad_ids)
             self.cell_ids = self.cell_ids[mask]
 
+        # Pull timecourses into an timecourse dictionary 
         self.d_timecourses = dict()
         for id in self.cell_ids:
             timecourse_r = self.vcd.main_datatable[id]['RedTimeCourse']
@@ -138,6 +140,7 @@ class AnalysisChunk:
                                       'green' : timecourse_g,
                                       'blue' : timecourse_b}
 
+        # Pull ISIs into an ISI  dictionary 
         self.d_ISIs = dict()
         for id in self.cell_ids:
             isi = self.vcd.get_acf_numpairs_for_cell(id)
@@ -147,6 +150,7 @@ class AnalysisChunk:
         self.get_noise_params()
         self.get_rf_params()
         self.get_df()
+
         if b_load_spatial_maps:
             self.get_spatial_maps()
 
@@ -582,12 +586,24 @@ class AnalysisChunk:
         for idx, ct in enumerate(cell_types):
             ax = axs[idx]
 
-            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['rg_mean']))*scale_factor
+            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['g_mean']))*scale_factor
 
-            rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
-            rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
-            ax.plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
-            ax.fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
+            if np.array_equal(d_timecourses_by_type[ct]['r_mean'], d_timecourses_by_type[ct]['g_mean']):
+                g_err_top = d_timecourses_by_type[ct]['g_mean'] + d_timecourses_by_type[ct]['g_std']*std_scaling
+                g_err_bottom = d_timecourses_by_type[ct]['g_mean'] - d_timecourses_by_type[ct]['g_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['g_mean'], '-g')
+                ax.fill_between(time_vals, g_err_bottom, g_err_top, alpha = 0.4, color = 'g')
+            else:
+                r_err_top = d_timecourses_by_type[ct]['r_mean'] + d_timecourses_by_type[ct]['r_std']*std_scaling
+                r_err_bottom = d_timecourses_by_type[ct]['r_mean'] - d_timecourses_by_type[ct]['r_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['r_mean'], '-r')
+                ax.fill_between(time_vals, r_err_bottom, r_err_top, alpha = 0.4, color = 'r')
+
+                g_err_top = d_timecourses_by_type[ct]['g_mean'] + d_timecourses_by_type[ct]['g_std']*std_scaling
+                g_err_bottom = d_timecourses_by_type[ct]['g_mean'] - d_timecourses_by_type[ct]['g_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['g_mean'], '-g')
+                ax.fill_between(time_vals, g_err_bottom, g_err_top, alpha = 0.4, color = 'g')
+
 
             b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
             b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
@@ -599,7 +615,7 @@ class AnalysisChunk:
             ax.set_ylabel(f"STA (arb. units)")
             ax.set_xlabel(f"Time ({units})")
             
-            ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
+            ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['r_timecourses'].shape[0]})")
 
         # Remove extra empty axes 
         num_axes = rows*cols

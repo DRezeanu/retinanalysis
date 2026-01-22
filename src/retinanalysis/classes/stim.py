@@ -261,6 +261,7 @@ class MEAStimGroup:
         self.exp_name = ls_blocks[0].exp_name
         self.parameter_names = ls_blocks[0].parameter_names
         self.datafile_names = datafile_names
+        self.ls_epoch_block_params = [block.d_epoch_block_params for block in ls_blocks]
         self.df_epochs = pd.concat([block.df_epochs for block in ls_blocks], ignore_index=True)
         self.df_epochs = self.df_epochs.rename(columns = {'epoch_index':'datafile_epoch_index'})
         self.df_epochs.index = self.df_epochs.index.rename('epoch_index')

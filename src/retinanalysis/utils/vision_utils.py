@@ -338,17 +338,27 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
     d_timecourses_by_type = dict()
 
     for ct in d_cells_by_type.keys():
-        rg_timecourses = [analysis_chunk.vcd.main_datatable[cell]['GreenTimeCourse'] for cell in d_cells_by_type[ct]]
-        rg_timecourses = np.array(rg_timecourses)
-        if rg_timecourses.shape[0] > 1:
-            rg_mean = np.mean(rg_timecourses, axis = 0)
-            rg_std = np.std(rg_timecourses, axis = 0)
-        else:
-            rg_mean = rg_timecourses.squeeze()
-            rg_std = 0
+        r_timecourses = [analysis_chunk.d_timecourses[cell]['red'] for cell in d_cells_by_type[ct]]
+        g_timecourses = [analysis_chunk.d_timecourses[cell]['green'] for cell in d_cells_by_type[ct]]
+        b_timecourses = [analysis_chunk.d_timecourses[cell]['blue'] for cell in d_cells_by_type[ct]]
 
-        b_timecourses = [analysis_chunk.vcd.main_datatable[cell]['BlueTimeCourse'] for cell in d_cells_by_type[ct]]
+        r_timecourses = np.array(r_timecourses)
+        g_timecourses = np.array(g_timecourses)
         b_timecourses = np.array(b_timecourses)
+
+        if r_timecourses.shape[0] > 1:
+            r_mean = np.mean(r_timecourses, axis = 0)
+            r_std = np.std(r_timecourses, axis = 0)
+        else:
+            r_mean = r_timecourses.squeeze()
+            r_std = 0
+
+        if g_timecourses.shape[0] > 1:
+            g_mean = np.mean(g_timecourses, axis = 0)
+            g_std = np.std(g_timecourses, axis = 0)
+        else:
+            g_mean = g_timecourses.squeeze()
+            g_std = 0
 
         if b_timecourses.shape[0] > 1:
             b_mean = np.mean(b_timecourses, axis = 0)
@@ -357,7 +367,8 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
             b_mean = b_timecourses.squeeze()
             b_std = 0
 
-        d_timecourses_by_type[ct] = {'rg_timecourses' : rg_timecourses, 'rg_mean' : rg_mean, 'rg_std' : rg_std,
+        d_timecourses_by_type[ct] = {'r_timecourses' : r_timecourses, 'r_mean' : r_mean, 'r_std' : r_std,
+                                     'g_timecourses' : g_timecourses, 'g_mean' : g_mean, 'g_std' : g_std,
                             'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
 
     return d_timecourses_by_type

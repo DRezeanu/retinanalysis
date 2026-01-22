@@ -100,6 +100,18 @@ class MEAPipeline:
         
         self.add_matches_to_protocol()
         self.add_types_to_protocol(typing_file_name = self.typing_file)
+
+
+    @property
+    def response_block(self):
+        print("`pipeline.response_block` is deprecated, use `pipeline.resp` instead")
+        return self.resp
+
+    @property
+    def stim_block(self):
+        print("WARNING: `pipeline.stim_block` is deprecated, use `pipeline.stim` instead")
+        return self.stim
+
     
 
     def add_matches_to_protocol(self) -> None:
