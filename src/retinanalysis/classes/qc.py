@@ -3,7 +3,6 @@ import pandas as pd
 from retinanalysis.classes.response import (MEAResponseBlock,
                                             MEAResponseGroup)
 from retinanalysis.classes.analysis_chunk import AnalysisChunk
-from visionloader import VisionCellDataTable
 
 def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids: list | np.ndarray):
     ls_nsps = []
@@ -29,16 +28,6 @@ def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids
 
     return ls_nsps
 
-
-# def get_nsps(vcd: VisionCellDataTable, cell_ids: list | np.ndarray):
-#     ls_nsps = []
-#     for n_ID in cell_ids:
-#         if 'SpikeTimes' in vcd.main_datatable[n_ID].keys():
-#             ls_nsps.append(len(vcd.get_spike_times_for_cell(n_ID)))
-#         else:
-#             ls_nsps.append(0)
-#             print(f'No SpikeTimes for {n_ID}.')
-#     return ls_nsps
 
 def get_isi(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids: list | np.ndarray, bin_edges: np.ndarray):
 
@@ -67,57 +56,11 @@ def get_isi(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids:
 
     return isi_dict
 
-
-# def get_isi(vcd: VisionCellDataTable, cell_ids: list, bin_edges: np.ndarray):
-#     isi_dict = dict()
-#     for n_ID in cell_ids:
-#         try:
-#             spike_times = vcd.get_spike_times_for_cell(n_ID) / 20000 * 1000 # ms
-#         except Exception as e:
-#             print(f'Error for cell {n_ID}: {e}')
-#             spike_times = []
-#
-#         # Compute the interspike interval
-#         if len(spike_times) > 1:
-#             isi_tmp = np.diff(spike_times)
-#             isi_dict[n_ID] = np.histogram(isi_tmp, bins=bin_edges)[0].astype(float)
-#
-#             if np.sum(isi_dict[n_ID]) == 0:
-#                 isi_dict[n_ID] = np.zeros((len(bin_edges)-1,)).astype(float)
-#             # Normalize by sum
-#             else:
-#                 isi_dict[n_ID] /= np.sum(isi_dict[n_ID])
-#
-#         else:
-#             isi_dict[n_ID] = np.zeros((len(bin_edges)-1,)).astype(float)
-#
-#
-#     for id in cell_ids:
-#         if id not in list(isi_dict.keys()):
-#             print(f"ID Not in dict: {id}")
-#
-#     return isi_dict
-
 def get_pct_refractory(isi_dict, n_bin_max):
     # Make array of [cells, bins]
     isi = np.array(list(isi_dict.values()))
     pct_refractory = np.sum(isi[:,:n_bin_max], axis=1) * 100
     return pct_refractory
-
-# def get_ei_corr(vcd1: VisionCellDataTable, vcd2: VisionCellDataTable, 
-#                 match_dict: dict, method: str='full'):
-#     if method != 'full':
-#         raise NotImplementedError("Only 'full' method is implemented for now in QC EI correlation.")
-#
-#     ei_corrs = []
-#     for id1 in match_dict.keys():
-#         ei1 = vcd1.get_ei_for_cell(id1).ei.flatten()
-#         id2 = match_dict[id1]
-#         ei2 = vcd2.get_ei_for_cell(id2).ei.flatten()
-#         r = np.corrcoef(ei1, ei2)[0,1]
-#         ei_corrs.append(r)
-#
-#     return ei_corrs
 
 class MEAQC():
     def __init__(self, rb: MEAResponseBlock, ac: AnalysisChunk, match_dict: dict,
