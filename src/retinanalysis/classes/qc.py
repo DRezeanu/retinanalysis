@@ -1,21 +1,28 @@
 import numpy as np
 import pandas as pd
 from retinanalysis.classes.response import (MEAResponseBlock,
-                                            MEAResponseGroup)
+                                            MEAResponseGroup,
+                                            make_mea_response_group)
 from retinanalysis.classes.analysis_chunk import AnalysisChunk
 
 def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids: list | np.ndarray):
     ls_nsps = []
 
     if isinstance(resp, AnalysisChunk):
-        vcd = resp.vcd
-        for n_ID in cell_ids:
-            if 'SpikeTimes' in vcd.main_datatable[n_ID].keys():
-                ls_nsps.append(len(vcd.get_spike_times_for_cell(n_ID)))
-            else:
-                ls_nsps.append(0)
-                print(f'No spike times for {n_ID}.')
+        if len(resp.data_files) > 1:
+            resp = make_mea_response_group(resp.exp_name, resp.data_files, verbose = False)
+        else:
+            resp = MEAResponseBlock(resp.exp_name, resp.data_files[0], include_ei = False, b_load_fd = False, verbose = False)
 
+        df_spike_times = resp.df_spike_times
+
+        for n_ID in cell_ids:
+            ls_spike_times = df_spike_times.query('cell_id == @n_ID')['spike_times'].item()
+            num_spikes = sum([len(arr) for arr in ls_spike_times])
+            ls_nsps.append(num_spikes)
+            if num_spikes == 0:
+                print(f'No spikes for {n_ID}.')
+        
     else:
         df_spike_times = resp.df_spike_times
 
