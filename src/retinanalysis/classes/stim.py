@@ -256,15 +256,22 @@ class MEAStimGroup:
         max_count_idx = np.argmax(counts)
         self.nearest_noise_chunk = vals[max_count_idx]
 
+        # Create d_epoch_block_params by concatenating only those values that change from
+        # block to block.
+        self.d_epoch_block_params = dict()
+        for key in ls_blocks[0].d_epoch_block_params.keys():
+            concatenated_values = np.array([block.d_epoch_block_params[key] for block in ls_blocks])
+            if np.all(concatenated_values == concatenated_values[0]):
+                concatenated_values = concatenated_values[0]
+            self.d_epoch_block_params[key] = concatenated_values
 
         self.ls_blocks = ls_blocks
         self.exp_name = ls_blocks[0].exp_name
         self.parameter_names = ls_blocks[0].parameter_names
         self.datafile_names = datafile_names
-        self.ls_epoch_block_params = [block.d_epoch_block_params for block in ls_blocks]
         self.df_epochs = pd.concat([block.df_epochs for block in ls_blocks], ignore_index=True)
         self.df_epochs = self.df_epochs.rename(columns = {'epoch_index':'datafile_epoch_index'})
-        self.df_epochs.index = self.df_epochs.index.rename('epoch_index')
+        self.df_epochs.insert(0, 'epoch_index', self.df_epochs.index.values)
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
