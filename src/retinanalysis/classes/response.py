@@ -186,7 +186,7 @@ class MEAResponseBlock(ResponseBlock):
 
     def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None,
-                 h5_file: Optional[str]=None, include_ei: bool=True, b_load_fd: bool=True,
+                 h5_file: Optional[str]=None, include_ei: bool=True, b_load_fd: bool=False,
                  verbose: bool = True):
 
         self.verbose = verbose
@@ -455,7 +455,7 @@ class MEAResponseBlock(ResponseBlock):
 
 class MEAResponseGroup:
 
-    def __init__(self, ls_blocks: List[MEAResponseBlock], b_load_fd: bool = False, verbose: bool = True):
+    def __init__(self, ls_blocks: List[MEAResponseBlock], b_load_fd: bool = False, verbose: bool = False):
 
         self.verbose = verbose
 
@@ -662,7 +662,7 @@ class MEAResponseGroup:
 
 
 
-def make_mea_response_group(exp_name: str, ls_datafile_names: List[str], b_load_fd: bool = False, verbose: bool = True):
+def make_mea_response_group(exp_name: str, ls_datafile_names: List[str], b_load_fd: bool = False, verbose: bool = False):
 
     response_blocks = [MEAResponseBlock(exp_name, datafile_name, b_load_fd = b_load_fd, verbose = verbose) for datafile_name in ls_datafile_names]
 

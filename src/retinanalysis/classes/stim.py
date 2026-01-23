@@ -292,8 +292,5 @@ class MEAStimGroup:
         print(f"StimGroup exported to {file_path}")
 
 def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None, verbose: bool = False):
-    ls_blocks = []
-    for datafile_name in ls_datafile_names:
-        block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params, verbose = verbose)
-        ls_blocks.append(block)
+    ls_blocks = [MEAStimBlock(exp_name, datafile, ls_params = ls_params, verbose = verbose) for datafile in ls_datafile_names]
     return MEAStimGroup(ls_blocks)
