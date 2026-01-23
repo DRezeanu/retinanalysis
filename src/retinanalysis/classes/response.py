@@ -478,6 +478,9 @@ class MEAResponseGroup:
         # Pull only cell ids that are common to all blocks in this group
         all_ids = [set(block.cell_ids) for block in ls_blocks]
         self.cell_ids = list(set.intersection(*all_ids))
+        n_cells_lost = len(set.union(*all_ids)) - len(self.cell_ids)
+        if self.verbose:
+            print(f'Lost {n_cells_lost} when concatenating response blocks')
 
         # Concatenate spike times and recreate df_spike_times
         ls_spike_times = []
@@ -530,8 +533,7 @@ class MEAResponseGroup:
         self.df_spike_times = df_spike_times
         self.d_timing = d_timing
         self.d_eis = mean_eis
-        self.d_timecourses = None
-        self.d_ISIs = None
+
 
         if b_load_fd:
             

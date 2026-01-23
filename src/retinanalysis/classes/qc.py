@@ -43,6 +43,7 @@ def get_isi(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids:
         for n_ID in cell_ids:
             isi_dict[n_ID] = resp.d_ISIs[n_ID]
 
+    #TODO: Pull ISIs from actual spike times instead of vcd
     else:
         for n_ID in cell_ids:
             ls_spike_times = resp.df_spike_times.query('cell_id == @n_ID')['spike_times'].item()
