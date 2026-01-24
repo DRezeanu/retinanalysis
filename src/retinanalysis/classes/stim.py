@@ -9,6 +9,8 @@ import retinanalysis.utils.regen as regen
 import pickle
 from retinanalysis.classes.analysis_chunk import get_noise_name_by_exp
 from typing import Optional
+from retinanalysis.config.settings import ANALYSIS_DIR
+import os
 
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
@@ -192,10 +194,15 @@ class MEAStimBlock(StimBlock):
             nearest_noise_chunk = nearest_noise_chunk.reset_index(drop = True).loc[0, 'chunk_name']
 
             # Check if this chunk has a typing file
-            noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
-            noise_chunk_id = noise_chunk_id.fetch('id')[0]
+            
+            # New way to check for typing files... avoids missing typing files in database
+            ss_version = os.listdir(os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk))[0]
+            typing_file_path = os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version)
+            typing_files = [file for file in os.listdir(typing_file_path) if '.txt' in file]
 
-            typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
+            # noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
+            # noise_chunk_id = noise_chunk_id.fetch('id')[0]
+            # typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
 
             # If there's no typing file, remove the minimum value and try again
             if len(typing_files) == 0:
@@ -248,8 +255,8 @@ class MEAStimGroup:
         self.parameter_names = ls_blocks[0].parameter_names
         self.datafile_names = datafile_names
         self.df_epochs = pd.concat([block.df_epochs for block in ls_blocks], ignore_index=True)
+        self.df_epochs = self.df_epochs.rename(columns = {'epoch_index':'datafile_epoch_index'})
         self.df_epochs.index = self.df_epochs.index.rename('epoch_index')
-        self.df_epochs = self.df_epochs.reset_index(drop=False)
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
@@ -269,9 +276,9 @@ class MEAStimGroup:
             pickle.dump(self, f)
         print(f"StimGroup exported to {file_path}")
 
-def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None):
+def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None, verbose: bool = False):
     ls_blocks = []
     for datafile_name in ls_datafile_names:
-        block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params)
+        block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params, verbose = verbose)
         ls_blocks.append(block)
     return MEAStimGroup(ls_blocks)

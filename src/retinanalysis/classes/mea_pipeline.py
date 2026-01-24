@@ -143,7 +143,8 @@ class MEAPipeline:
             if no_typing_file:
                 type_dict[id] = "No Typing File"
             elif id in self.match_dict:
-                type_dict[self.match_dict[id]] = self.analysis_chunk.df_cell_params.query('cell_id == @id')[f'typing_file_{typing_file}'].values[0]
+                # type_dict[self.match_dict[id]] = self.analysis_chunk.df_cell_params.query('cell_id == @id')[f'typing_file_{typing_file}'].values[0]
+                type_dict[self.match_dict[id]] = self.analysis_chunk.df_cell_params.query('cell_id == @id')[f'typing_file_{typing_file}'].item()
             else:
                 pass
         

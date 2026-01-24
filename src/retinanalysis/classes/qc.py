@@ -14,7 +14,7 @@ def get_nsps(vcd: VisionCellDataTable, cell_ids: list):
             print(f'No SpikeTimes for {n_ID}.')
     return ls_nsps
 
-def get_isi(vcd: VisionCellDataTable, cell_ids: list, bin_edges: np.array):
+def get_isi(vcd: VisionCellDataTable, cell_ids: list, bin_edges: np.ndarray):
     isi_dict = dict()
     for n_ID in cell_ids:
         try:
