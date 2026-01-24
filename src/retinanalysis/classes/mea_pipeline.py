@@ -1,10 +1,10 @@
 import numpy as np
 from retinanalysis.classes.response import (MEAResponseBlock,
                                             MEAResponseGroup,
-                                            make_mea_response_group)
+                                            create_mea_response_group)
 from retinanalysis.classes.stim import (MEAStimBlock,
                                         MEAStimGroup,
-                                        make_mea_stim_group)
+                                        create_mea_stim_group)
 from retinanalysis.classes.analysis_chunk import AnalysisChunk
 from retinanalysis.utils.vision_utils import cluster_match, get_spike_xarr
 import os
@@ -104,7 +104,7 @@ class MEAPipeline:
 
     @property
     def response_block(self):
-        print("`pipeline.response_block` is deprecated, use `pipeline.resp` instead")
+        print("WARNING: `pipeline.response_block` is deprecated, use `pipeline.resp` instead")
         return self.resp
 
     @property
@@ -542,7 +542,7 @@ class MEAPipeline:
 
 def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_chunk_name: Optional[str] = None,
                     typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
-                        ls_params: Optional[list] = None, verbose: bool = True):
+                        ls_params: Optional[list] = None, b_load_fd: bool = False, verbose: bool = True):
     """
     Helper function for initializing an MEAPipeline from metadata.
 
@@ -569,12 +569,12 @@ def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_
     """
     # TODO StimGroup and ResponseGroup functionality
     if isinstance(datafile_name, list):
-        s = make_mea_stim_group(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
-        r = make_mea_response_group(exp_name, datafile_name, b_load_fd = True, verbose = verbose)
+        s = create_mea_stim_group(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
+        r = create_mea_response_group(exp_name, datafile_name, b_load_fd = b_load_fd, verbose = verbose)
 
     elif isinstance(datafile_name, str):
-        s = MEAStimBlock(exp_name, datafile_name, ls_params, verbose = verbose)
-        r = MEAResponseBlock(exp_name, datafile_name, ss_version, verbose = verbose)
+        s = MEAStimBlock(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
+        r = MEAResponseBlock(exp_name, datafile_name, ss_version, b_load_fd = b_load_fd, verbose = verbose)
 
     if analysis_chunk_name is None:
         analysis_chunk_name = s.nearest_noise_chunk

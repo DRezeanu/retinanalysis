@@ -106,11 +106,11 @@ class AnalysisChunk:
             if vu_kwargs['include_ei'] == False:
                 pass
             else:
-                self.d_eis = dict()
+                self.d_EIs = dict()
                 bad_ids = []
                 for id in self.cell_ids:
                     try:
-                        self.d_eis[id] = self.vcd.get_ei_for_cell(id).ei
+                        self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
                     except:
                         print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
                         bad_ids.append(id)
@@ -118,11 +118,11 @@ class AnalysisChunk:
                 mask = ~np.isin(self.cell_ids, bad_ids)
                 self.cell_ids = self.cell_ids[mask]
         else:
-            self.d_eis = dict()
+            self.d_EIs = dict()
             bad_ids = []
             for id in self.cell_ids:
                 try:
-                    self.d_eis[id] = self.vcd.get_ei_for_cell(id).ei
+                    self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
                 except:
                     print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
                     bad_ids.append(id)
@@ -637,6 +637,10 @@ class AnalysisChunk:
         str_self += f"  noise_protocol: {self.noise_protocol}\n"
         str_self += f"  data_files: {self.data_files}\n"
         str_self += f"  typing_files: {self.typing_files}\n"
+        str_self += f"  vcd: {self.vcd}\n"
+        str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  d_ISIs dictionary containing ISIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  d_timecourses dictionary containing dictionary with 'red' 'green' and 'blue' timecourses for {len(self.cell_ids)} cell IDs\n"
         str_self += f"  numXChecks: {self.numXChecks}\n"
         str_self += f"  numYChecks: {self.numYChecks}\n"
         str_self += f"  staXChecks: {self.staXChecks}\n"

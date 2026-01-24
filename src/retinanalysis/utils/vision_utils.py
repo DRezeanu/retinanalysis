@@ -577,7 +577,7 @@ def ei_corr(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
         # New code ensures cells with no or broken EIs don't break cluster matching
         ref_eis = []
         for id in ref_ids:
-            ref_eis.append(ref_object.d_eis[id])
+            ref_eis.append(ref_object.d_EIs[id])
 
         if n_removed_channels > 0:
             max_ref_vals = [np.array(np.max(ei, axis = 1)) for ei in ref_eis]
@@ -612,7 +612,7 @@ def ei_corr(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
         # New code makes sure that cells with broken or no EIs don't break cluster matching
         test_eis = []
         for id in test_ids:
-            test_eis.append(target_object.d_eis[id])
+            test_eis.append(target_object.d_EIs[id])
 
         if n_removed_channels > 0:
             max_test_vals = [np.array(np.max(ei, axis = 1)) for ei in test_eis]

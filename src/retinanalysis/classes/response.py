@@ -218,11 +218,11 @@ class MEAResponseBlock(ResponseBlock):
         self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
 
         if include_ei:
-            self.d_eis = dict()
+            self.d_EIs = dict()
             bad_ids = []
             for id in self.cell_ids:
                 try:
-                    self.d_eis[id] = self.vcd.get_ei_for_cell(id).ei
+                    self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
                 except:
                     print(f'WARNING: No ei for ref cell id {id}, removing from {self.datafile_name} ResponseBlock')
                     bad_ids.append(id)
@@ -440,6 +440,7 @@ class MEAResponseBlock(ResponseBlock):
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
         str_self += f"  df_spike_times with times for {self.df_spike_times.shape[0]} cells\n"
         str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
         str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
         str_self += f"  frame_data shape: {self.frame_data.shape}\n"
@@ -532,7 +533,7 @@ class MEAResponseGroup:
         self.datafile_names = datafile_names
         self.df_spike_times = df_spike_times
         self.d_timing = d_timing
-        self.d_eis = mean_eis
+        self.d_EIs = mean_eis
 
 
         if b_load_fd:
@@ -552,8 +553,13 @@ class MEAResponseGroup:
                     self.frame_sample_rates = [block.frame_sample_rate for block in ls_blocks]
                     frame_data = np.array([block.frame_data for block in ls_blocks])
                     self.frame_data = np.reshape(frame_data, (-1, frame_data.shape[2]))
+
+                
             else:
                 raise ValueError("Some ResponseBlocks have frame data and some don't, they must all be uniform")
+
+            if np.all(np.array(self.frame_sample_rates) == self.frame_sample_rates[0]):
+                self.frame_stample_rates = self.frame_sample_rates[0]
 
         else:
             self.frame_sample_rates = None 
@@ -573,8 +579,8 @@ class MEAResponseGroup:
         cell_types = cell_types_list['cell_types'].values
 
         if noise_chunk is None:
-            from retinanalysis.classes.stim import make_mea_stim_group
-            stim_group = make_mea_stim_group(self.exp_name, self.datafile_names, verbose = False)
+            from retinanalysis.classes.stim import create_mea_stim_group
+            stim_group = create_mea_stim_group(self.exp_name, self.datafile_names, verbose = False)
             noise_chunk = stim_group.nearest_noise_chunk
             analysis_chunk = AnalysisChunk(self.exp_name, noise_chunk, self.ss_version,
                                            b_load_spatial_maps = False, verbose = False)
@@ -647,6 +653,7 @@ class MEAResponseGroup:
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  ls_blocks containg {len(self.ls_blocks)} MEAResponseBlocks\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  datafile_names: {self.datafile_names}\n"
         str_self += f"  protocol_name: {self.protocol_name}\n"
@@ -655,6 +662,7 @@ class MEAResponseGroup:
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
         str_self += f"  df_spike_times with times for {self.df_spike_times.shape[0]} cells\n"
         str_self += f"  block_ids: {self.block_ids}\n"
+        str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
         str_self += f"  frame_sample_rates: {self.frame_sample_rates}\n"
         str_self += f"  frame_data shape: {self.frame_data.shape}\n"
@@ -662,7 +670,7 @@ class MEAResponseGroup:
 
 
 
-def make_mea_response_group(exp_name: str, ls_datafile_names: List[str], b_load_fd: bool = False, verbose: bool = False):
+def create_mea_response_group(exp_name: str, ls_datafile_names: List[str], b_load_fd: bool = False, verbose: bool = False):
 
     response_blocks = [MEAResponseBlock(exp_name, datafile_name, b_load_fd = b_load_fd, verbose = verbose) for datafile_name in ls_datafile_names]
 

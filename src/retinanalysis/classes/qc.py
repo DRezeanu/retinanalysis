@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from retinanalysis.classes.response import (MEAResponseBlock,
                                             MEAResponseGroup,
-                                            make_mea_response_group)
+                                            create_mea_response_group)
 from retinanalysis.classes.analysis_chunk import AnalysisChunk
 
 def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids: list | np.ndarray):
@@ -10,7 +10,7 @@ def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids
 
     if isinstance(resp, AnalysisChunk):
         if len(resp.data_files) > 1:
-            resp = make_mea_response_group(resp.exp_name, resp.data_files, verbose = False)
+            resp = create_mea_response_group(resp.exp_name, resp.data_files, verbose = False)
         else:
             resp = MEAResponseBlock(resp.exp_name, resp.data_files[0], include_ei = False, b_load_fd = False, verbose = False)
 
