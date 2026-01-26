@@ -4,7 +4,7 @@ MEA and Single Cell Ephys Analysis Package
 ## Installation
 1. Create a conda environment using python 3.11:
 ```
-conda create --name retinanalysis python=3.11)
+conda create --name retinanalysis python=3.11.13
 ```
 
 2. Activate conda environment, cd to the package directory, and use pip and conda to install all required dependencies:
@@ -12,19 +12,16 @@ conda create --name retinanalysis python=3.11)
 conda activate retinanalysis
 cd repositories_dir/retinanalysis
 pip install -e . 
-conda install pytorch::pytorch torchvision torchaudio -c pytorch
-conda install conda-forge::ipykernel 
-conda install -c conda-forge xarray dask netCDF4 bottleneck
 ```
 
 3. Install additional requirements from Chichilnisky Vision repository:
 ```
 cd repositories_dir/artificial-retina-software-pipeline/utilities/ (external requirement from Chichilnisky lab)
-pip install .
+pip install --no-build-isolation .
 ```
 
 4. Create a config.ini file using the sample version below as a guide and put this config file in
-the src/retinanalysis/config directory.
+the repo, inside the retinanalysis/src/retinanalysis/config folder.
 
 ## Note for Windows Users
 
@@ -85,10 +82,24 @@ but you must add it to your .gitignore if you do this.
 
 7. cd into the new directory and run:
 ```
+docker-compose up -d
+```
+In case that doesn't work and you have newer versions of Docker, the command syntax is:
+```
 docker compose up -d
 ```
 
+
 NOTE: Before importing retinanalysis, you will need to make sure this container is running in Docker 
-Desktop (or throught the terminal if you're comfortable with the Docker CLI) by clicking the play button.
+Desktop (or throught the terminal if you're comfortable with the Docker CLI). If it is running, you will
+see a stop icon, otherwise, click the play button.
 
 <img width="1382" height="832" alt="Screenshot 2025-10-24 at 3 00 20 PM" src="https://github.com/user-attachments/assets/45ee0d03-6dd7-48c4-ad38-c75e558259ed" />
+
+8. Populate database. Before you can look up anything in the database you need to fill its entries. This can take a very long time for big databases, and even longer if connecting remotely over a VPN. To populate the database the first time you import retinanalysis, run:
+```
+import retinanalysis as ra
+ra.populate_database()
+```
+If you have properly set up your config.ini file, there should be no need to give this function any input arguments.
+
