@@ -14,7 +14,7 @@ from typing import (List,
                     Optional)
 
 def plot_mosaics_for_datasets(df_exp_search: pd.DataFrame,
-                              cell_types: List[int] = ['OnP', 'OffP', 'OnM', 'OffM'],
+                              cell_types: List[str] = ['OnP', 'OffP', 'OnM', 'OffM'],
                               preferred_typing_file: Optional[str] = None, **kwargs):
     """
     Function for plotting mosaics across datasets listed in an experiment search dataframe.
@@ -45,14 +45,17 @@ def plot_mosaics_for_datasets(df_exp_search: pd.DataFrame,
     ls_rf_axes = []
     for e_idx, exp in enumerate(exp_names): 
         exp_summary = get_exp_summary(exp)
+        assert exp_summary is not None
+
         noise_protocol_name = get_noise_name_by_exp(exp)
         sorted_chunks, _ = get_noise_chunks_sorted_by_distance(exp_summary, datafile_names[e_idx],
                                                                noise_protocol_name = noise_protocol_name)
 
+        analysis_chunk = None
         for nearest_chunk in sorted_chunks:
             try:
                 analysis_chunk = AnalysisChunk(exp, nearest_chunk, b_load_spatial_maps=False,
-                                        include_ei=False, include_neurons=False, verbose=False)
+                                        include_ei=False, include_neurons=False, verbose=True)
                 break
             except Exception as e:
                 print(f'Could not use chunk {nearest_chunk}, trying next nearest. Error: {e}')
@@ -60,6 +63,7 @@ def plot_mosaics_for_datasets(df_exp_search: pd.DataFrame,
         if analysis_chunk is None:
             print(f'Could not load any noise chunk for {exp}')
             return
+        nearest_chunk = analysis_chunk.chunk_name
 
         if preferred_typing_file is None:
             rf_axes = analysis_chunk.plot_rfs(cell_types = cell_types, **kwargs)
@@ -163,21 +167,24 @@ def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
     cell_query = schema.Cell.proj(
         prep_id='parent_id', cell_id='id',
         cell_label='label', cell_properties='properties'
-        )
-    prep_query = schema.Preparation.proj(prep_label='label', prep_id='id')
+        ) #type: ignore
+
+    prep_query = schema.Preparation.proj(prep_label='label', prep_id='id') #type: ignore
+
     epoch_group_query = epoch_group_query * cell_query * prep_query
     epoch_block_query = schema.EpochBlock.proj(
-        'chunk_id', 'protocol_id','data_dir', 
-        'start_time', 'end_time',
-        group_id='parent_id', block_id='id'
-        )
+        'chunk_id', 'protocol_id','data_dir', 'start_time', #type: ignore
+        'end_time', group_id='parent_id', block_id='id'
+        ) 
+
     epoch_block_query = epoch_group_query * epoch_block_query
+
     # If MEA experiment, get sorting chunk information
     if is_mea:
         sorting_chunk_query = schema.SortingChunk() & f'experiment_id={exp_id}'
         sorting_chunk_query = sorting_chunk_query.proj('chunk_name', chunk_id='id')
         epoch_block_query = epoch_block_query * sorting_chunk_query
-    protocol_query = epoch_block_query * schema.Protocol.proj(..., protocol_name='name')
+    protocol_query = epoch_block_query * schema.Protocol.proj(..., protocol_name='name') #type: ignore
 
     df_exp_summary = protocol_query.fetch(format='frame').reset_index()
     df_exp_summary = df_exp_summary.sort_values('start_time').reset_index()
@@ -317,11 +324,11 @@ def get_datasets_from_protocol_names(ls_protocol_names: str | List[str], b_exact
     epoch_group_query = epoch_group_query * experiment_query
 
     # Join with EpochBlock
-    epoch_block_query = epoch_group_query * schema.EpochBlock.proj('chunk_id', 'data_dir', 'protocol_id',
-                                         group_id='parent_id', block_id='id')
+    epoch_block_query = epoch_group_query * schema.EpochBlock.proj('chunk_id', 'data_dir', 'protocol_id', #type: ignore
+                                                                   group_id='parent_id', block_id='id') 
     
     # Join with SortingChunk and fetch
-    sorting_chunk_query = schema.SortingChunk.proj('chunk_name', chunk_id='id')
+    sorting_chunk_query = schema.SortingChunk.proj('chunk_name', chunk_id='id') #type: ignore
     epoch_block_query = epoch_block_query * sorting_chunk_query
     df_exp_search = epoch_block_query.fetch(format='frame').reset_index()
 
@@ -366,17 +373,18 @@ def get_noise_chunks_sorted_by_distance(df_exp_summary: pd.DataFrame, datafile_n
     from closest to furthest.
     """
 
-    prot_row = df_exp_summary[df_exp_summary['datafile_name']==datafile_name]
+    prot_row = df_exp_summary.query('datafile_name == @datafile_name')
     prot_start_time = prot_row['start_time'].values[0]
     prot_end_time = prot_row['end_time'].values[0]
 
-    noise_chunk_names = df_exp_summary[df_exp_summary['protocol_name']==noise_protocol_name]['chunk_name'].unique()
+    noise_chunk_names = df_exp_summary.query('protocol_name == @noise_protocol_name')['chunk_name'].unique()
     noise_chunk_distances = []
+
     for chunk_name in noise_chunk_names:
         # if chunk_name == prot_chunk_name:
             # noise_chunk_distances.append((chunk_name, 0.0))
             # continue
-        noise_rows = df_exp_summary[(df_exp_summary['chunk_name']==chunk_name) & (df_exp_summary['protocol_name']==noise_protocol_name)]
+        noise_rows = df_exp_summary.query('chunk_name == @chunk_name and protocol_name == @noise_protocol_name')
         noise_start_time = noise_rows['start_time'].values[0]
         noise_end_time = noise_rows['end_time'].values[-1]
         if noise_start_time < prot_start_time:
@@ -627,19 +635,20 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[Li
     if is_mea:
         ls_eb_cols += ['data_dir']
     eb_q = schema.EpochBlock.proj(
-        *ls_eb_cols, group_id='parent_id', block_id='id'
+        *ls_eb_cols, group_id='parent_id', block_id='id' #type: ignore
         )
         
     eb_q = eg_q * eb_q
     
     eb_q = eb_q & f'block_id={block_id}'
     
-    p_q = eb_q * schema.Protocol.proj(protocol_name='name')
+    p_q = eb_q * schema.Protocol.proj(protocol_name='name') #type: ignore
     
     e_q = p_q * schema.Epoch.proj(
         epoch_parameters='parameters', block_id='parent_id', epoch_id='id',
         frame_times_ms="properties->>'$.frameTimesMs'"
-        )
+    ) #type: ignore
+
     df = e_q.fetch(format='frame')
     df = df.reset_index()
     # Make frame_times_ms list using json.loads
@@ -681,7 +690,7 @@ def get_epochblock_query(exp_name: str, block_id: int):
     eg_q = schema.EpochGroup() * ex_q.proj('exp_name', 'is_mea', experiment_id='id')
     eg_q = eg_q.proj('exp_name', 'is_mea', group_label='label', group_id='id')
     eb_q = schema.EpochBlock.proj(
-        'protocol_id', 'data_dir', block_properties='properties',
+        'protocol_id', 'data_dir', block_properties='properties', #type: ignore
         group_id='parent_id', block_id='id'
         )
     eb_q = eg_q * eb_q
@@ -783,9 +792,9 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     return d_timing
 def get_epochblock_response_query(exp_name: str, block_id: int):
     eb_q = get_epochblock_query(exp_name, block_id)
-    p_q = eb_q * schema.Protocol.proj(protocol_name='name')
-    e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id')
-    r_q = e_q * schema.Response.proj(..., epoch_id='parent_id', response_id='id') 
+    p_q = eb_q * schema.Protocol.proj(protocol_name='name') #type: ignore
+    e_q = p_q * schema.Epoch.proj(epoch_parameters='parameters', block_id='parent_id', epoch_id='id') #type: ignore
+    r_q = e_q * schema.Response.proj(..., epoch_id='parent_id', response_id='id') #type: ignore
     return r_q
 
 
@@ -806,13 +815,16 @@ def get_h5_file(exp_name: str) -> str:
 
 
 
-def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str]=None):
+def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str]=None, verbose: bool = True):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
-    print(f'Loading frame monitor data from {str_h5} ...')
+
+    if verbose:
+        print(f'Loading frame monitor data from {str_h5} ...')
+
     r_q = get_epochblock_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
-    
+
     df_frame = df.query('device_name == "Frame Monitor"')
     df_frame = df_frame.reset_index(drop=True)
 
@@ -826,7 +838,8 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str
             frame_data.append(trace)
     
     frame_data = np.array(frame_data)
-    print(f'Loaded {frame_data.shape} frame_data.\n')
+    if verbose:
+        print(f'Loaded {frame_data.shape} frame_data.\n')
 
     sample_rates = df_frame['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:
@@ -835,10 +848,13 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str
 
     return frame_data, sample_rate
 
-def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=None):
+def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=None, verbose:bool = True):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
-    print(f'Loading Amp1 data from {str_h5} ...')
+
+    if verbose:
+        print(f'Loading Amp1 data from {str_h5} ...')
+
     r_q = get_epochblock_response_query(exp_name, block_id)
     df = r_q.fetch(format='frame').reset_index()
     
@@ -855,7 +871,8 @@ def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=
             amp_data.append(trace)
     
     amp_data = np.array(amp_data)
-    print(f'Loaded {amp_data.shape} amp_data.\n')
+    if verbose:
+        print(f'Loaded {amp_data.shape} amp_data.\n')
 
     sample_rates = df_amp['sample_rate'].unique().astype(float)
     if len(sample_rates) != 1:

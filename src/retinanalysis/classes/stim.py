@@ -232,7 +232,7 @@ class MEAStimBlock(StimBlock):
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
-        str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
+        str_self += f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
 
@@ -250,21 +250,45 @@ class MEAStimGroup:
         if len(set(datafile_names)) != len(datafile_names):
             raise ValueError(f"StimBlocks must have unique datafile_names, but found: {datafile_names}")
         
+        # Find noise chunk that's closest to the majority of blocks
+        nearest_chunks = np.array([block.nearest_noise_chunk for block in ls_blocks])
+        vals, counts = np.unique(nearest_chunks, return_counts = True)
+        max_count_idx = np.argmax(counts)
+        self.nearest_noise_chunk = vals[max_count_idx]
+
+        # Create d_epoch_block_params by concatenating only those values that change from
+        # block to block.
+        self.d_epoch_block_params = dict()
+        for key in ls_blocks[0].d_epoch_block_params.keys():
+            concatenated_values = np.array([block.d_epoch_block_params[key] for block in ls_blocks])
+            if np.all(concatenated_values == concatenated_values[0]):
+                concatenated_values = concatenated_values[0]
+            self.d_epoch_block_params[key] = concatenated_values
+
+
+
         self.ls_blocks = ls_blocks
         self.exp_name = ls_blocks[0].exp_name
-        self.parameter_names = ls_blocks[0].parameter_names
         self.datafile_names = datafile_names
         self.df_epochs = pd.concat([block.df_epochs for block in ls_blocks], ignore_index=True)
         self.df_epochs = self.df_epochs.rename(columns = {'epoch_index':'datafile_epoch_index'})
-        self.df_epochs.index = self.df_epochs.index.rename('epoch_index')
+        self.df_epochs.insert(0, 'epoch_index', self.df_epochs.index.values)
+        self.parameter_names = list(self.df_epochs.at[0,'epoch_parameters'].keys())
+        self.noise_protocol_name = get_noise_name_by_exp(self.exp_name)
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  ls_blocks containing {len(self.ls_blocks)} MEAStimBlocks\n"
         str_self += f"  exp_name: {self.exp_name}\n"
-        str_self += f"  protocol_name: {self.ls_blocks[0].d_block_summary['protocol_name']}\n"
-        str_self += f"  chunk_name: {self.ls_blocks[0].d_block_summary['chunk_name']}\n"
+        str_self += f"  block_ids: {[block.block_id for block in self.ls_blocks]}\n"
+        str_self += f"  prep_label: {self.ls_blocks[0].prep_label}\n"
         str_self += f"  datafile_names: {self.datafile_names}\n"
+        str_self += f"  chunk_name: {self.ls_blocks[0].d_block_summary['chunk_name']}\n"
+        str_self += f"  protocol_name: {self.ls_blocks[0].d_block_summary['protocol_name']}\n"
+        str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
+        str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
+        str_self += f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         return str_self
 
@@ -276,9 +300,6 @@ class MEAStimGroup:
             pickle.dump(self, f)
         print(f"StimGroup exported to {file_path}")
 
-def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None, verbose: bool = False):
-    ls_blocks = []
-    for datafile_name in ls_datafile_names:
-        block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params, verbose = verbose)
-        ls_blocks.append(block)
+def create_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None, verbose: bool = False):
+    ls_blocks = [MEAStimBlock(exp_name, datafile, ls_params = ls_params, verbose = verbose) for datafile in ls_datafile_names]
     return MEAStimGroup(ls_blocks)
