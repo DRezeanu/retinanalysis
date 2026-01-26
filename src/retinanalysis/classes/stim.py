@@ -18,7 +18,7 @@ D_REGEN_FXNS = {
     'edu.washington.riekelab.turner.protocols.ExpandingSpots': regen.make_expanding_spots,
     'edu.washington.riekelab.rachel.protocols.CheckerboardNoiseProjectRachel': regen.make_checkerboard_noise_project,
     'edu.washington.riekelab.rachel.protocols.VariableMeanBars': regen.make_variable_mean_bars,
-    'edu.washington.riekelab.rachel.protocols.BarsAndGain': regen.make_variable_mean_bars
+    'edu.washington.riekelab.rachel.protocols.BarsAndGain': regen.make_bars_and_gain,
     # 'manookinlab.protocols.DovesMovie'
 }
 
