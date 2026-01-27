@@ -17,36 +17,52 @@ def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids
         df_spike_times = resp.df_spike_times
 
         for n_ID in cell_ids:
-            ls_spike_times = df_spike_times.query('cell_id == @n_ID')['spike_times'].item()
-            num_spikes = sum([len(arr) for arr in ls_spike_times])
+            ls_spike_times = df_spike_times.query('cell_id == @n_ID')['spike_times']
+            if len(ls_spike_times) > 0:
+                ls_spike_times = ls_spike_times.item()
+                num_spikes = sum([len(arr) for arr in ls_spike_times])
+            else:
+                num_spikes = 0
+
             ls_nsps.append(num_spikes)
             if num_spikes == 0:
-                print(f'No spikes for {n_ID}.')
+                print(f'WARNING: No spikes for Analysis Chunk cell id {n_ID}.')
         
     else:
         df_spike_times = resp.df_spike_times
 
         for n_ID in cell_ids:
-            ls_spike_times = df_spike_times.query('cell_id == @n_ID')['spike_times'].item()
-            num_spikes = sum([len(arr) for arr in ls_spike_times])
+            ls_spike_times = df_spike_times.query('cell_id == @n_ID')['spike_times']
+            if len(ls_spike_times) > 0:
+                ls_spike_times = ls_spike_times.item()
+                num_spikes = sum([len(arr) for arr in ls_spike_times])
+            else:
+                num_spikes = 0
+
             ls_nsps.append(num_spikes)
             if num_spikes == 0:
-                print(f'No spikes for {n_ID}.')
+                print(f'WARNING: No spikes for Protocol cell id {n_ID}.')
 
     return ls_nsps
 
 
 def get_isi(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids: list | np.ndarray, bin_edges: np.ndarray):
 
+    #TODO: Pull ISIs from actual spike times instead of vcd for Analysis Chunk
     isi_dict = dict() 
     if isinstance(resp, AnalysisChunk):
         for n_ID in cell_ids:
             isi_dict[n_ID] = resp.d_ISIs[n_ID]
 
-    #TODO: Pull ISIs from actual spike times instead of vcd
     else:
         for n_ID in cell_ids:
-            ls_spike_times = resp.df_spike_times.query('cell_id == @n_ID')['spike_times'].item()
+            ls_spike_times = resp.df_spike_times.query('cell_id == @n_ID')['spike_times']
+            if len(ls_spike_times) > 0:
+                ls_spike_times = ls_spike_times.item()
+            else:
+                ls_spike_times = []
+
+
             ls_spike_diffs = [np.diff(arr) for arr in ls_spike_times]
             ls_isi_hist = [np.histogram(arr, bins = bin_edges)[0].astype(float) for arr in ls_spike_diffs]
             isi_dict[n_ID] = np.mean(ls_isi_hist, axis = 0)
