@@ -49,14 +49,16 @@ from .classes import stim
 from .classes.stim import (StimBlock,
                            MEAStimBlock,
                            MEAStimGroup,
-                           make_mea_stim_group,
+                           create_mea_stim_group,
                            D_REGEN_FXNS)
 
 from .classes import response
 from .classes.response import (ResponseBlock,
                                MEAResponseBlock,
                                SCResponseBlock,
-                               check_frame_times)
+                               MEAResponseGroup,
+                               check_frame_times,
+                               create_mea_response_group)
 
 from .classes import qc
 from .classes.qc import MEAQC

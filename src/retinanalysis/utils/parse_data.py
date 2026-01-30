@@ -8,6 +8,7 @@ import os, argparse
 import re
 from datetime import datetime, timedelta
 from typing import Union
+import matplotlib.pyplot as plt
 
 def strip_uuid(uuid: str) -> str:
     """ Strip the UUID from the UUID string. """
