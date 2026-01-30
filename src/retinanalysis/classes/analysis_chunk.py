@@ -59,9 +59,7 @@ class AnalysisChunk:
     """
     def __init__(self, exp_name: Optional[str]=None, chunk_name: Optional[str]=None, 
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[dict | str]=None, 
-                 b_load_spatial_maps: bool=True, verbose: bool = True, **vu_kwargs):
-
-        self.verbose = verbose
+                 b_load_spatial_maps: bool=True, **vu_kwargs):
 
         if pkl_file is None:
             if exp_name is None or chunk_name is None:
@@ -75,9 +73,8 @@ class AnalysisChunk:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
-            if self.verbose:
-                print(f"AnalysisChunk loaded from {pkl_file}")
+            self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
+            print(f"AnalysisChunk loaded from {pkl_file}")
             return
         
         self.exp_name = exp_name
@@ -98,59 +95,11 @@ class AnalysisChunk:
         protocol_id = schema.Protocol() & {'name' : self.noise_protocol}
         self.protocol_id = protocol_id.fetch('protocol_id')[0]
 
-        self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
-        self.cell_ids = np.array(self.vcd.get_cell_ids())
-
-        # Pull EIs into an EI dictionary (if include_ei param is true)
-        if 'include_ei' in vu_kwargs:
-            if vu_kwargs['include_ei'] == False:
-                pass
-            else:
-                self.d_EIs = dict()
-                bad_ids = []
-                for id in self.cell_ids:
-                    try:
-                        self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
-                    except:
-                        print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
-                        bad_ids.append(id)
-
-                mask = ~np.isin(self.cell_ids, bad_ids)
-                self.cell_ids = self.cell_ids[mask]
-        else:
-            self.d_EIs = dict()
-            bad_ids = []
-            for id in self.cell_ids:
-                try:
-                    self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
-                except:
-                    print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
-                    bad_ids.append(id)
-
-            mask = ~np.isin(self.cell_ids, bad_ids)
-            self.cell_ids = self.cell_ids[mask]
-
-        # Pull timecourses into an timecourse dictionary 
-        self.d_timecourses = dict()
-        for id in self.cell_ids:
-            timecourse_r = self.vcd.main_datatable[id]['RedTimeCourse']
-            timecourse_g = self.vcd.main_datatable[id]['GreenTimeCourse']
-            timecourse_b = self.vcd.main_datatable[id]['BlueTimeCourse']
-            self.d_timecourses[id] = {'red' : timecourse_r,
-                                      'green' : timecourse_g,
-                                      'blue' : timecourse_b}
-
-        # Pull ISIs into an ISI  dictionary 
-        self.d_ISIs = dict()
-        for id in self.cell_ids:
-            isi = self.vcd.get_acf_numpairs_for_cell(id)
-            np.nan_to_num(isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
-            self.d_ISIs[id] = isi
-
+        self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
         self.get_noise_params()
+        self.cell_ids = self.vcd.get_cell_ids()
         self.get_rf_params()
         self.get_df()
-
         if b_load_spatial_maps:
             self.get_spatial_maps()
 
@@ -228,7 +177,7 @@ class AnalysisChunk:
                 broken_ids.append(id)
             
         for id in broken_ids:
-            self.cell_ids = self.cell_ids[self.cell_ids != id]
+            self.cell_ids.remove(id)
 
     def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
         """
@@ -345,9 +294,8 @@ class AnalysisChunk:
             d_spatial_maps[n_ID] = padded
             
         self.d_spatial_maps = d_spatial_maps
-        if self.verbose:
-            print(f'\nLoaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
-            print(f'Spatial maps have been padded to align with RF parameters.\n')
+        print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
+        print(f'Spatial maps have been padded to align with RF parameters.\n')
         # TODO could also load convex hull fits too under 'hull_vertices'
 
     def plot_rfs(self, noise_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None,
@@ -586,24 +534,12 @@ class AnalysisChunk:
         for idx, ct in enumerate(cell_types):
             ax = axs[idx]
 
-            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['g_mean']))*scale_factor
+            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['rg_mean']))*scale_factor
 
-            if np.array_equal(d_timecourses_by_type[ct]['r_mean'], d_timecourses_by_type[ct]['g_mean']):
-                g_err_top = d_timecourses_by_type[ct]['g_mean'] + d_timecourses_by_type[ct]['g_std']*std_scaling
-                g_err_bottom = d_timecourses_by_type[ct]['g_mean'] - d_timecourses_by_type[ct]['g_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['g_mean'], '-g')
-                ax.fill_between(time_vals, g_err_bottom, g_err_top, alpha = 0.4, color = 'g')
-            else:
-                r_err_top = d_timecourses_by_type[ct]['r_mean'] + d_timecourses_by_type[ct]['r_std']*std_scaling
-                r_err_bottom = d_timecourses_by_type[ct]['r_mean'] - d_timecourses_by_type[ct]['r_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['r_mean'], '-r')
-                ax.fill_between(time_vals, r_err_bottom, r_err_top, alpha = 0.4, color = 'r')
-
-                g_err_top = d_timecourses_by_type[ct]['g_mean'] + d_timecourses_by_type[ct]['g_std']*std_scaling
-                g_err_bottom = d_timecourses_by_type[ct]['g_mean'] - d_timecourses_by_type[ct]['g_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['g_mean'], '-g')
-                ax.fill_between(time_vals, g_err_bottom, g_err_top, alpha = 0.4, color = 'g')
-
+            rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
+            rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
+            ax.plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
+            ax.fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
 
             b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
             b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
@@ -615,7 +551,7 @@ class AnalysisChunk:
             ax.set_ylabel(f"STA (arb. units)")
             ax.set_xlabel(f"Time ({units})")
             
-            ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['r_timecourses'].shape[0]})")
+            ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
 
         # Remove extra empty axes 
         num_axes = rows*cols
@@ -637,10 +573,6 @@ class AnalysisChunk:
         str_self += f"  noise_protocol: {self.noise_protocol}\n"
         str_self += f"  data_files: {self.data_files}\n"
         str_self += f"  typing_files: {self.typing_files}\n"
-        str_self += f"  vcd: {self.vcd}\n"
-        str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
-        str_self += f"  d_ISIs dictionary containing ISIs for {len(self.cell_ids)} cell IDs\n"
-        str_self += f"  d_timecourses dictionary containing dictionary with 'red' 'green' and 'blue' timecourses for {len(self.cell_ids)} cell IDs\n"
         str_self += f"  numXChecks: {self.numXChecks}\n"
         str_self += f"  numYChecks: {self.numYChecks}\n"
         str_self += f"  staXChecks: {self.staXChecks}\n"
@@ -701,7 +633,7 @@ class AnalysisChunk:
         if noise_ids is None:
             if cell_types is None:
                 if not self.typing_files:
-                    print('WARNING: No typing files exist for this chunk, will not organize cells by type')
+                    print('Warning, no typing files exist for this chunk, will not organize cells by type')
                     filtered_df = self.df_cell_params
                     cell_ids = filtered_df['cell_id'].to_numpy()
                     available_types = None
@@ -732,7 +664,7 @@ class AnalysisChunk:
         else:
             if cell_types is None:
                 if not self.typing_files:
-                    print('WARNING: No typing files exist for this chunk, will not organize cells by type')
+                    print('Warning, no typing files exist for this chunk, will not organize cells by type')
 
                     filtered_df = self.df_cell_params.query('cell_id in @noise_ids')
                     cell_ids = filtered_df['cell_id'].to_numpy()
@@ -947,7 +879,5 @@ class AnalysisChunk:
         d_out.pop('vcd')
         with open(file_path, 'wb') as f:
             pickle.dump(d_out, f)
-        
-        if self.verbose:
-            print(f"AnalysisChunk exported to {file_path}")
+        print(f"AnalysisChunk exported to {file_path}")
 

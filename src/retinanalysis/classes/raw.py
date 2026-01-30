@@ -3,7 +3,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 from retinanalysis.classes.response import MEAResponseBlock
-from retinanalysis.config.settings import RAW_DIR
+from retinanalysis.utils import RAW_DIR
 from retinanalysis import ei_utils as eiu
 
 # Constants
