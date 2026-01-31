@@ -635,13 +635,20 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[Li
     if is_mea:
         ls_eb_cols += ['data_dir']
     eb_q = schema.EpochBlock.proj(
-        *ls_eb_cols, group_id='parent_id', block_id='id' #type: ignore
+        *ls_eb_cols, group_id='parent_id', block_properties = 'properties', block_id='id' #type: ignore
         )
-        
+
     eb_q = eg_q * eb_q
-    
     eb_q = eb_q & f'block_id={block_id}'
-    
+
+    # Check num epoch ends matches num epoch starts
+    eb_df = eb_q.fetch(format='frame').reset_index()
+    d_data = eb_df.loc[0].to_dict()
+    epoch_starts = d_data['block_properties']['epochStarts']
+    epoch_ends = d_data['block_properties']['epochEnds']
+
+
+
     p_q = eb_q * schema.Protocol.proj(protocol_name='name') #type: ignore
     
     e_q = p_q * schema.Epoch.proj(
@@ -681,6 +688,10 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[Li
     # Add column for 'epoch_index'
     df.index = df.index.rename('epoch_index')
     df = df.reset_index(drop=False)
+    if len(epoch_ends) == len(epoch_starts)-1:
+        print(f'Warning: For {exp_name} block {block_id}, found {len(epoch_ends)} epoch ends but {len(epoch_starts)} epoch starts.')
+        print(f'Removing last epoch from dataframe')
+        df = df.iloc[:-1, :]
 
     return df
 
@@ -737,8 +748,12 @@ def get_epochblock_timing(exp_name: str, block_id: int):
         if len(epoch_ends) == len(epoch_starts)-1:
             print(f'Warning: For {exp_name} block {block_id}, found {len(epoch_ends)} epoch ends but {len(epoch_starts)} epoch starts.')
             
+            # Remove last epoch start
             epoch_starts = epoch_starts[:len(epoch_ends)]
-            print(f'Keeping only {len(epoch_starts)} starts.')
+            print(f'Keeping only {len(epoch_starts)} epochs.')
+
+            # Remove last epoch of frame times as well
+            d_timing['frameTimesMs'].pop()
             
         elif len(epoch_ends) != len(epoch_starts):
             raise ValueError("Mismatch in number of epoch starts and ends.")
