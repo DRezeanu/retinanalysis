@@ -481,7 +481,7 @@ class MEAResponseGroup:
         self.cell_ids = list(set.intersection(*all_ids))
         n_cells_lost = len(set.union(*all_ids)) - len(self.cell_ids)
         if self.verbose:
-            print(f'Lost {n_cells_lost} when concatenating response blocks')
+            print(f'\nLost {n_cells_lost} cells when concatenating response blocks')
 
         # Concatenate spike times and recreate df_spike_times
         ls_spike_times = []
@@ -555,7 +555,7 @@ class MEAResponseGroup:
     def merge_eis(self):
 
         if self.verbose:
-            print("Generating average EI for all cells")
+            print("\nGenerating average EI for all cells")
 
         # Take the weighted average of each cell's EI across datasets
         all_eis = []
@@ -568,6 +568,9 @@ class MEAResponseGroup:
 
         all_eis = np.stack(all_eis)
         mean_eis = {id : all_eis[idx] for idx, id in enumerate(self.cell_ids)}
+        
+        if self.verbose:
+            print(f"Merged EIs for {len(mean_eis)} cells across {len(self.ls_blocks)} response blocks")
         
         return mean_eis
 
