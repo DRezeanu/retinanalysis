@@ -604,7 +604,7 @@ def ei_corr(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
             ref_eis_mean = [np.mean(ei**2, axis = 1) for ei in ref_eis]
             ref_eis = np.array(ref_eis_mean)
         else:
-            raise NameError("Method poperty must be 'full', 'time', or 'power'.")
+            raise NameError("Method poperty must be 'full', 'space', or 'power'.")
         
         # Pull test eis
         test_ids = target_object.cell_ids

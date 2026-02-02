@@ -379,7 +379,8 @@ class MEAPipeline:
             all_epoch_ends = np.array(self.resp.d_timing['epochEnds'])
 
             # Pull frame times and avg frame length
-            all_frame_times = np.stack(self.stim.df_epochs['frame_times_ms'].values) #type: ignore
+            all_frame_times = np.array(self.resp.d_timing['frameTimesMs'])
+            # all_frame_times = np.stack(self.stim.df_epochs['frame_times_ms'].values) #type: ignore
             avg_frame_times = np.mean(all_frame_times, axis = 0)
             avg_frame_length = np.round(np.mean(np.diff(avg_frame_times)),1)
 
@@ -392,7 +393,10 @@ class MEAPipeline:
             n_bins = len(bin_edges)-1
         # Bins by frame times by default if no bin_rate and no bins are given
         elif bins is None:
-            bin_edges = np.array(self.stim.df_epochs['frame_times_ms'].values)
+            # Workaround for getting frame times as a (n_epochs,) array of lists
+            fts = np.array(self.resp.d_timing['frameTimesMs'])
+            bin_edges = np.empty(len(fts), dtype = object)
+            bin_edges[:] = [list(r) for r in fts]
             n_bins = len(bin_edges[0])-1
         else:
             # if no bin_rate and bins is an integer, create that many equally spaced bins
@@ -401,7 +405,8 @@ class MEAPipeline:
                 all_epoch_ends = np.array(self.resp.d_timing['epochEnds'])
 
                 # Pull frame times and avg frame length
-                all_frame_times = np.stack(self.stim.df_epochs['frame_times_ms'].values) #type: ignore
+                all_frame_times = np.array(self.resp.d_timing['frameTimesMs'])
+                # all_frame_times = np.stack(self.stim.df_epochs['frame_times_ms'].values) #type: ignore
                 avg_frame_times = np.mean(all_frame_times, axis = 0)
                 avg_frame_length = np.round(np.mean(np.diff(avg_frame_times)),1)
 
@@ -423,7 +428,6 @@ class MEAPipeline:
 
         spike_times = get_spike_xarr(self.resp, protocol_ids = protocol_ids,
                                      cell_types = cell_types, minimum_n = minimum_n)
-
 
         def apply_hist(arr, bin_edges):
             output, _ = np.histogram(arr, bin_edges)
@@ -567,7 +571,10 @@ def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_
     pipeline (MEAPipeline): MEAPipeline object that contains the MEAStimBlock and MEAResponse block for the
     given datafile, and the AnalysisChunk for the given noise chunk or, if none is given, the nearest noise chunk.
     """
-    # TODO StimGroup and ResponseGroup functionality
+
+    if isinstance(datafile_name, np.ndarray):
+        datafile_name = list(datafile_name)
+
     if isinstance(datafile_name, list):
         s = create_mea_stim_group(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
         r = create_mea_response_group(exp_name, datafile_name, b_load_fd = b_load_fd, verbose = verbose)
@@ -575,6 +582,9 @@ def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_
     elif isinstance(datafile_name, str):
         s = MEAStimBlock(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
         r = MEAResponseBlock(exp_name, datafile_name, ss_version, b_load_fd = b_load_fd, verbose = verbose)
+
+    assert s is not None, 'Unable to create stim block or stim group for given parameters'
+    assert r is not None, 'Unable to create response block or response group for given parameters'
 
     if analysis_chunk_name is None:
         analysis_chunk_name = s.nearest_noise_chunk

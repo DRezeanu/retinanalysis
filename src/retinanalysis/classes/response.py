@@ -481,7 +481,7 @@ class MEAResponseGroup:
         self.cell_ids = list(set.intersection(*all_ids))
         n_cells_lost = len(set.union(*all_ids)) - len(self.cell_ids)
         if self.verbose:
-            print(f'Lost {n_cells_lost} when concatenating response blocks')
+            print(f'\nLost {n_cells_lost} cells when concatenating response blocks')
 
         # Concatenate spike times and recreate df_spike_times
         ls_spike_times = []
@@ -510,19 +510,6 @@ class MEAResponseGroup:
                     'actual_onset_times_ms' : [onsets for block in ls_blocks for onsets in block.d_timing['actual_onset_times_ms']],
                     'actual_offset_times_ms' : [offsets for block in ls_blocks for offsets in block.d_timing['actual_offset_times_ms']]}
 
-        # Combine EIs
-        if self.verbose:
-            print("Generating average EI for all cells")
-
-        all_eis = []
-        for block in ls_blocks:
-            ls_eis = [block.vcd.get_ei_for_cell(id).ei for id in self.cell_ids]
-            all_eis.append(ls_eis)
-
-        all_eis = np.stack(all_eis)
-        mean_eis = np.mean(all_eis, axis = 0)
-        mean_eis = {id : mean_eis[idx] for idx, id in enumerate(self.cell_ids)}
-
 
         self.ls_blocks = ls_blocks
         self.block_ids = [block.block_id for block in ls_blocks]
@@ -533,7 +520,7 @@ class MEAResponseGroup:
         self.datafile_names = datafile_names
         self.df_spike_times = df_spike_times
         self.d_timing = d_timing
-        self.d_EIs = mean_eis
+        self.d_EIs = self.merge_eis()
 
 
         if b_load_fd:
@@ -564,6 +551,28 @@ class MEAResponseGroup:
         else:
             self.frame_sample_rates = None 
             self.frame_data = np.array([])
+
+    def merge_eis(self):
+
+        if self.verbose:
+            print("\nGenerating average EI for all cells")
+
+        # Take the weighted average of each cell's EI across datasets
+        all_eis = []
+        for id in self.cell_ids:
+            ls_eis = [block.vcd.get_ei_for_cell(id).ei for block in self.ls_blocks]
+            ls_spikes = [block.vcd.get_ei_for_cell(id).n_spikes for block in self.ls_blocks]
+
+            average_ei = np.average(ls_eis, axis = 0, weights = ls_spikes)
+            all_eis.append(average_ei)
+
+        all_eis = np.stack(all_eis)
+        mean_eis = {id : all_eis[idx] for idx, id in enumerate(self.cell_ids)}
+        
+        if self.verbose:
+            print(f"Merged EIs for {len(mean_eis)} cells across {len(self.ls_blocks)} response blocks")
+        
+        return mean_eis
 
     def add_cell_types(self, noise_chunk: Optional[str] = None, typing_file: Optional[str] = None):
 
