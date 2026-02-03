@@ -756,28 +756,33 @@ def get_epochblock_timing(exp_name: str, block_id: int):
             d_timing['frameTimesMs'].pop()
             
         elif len(epoch_ends) != len(epoch_starts):
-            raise ValueError("Mismatch in number of epoch starts and ends.")
+            raise ValueError(f"Mismatch in number of epoch starts and ends: {len(epoch_starts)} starts and but {len(epoch_ends)} ends.")
 
-        n_epoch_times = len(epoch_starts)
         d_timing['epochStarts'] = epoch_starts
         d_timing['epochEnds'] = epoch_ends
         d_timing['n_samples'] = d_data['block_properties']['n_samples']
 
     # Get stim timing and frame rate
     e_q = schema.Epoch() & f'parent_id={block_id}'
-    # Sometimes have extra epochStarts and epochEnds. TODO debug? eg-20250527C data007
-    # The definitive number of epochs though should be the number of epochs we have metadata for
+    n_epoch_times = len(d_timing['epochStarts'])
     n_epochs = len(e_q)
 
     # If mea, check for inequality with number of epochStarts and epochEnds
     if is_mea:
-        # Can have 1 more metadata entry in case of symphony crash
+        # Can have 1 more metadata entry in case of failed TTL signal... in that case throwing away metadata and using only those epochs
+        # where we have reliable starts and stops.
         if n_epochs > n_epoch_times:
-            print(f'Warning: For {exp_name} block {block_id}, found {n_epochs} epochs in metadata but only {n_epoch_times} epoch times.')
+            print(f'Warning: For {exp_name} block {block_id}, found {n_epochs} epochs in metadata but only {n_epoch_times} epoch starts.')
             print(f'Assuming n_epochs = {n_epoch_times}')
             n_epochs = n_epoch_times
+        # Can have 1 less metadata entry in case of symphony crash... in that case, throwing away the epoch starts and stops that have no
+        # associated metadata
         elif n_epochs < n_epoch_times:
-            raise ValueError(f'For {exp_name} block {block_id}, found {n_epoch_times} epoch times but only {n_epochs} epochs in metadata.')
+            print(f'Warning: for {exp_name} block {block_id}, found {n_epoch_times} epoch starts but only {n_epochs} epochs in metadata.')
+            print(f'Assuming there are {n_epochs} completed epochs.')
+            d_timing['epochStarts'] = d_timing['epochStarts'][:n_epochs]
+            d_timing['epochEnds'] = d_timing['epochEnds'][:n_epochs]
+
 
     d_timing['n_epochs'] = n_epochs
     e_q = e_q.proj(
