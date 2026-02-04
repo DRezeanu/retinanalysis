@@ -717,26 +717,16 @@ def get_epochblock_timing(exp_name: str, block_id: int):
         raise ValueError(f'No EpochBlock found for {exp_name} {block_id}')
     d_data = df.loc[0].to_dict()
     is_mea = df.loc[0, 'is_mea']
-    # epoch_starts = d_data['block_properties']['epochStarts']
-    # epoch_ends = d_data['block_properties']['epochEnds']
-    # n_samples = d_data['block_properties']['n_samples']
-    # frame_times_ms = d_data['block_properties']['frameTimesMs']
 
     d_timing = {
         'exp_name': exp_name,
         'block_id': block_id,
-        # 'epoch_starts': epoch_starts,
-        # 'epoch_ends': epoch_ends,
-        # 'n_samples': n_samples,
-        # 'frame_times_ms': frame_times_ms
     }
     
     # For MEA data, this has epoch_starts, epoch_ends, n_samples, frame_times_ms
     # For SC data, this has just frame_times_ms
-    # d_group = d_data['block_properties']
-    # for key in d_group.keys():
-    #     d_timing[key] = d_group[key]
     d_timing['frameTimesMs'] = d_data['block_properties']['frameTimesMs']
+    
     if is_mea:
         # d_timing['epochStarts'] = d_data['block_properties']['epochStarts']
         # d_timing['epochEnds'] = d_data['block_properties']['epochEnds']
@@ -767,7 +757,7 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     n_epoch_times = len(d_timing['epochStarts'])
     n_epochs = len(e_q)
 
-    # If mea, check for inequality with number of epochStarts and epochEnds
+    # If mea, check for inequality with number of epochStarts and epochs of metadata
     if is_mea:
         # Can have 1 more metadata entry in case of failed TTL signal... in that case throwing away metadata and using only those epochs
         # where we have reliable starts and stops.
@@ -785,20 +775,25 @@ def get_epochblock_timing(exp_name: str, block_id: int):
 
 
     d_timing['n_epochs'] = n_epochs
+
     e_q = e_q.proj(
         pre_time="parameters->>'$.preTime'",
         stim_time="parameters->>'$.stimTime'",
         tail_time="parameters->>'$.tailTime'",
         stage_frame_rate="parameters->>'$.frameRate'"
     )
+
     df_transitions = e_q.fetch(format='frame').drop_duplicates().reset_index()
+
     if len(df_transitions) != 1:
         display(df_transitions)
         raise ValueError(f'Expected a unique set of timing parameters for {exp_name} {block_id}, but found {len(df_transitions)}')
+
     pre_time_ms = float(df_transitions.loc[0, 'pre_time'])
     stim_time_ms = float(df_transitions.loc[0, 'stim_time'])
     tail_time_ms = float(df_transitions.loc[0, 'tail_time'])
     stage_frame_rate = df_transitions.loc[0, 'stage_frame_rate']
+
     if stage_frame_rate is None:
         print(f'Warning: for {exp_name} block {block_id}, error in finding stage frame rate.')
     else:
@@ -808,7 +803,6 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     d_timing['stim_time_ms'] = stim_time_ms
     d_timing['tail_time_ms'] = tail_time_ms
     d_timing['stage_frame_rate'] = stage_frame_rate
-    
 
     try:
         # Set transition times from measured frame times
@@ -821,6 +815,7 @@ def get_epochblock_timing(exp_name: str, block_id: int):
         n_epochs = len(frame_times_ms)
         actual_onset_times_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]
         actual_offset_times_ms = [frame_times_ms[i][pre_frames+stim_frames] for i in range(n_epochs)]
+
     # Exceptions can occur when frame_times_ms are messed up and don't have correct number of frames.
     except Exception as e:
         print(f'Error occurred while getting actual onset/offset times: {e}')
@@ -828,11 +823,6 @@ def get_epochblock_timing(exp_name: str, block_id: int):
         print('Check the frame monitor sample rate! On MEA Rigs, prefer 1k, errors likely with 10k.')
         actual_onset_times_ms = []
         actual_offset_times_ms = []
-    # print(f'For {exp_name} block {block_id}:')
-    # print(f'Set pre_time_ms={pre_time_ms}, stim_time_ms={stim_time_ms}, tail_time_ms={tail_time_ms}')
-    # print(f'Delivered pre_frames={pre_frames}, stim_frames={stim_frames}')
-    # print(f'Actual onset times (ms): {actual_onset_times_ms}')
-    # print(f'Actual offset times (ms): {actual_offset_times_ms}')
 
     d_timing['actual_onset_times_ms'] = actual_onset_times_ms
     d_timing['actual_offset_times_ms'] = actual_offset_times_ms
