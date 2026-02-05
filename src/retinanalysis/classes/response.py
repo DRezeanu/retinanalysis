@@ -534,12 +534,20 @@ class MEAResponseGroup:
                     frame_monitor_data = [get_epochblock_frame_data(block.exp_name, block.block_id, str_h5=block.h5_file) for block in ls_blocks]    
                     frame_sample_rates = [data for _, data in frame_monitor_data]
                     self.frame_sample_rates = frame_sample_rates
-                    frame_data = np.array([data for data, _ in frame_monitor_data])
-                    self.frame_data = np.reshape(frame_data, (-1, frame_data.shape[2]))
+                    try:
+                        frame_data = np.array([data for data, _ in frame_monitor_data])
+                        self.frame_data = np.reshape(frame_data, (-1, frame_data.shape[2]))
+                    except Exception as e:
+                        print('Could not convert fame data to numpy array, trying object array')
+                        self.frame_data = np.array([data for _, data in frame_monitor_data], dtype = object)
                 else:
                     self.frame_sample_rates = [block.frame_sample_rate for block in ls_blocks]
-                    frame_data = np.array([block.frame_data for block in ls_blocks])
-                    self.frame_data = np.reshape(frame_data, (-1, frame_data.shape[2]))
+                    try:
+                        frame_data = np.array([block.frame_data for block in ls_blocks])
+                        self.frame_data = np.reshape(frame_data, (-1, frame_data.shape[2]))
+                    except Exception as e:
+                        print('Could not convert fame data to numpy array, trying object array')
+                        self.frame_data = np.array([block.frame_data for block in ls_blocks], dtype = object)
 
                 
             else:
