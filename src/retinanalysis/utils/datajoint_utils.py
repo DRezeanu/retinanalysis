@@ -163,7 +163,16 @@ def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
     is_mea = (schema.Experiment() & f'id={exp_id}').fetch1('is_mea')
 
     epoch_group_query = schema.EpochGroup() & f'experiment_id={exp_id}'
-    epoch_group_query = epoch_group_query.proj('experiment_id', group_label='label', group_id='id', cell_id='parent_id')
+    epoch_group_query = epoch_group_query.proj(
+        'experiment_id', group_label='label', group_id='id', cell_id='parent_id',
+        group_properties='properties')
+    
+    # For single cell, pull out recording technique and pipette solution
+    if not is_mea:
+        epoch_group_query = epoch_group_query.proj(...,
+            recording_technique="group_properties->>'$.recordingTechnique'",
+            pipette_solution="group_properties->>'$.pipetteSolution'")
+    
     cell_query = schema.Cell.proj(
         prep_id='parent_id', cell_id='id',
         cell_label='label', cell_properties='properties'
@@ -219,7 +228,8 @@ def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
     else:
         # Add cell type from cell_properties dict w/ key 'type'
         df_exp_summary['cell_type'] = df_exp_summary['cell_properties'].apply(lambda x: x.get('type', 'Unknown'))
-        ls_order = ['exp_name', 'prep_label', 'cell_id', 'cell_label', 'cell_type', 
+        ls_order = ['exp_name', 'prep_label', 'recording_technique', 'pipette_solution', 
+        'cell_id', 'cell_label', 'cell_type', 
         'NDF', 'protocol_name', 'duration_minutes', 'minutes_since_start', 
         'start_time', 'end_time', 'cell_properties','group_label',
         'experiment_id', 'prep_id', 'group_id', 'block_id', 'protocol_id']
@@ -641,11 +651,12 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[Li
     eb_q = eg_q * eb_q
     eb_q = eb_q & f'block_id={block_id}'
 
-    # Check num epoch ends matches num epoch starts
-    eb_df = eb_q.fetch(format='frame').reset_index()
-    d_data = eb_df.loc[0].to_dict()
-    epoch_starts = d_data['block_properties']['epochStarts']
-    epoch_ends = d_data['block_properties']['epochEnds']
+    if is_mea:
+        # Check num epoch ends matches num epoch starts
+        eb_df = eb_q.fetch(format='frame').reset_index()
+        d_data = eb_df.loc[0].to_dict()
+        epoch_starts = d_data['block_properties']['epochStarts']
+        epoch_ends = d_data['block_properties']['epochEnds']
 
 
 
@@ -688,10 +699,12 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[Li
     # Add column for 'epoch_index'
     df.index = df.index.rename('epoch_index')
     df = df.reset_index(drop=False)
-    if len(epoch_ends) == len(epoch_starts)-1:
-        print(f'Warning: For {exp_name} block {block_id}, found {len(epoch_ends)} epoch ends but {len(epoch_starts)} epoch starts.')
-        print(f'Removing last epoch from dataframe')
-        df = df.iloc[:-1, :]
+
+    if is_mea:
+        if len(epoch_ends) == len(epoch_starts)-1:
+            print(f'Warning: For {exp_name} block {block_id}, found {len(epoch_ends)} epoch ends but {len(epoch_starts)} epoch starts.')
+            print(f'Removing last epoch from dataframe')
+            df = df.iloc[:-1, :]
 
     return df
 
