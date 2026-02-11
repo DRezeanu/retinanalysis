@@ -275,16 +275,19 @@ class MEAStimGroup:
         self.df_epochs.insert(0, 'epoch_index', self.df_epochs.index.values)
         self.parameter_names = list(self.df_epochs.at[0,'epoch_parameters'].keys())
         self.noise_protocol_name = get_noise_name_by_exp(self.exp_name)
+        self.protocol_name = self.ls_blocks[0].protocol_name
+        self.chunk_name = self.ls_blocks[0].d_block_summary['chunk_name']
+        self.prep_label = self.ls_blocks[0].prep_label
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  ls_blocks containing {len(self.ls_blocks)} MEAStimBlocks\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_ids: {[block.block_id for block in self.ls_blocks]}\n"
-        str_self += f"  prep_label: {self.ls_blocks[0].prep_label}\n"
+        str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  datafile_names: {self.datafile_names}\n"
-        str_self += f"  chunk_name: {self.ls_blocks[0].d_block_summary['chunk_name']}\n"
-        str_self += f"  protocol_name: {self.ls_blocks[0].d_block_summary['protocol_name']}\n"
+        str_self += f"  chunk_name: {self.chunk_name}\n"
+        str_self += f"  protocol_name: {self.protocol_name}\n"
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
