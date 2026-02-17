@@ -219,10 +219,12 @@ class MEAResponseBlock(ResponseBlock):
 
         if include_ei:
             self.d_EIs = dict()
+            self.d_EI_error = dict()
             bad_ids = []
             for id in self.cell_ids:
                 try:
                     self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
+                    self.d_EI_error[id] = self.vcd.get_ei_for_cell(id).ei_error
                 except:
                     print(f'WARNING: No ei for ref cell id {id}, removing from {self.datafile_name} ResponseBlock')
                     bad_ids.append(id)
@@ -441,6 +443,7 @@ class MEAResponseBlock(ResponseBlock):
         str_self += f"  df_spike_times with times for {self.df_spike_times.shape[0]} cells\n"
         str_self += f"  block_id: {self.block_id}\n"
         str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  d_EI_error dictionary containing EI SDs for {len(self.cell_ids)} cell IDs\n"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
         str_self += f"  frame_sample_rate: {self.frame_sample_rate}\n"
         str_self += f"  frame_data shape: {self.frame_data.shape}\n"
@@ -520,7 +523,7 @@ class MEAResponseGroup:
         self.datafile_names = datafile_names
         self.df_spike_times = df_spike_times
         self.d_timing = d_timing
-        self.d_EIs = self.merge_eis()
+        self.d_EIs, self.d_EI_error = self.merge_eis()
 
 
         if b_load_fd:
@@ -567,20 +570,47 @@ class MEAResponseGroup:
 
         # Take the weighted average of each cell's EI across datasets
         all_eis = []
+        all_ei_error = []
         for id in self.cell_ids:
             ls_eis = [block.vcd.get_ei_for_cell(id).ei for block in self.ls_blocks]
             ls_spikes = [block.vcd.get_ei_for_cell(id).n_spikes for block in self.ls_blocks]
+            ls_error = [block.vcd.get_ei_for_cell(id).ei_error for block in self.ls_blocks]
 
+            ls_eis = np.stack(ls_eis)
+            ls_error = np.stack(ls_error)
+            ls_spikes = np.asarray(ls_spikes)
+
+            # Weighted average of EIs
             average_ei = np.average(ls_eis, axis = 0, weights = ls_spikes)
+
+            # Computed pooled variance, then take square root to get pooled SD
+            within_var = np.sum(
+                (ls_spikes[:, None, None] - 1) * (ls_error ** 2),
+                axis=0
+            )
+
+            between_var = np.sum(
+                ls_spikes[:, None, None] * (ls_eis - average_ei) ** 2,
+                axis=0
+            )
+
+            total_spikes = np.sum(ls_spikes)
+
+            pooled_var = (within_var + between_var) / (total_spikes - 1)
+            average_error = np.sqrt(pooled_var)
+
             all_eis.append(average_ei)
+            all_ei_error.append(average_error)
 
         all_eis = np.stack(all_eis)
+        all_ei_error = np.stack(all_ei_error)
         mean_eis = {id : all_eis[idx] for idx, id in enumerate(self.cell_ids)}
+        mean_ei_error = {id : all_ei_error[idx] for idx, id, in enumerate(self.cell_ids)}
         
         if self.verbose:
-            print(f"Merged EIs for {len(mean_eis)} cells across {len(self.ls_blocks)} response blocks")
+            print(f"Merged EIs and EI_Error for {len(mean_eis)} cells across {len(self.ls_blocks)} response blocks")
         
-        return mean_eis
+        return mean_eis, mean_ei_error
 
     def add_cell_types(self, noise_chunk: Optional[str] = None, typing_file: Optional[str] = None):
 
@@ -680,6 +710,7 @@ class MEAResponseGroup:
         str_self += f"  df_spike_times with times for {self.df_spike_times.shape[0]} cells\n"
         str_self += f"  block_ids: {self.block_ids}\n"
         str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  d_EI_error dictionary containing EI SDs for {len(self.cell_ids)} cell IDs\n"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
         str_self += f"  frame_sample_rates: {self.frame_sample_rates}\n"
         str_self += f"  frame_data shape: {self.frame_data.shape}\n"
