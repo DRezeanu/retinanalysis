@@ -575,6 +575,9 @@ def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_
     if isinstance(datafile_name, np.ndarray):
         datafile_name = list(datafile_name)
 
+    if isinstance(datafile_name, list) and len(datafile_name) == 1:
+        datafile_name = datafile_name[0]
+
     if isinstance(datafile_name, list):
         s = create_mea_stim_group(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
         r = create_mea_response_group(exp_name, datafile_name, b_load_fd = b_load_fd, verbose = verbose)
