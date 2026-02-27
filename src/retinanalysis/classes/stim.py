@@ -53,7 +53,10 @@ class StimBlock:
         self.exp_name = exp_name
         self.block_id = block_id
 
+
         df = get_exp_summary(exp_name)
+        assert df is not None, 'Failed to load experiment summary'
+
         self.d_block_summary = df.query('block_id == @block_id').iloc[0].to_dict()
         self.protocol_name = self.d_block_summary['protocol_name']
         self.prep_label = self.d_block_summary['prep_label']
