@@ -38,7 +38,7 @@ pip install -U Pillow.
 ```
 [DEFAULT]
 analysis = /Volumes/Vyom MEA/analysis
-data = /Volumes/Vyom MEA/analysis
+data = /Volumes/Vyom MEA/data
 raw = /Volumes/Vyom MEA/data/raw
 h5 = /Volumes/Vyom MEA/data/samarjit_datajoint/data_dirs/data
 meta = /Volumes/Vyom MEA/data/samarjit_datajoint/data_dirs/meta
