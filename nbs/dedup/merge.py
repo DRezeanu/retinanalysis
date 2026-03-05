@@ -27,24 +27,29 @@ REFRACTORY_PERIOD_MS = 1.5
 REFRACTORY_SAMPLES = int((REFRACTORY_PERIOD_MS / 1000) * FS)
 
 def merge_spike_trains(d_sts, str_method, d_eis=None):
-    # 'dirty', 'corrected_ei', and 'corrected_cch' methods
+    """
+    Merges spike trains. 
+    - Refractory violations WITHIN a unit are marked valid=False, shared=False.
+    - Refractory violations ACROSS units are marked valid=False, shared=True.
+    """
     cell_ids = list(d_sts.keys())
 
+    # --- 1. Method Configuration ---
     if str_method == 'corrected_cch':
         raise NotImplementedError("corrected_cch method not implemented yet")
     elif str_method == 'corrected_ei':
         raise NotImplementedError("corrected_ei method not implemented yet")
-    
     elif str_method == 'dirty':
-        # No shift correction for 'dirty' merge
         d_shifts = {cid: 0 for cid in cell_ids}
         min_isi_samples = REFRACTORY_SAMPLES
         print("Merging spikes without any shift correction ('dirty' method)")
-        print(f"Using minimum ISI of {min_isi_samples} samples ({(min_isi_samples/FS)*1000} ms)")
-    
-    # Concatenate spike times and build unit index vector
-    original_unit = []
-    original_spike_time = []
+        print(f"Using minimum ISI of {min_isi_samples} samples ({(min_isi_samples/FS)*1000:.2f} ms)")
+    else:
+        raise ValueError(f"Unknown method: {str_method}")
+
+    # --- 2. Vectorized Data Collection ---
+    original_unit_list = []
+    original_time_list = []
 
     for cid in cell_ids:
         sts = np.array(d_sts[cid], dtype=int)
@@ -57,39 +62,62 @@ def merge_spike_trains(d_sts, str_method, d_eis=None):
             sts = np.delete(sts, bad)
             print(f"Cell {cid}: {sts.shape[0]} spikes remain after removal")
         n_sps = sts.shape[0]
-        original_unit.append(np.full(n_sps, cid))
-        original_spike_time.append(sts)
+        original_unit_list.append(np.full(n_sps, cid))
+        original_time_list.append(sts)
     
-    original_unit = np.concatenate(original_unit)
-    original_spike_time = np.concatenate(original_spike_time)
-    total_spikes = original_spike_time.shape[0]
+    if not original_time_list:
+        return pd.DataFrame(columns=['original_unit', 'original_spike_time', 
+                                     'adjusted_spike_time', 'valid', 'shared', 'spike_id'])
 
-    # Adjusted spike times
+    original_unit = np.concatenate(original_unit_list)
+    original_spike_time = np.concatenate(original_time_list)
+    total_spikes = len(original_spike_time)
+
+    # --- 3. Adjust and Sort ---
     shifts = np.array([d_shifts[cid] for cid in original_unit])
     adjusted_spike_time = original_spike_time - shifts
 
-    # Sort by adjusted spike times
+    # Sort everything by the adjusted time
     order = np.argsort(adjusted_spike_time)
     original_unit = original_unit[order]
     original_spike_time = original_spike_time[order]
     adjusted_spike_time = adjusted_spike_time[order]
 
-    # Valid and shared columns
-    isi = np.diff(adjusted_spike_time)
-    # Indices of first spike in each refractory violation
-    bad = np.where(isi < min_isi_samples)[0]
-    valid = np.ones(total_spikes, dtype=bool)
+    # --- 4. Linear Refractory Scan with Unit Check ---
+    valid = np.zeros(total_spikes, dtype=bool)
     shared = np.zeros(total_spikes, dtype=bool)
 
-    # Mark second spike of each bad pair invalid
-    second_spikes = bad + 1
-    valid[second_spikes] = False
-    shared[bad] = True
-    shared[second_spikes] = True
+    last_valid_idx = -1
 
-    # spike_id based on valid spikes, duplicates share the same id
+    for i in range(total_spikes):
+        t = adjusted_spike_time[i]
+        
+        # Check if this is the first spike OR if it is far enough from the last VALID spike
+        if last_valid_idx == -1 or (t - adjusted_spike_time[last_valid_idx] >= min_isi_samples):
+            valid[i] = True
+            last_valid_idx = i
+        else:
+            # COLLISION DETECTED (Refractory Violation)
+            valid[i] = False
+            
+            # Check who we collided with
+            current_unit = original_unit[i]
+            survivor_unit = original_unit[last_valid_idx]
+            
+            if current_unit != survivor_unit:
+                # Different units -> This is a MERGE
+                shared[i] = True
+                shared[last_valid_idx] = True
+            else:
+                # Same unit -> This is just noise/violation
+                # shared remains False
+                pass
+
+    # --- 5. ID Assignment ---
+    # Invalid spikes inherit the ID of the preceding valid spike
     spike_id = np.cumsum(valid) - 1
 
+    # --- 6. Construct DataFrame ---
     df_st = pd.DataFrame({
         'original_unit': original_unit,
         'original_spike_time': original_spike_time,
