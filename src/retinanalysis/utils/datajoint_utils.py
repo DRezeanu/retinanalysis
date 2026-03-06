@@ -468,12 +468,32 @@ def get_noise_name_by_exp(exp_name: str) -> str:
 
     return noise_protocol_name
 
+def get_stage_frame_rate_by_exp(exp_name: str):
+    exp_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    exp_id = exp_q.fetch1('id')
+    eb_q = schema.EpochBlock() & f'experiment_id={exp_id}'
+    # Get epochs for all these epoch blocks based on id (parent_id)
+    e_q = schema.Epoch() & [f'parent_id={eb_id}' for eb_id in eb_q.fetch('id')]
+    e_q = e_q.proj(
+        stage_frame_rate="parameters->>'$.frameRate'"
+    )
+    stage_frame_rates = e_q.fetch('stage_frame_rate')
+    stage_frame_rates = stage_frame_rates.astype(float)
+    # Remove NaN values if any
+    stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
+    if len(np.unique(stage_frame_rates))!=1:
+        print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}')
+        print(f'd_display will keep the first one: {stage_frame_rates[0]}')
+
+    return stage_frame_rates[0]
+
+
 def get_display_params_by_exp(exp_name: str):
     # Rig H
-    if exp_name[8] == 'H':
+    if 'H' in exp_name:
         raise NotImplementedError('LCR display params not defined for Rig H yet.')
     # Rig C
-    elif exp_name[8] == 'C':
+    elif 'C' in exp_name:
         print(f'For Rig C {exp_name}:')
         if int(exp_name[:8]) < 20230926:
             disp_type = 'OLED'
@@ -497,21 +517,22 @@ def get_display_params_by_exp(exp_name: str):
         mu_per_pixel = 1.3
         n_ht = 1140
         n_wt = 1824
-        mean_frame_rate = 60.0
+        mean_frame_rate = 59.9422
     else:
         raise ValueError(f'Unexpected Rig identified in MEA experiment name {exp_name} !')
+
+    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name)
 
     d_display = {
         'disp_type': disp_type,
         'mu_per_pixel': mu_per_pixel,
         'n_ht': n_ht,
         'n_wt': n_wt,
-        'mean_frame_rate': mean_frame_rate
+        'mean_frame_rate': mean_frame_rate,
+        'stage_frame_rate': stage_frame_rate,
     }
     print(d_display)
     return d_display
-
-
 
 def get_typing_files_for_datasets(df: pd.DataFrame, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM'],
                                   verbose: bool = False):
@@ -835,8 +856,6 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> di
 
     d_timing['n_epochs'] = n_epochs
     
-    # TODO: Check if preTime, stimTime and tailTime exist in first epoch
-    
     e_q = e_q.proj(
         pre_time="parameters->>'$.preTime'",
         stim_time="parameters->>'$.stimTime'",
@@ -847,9 +866,23 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> di
     if len(df_transitions) != 1:
         display(df_transitions)
         raise ValueError(f'Expected a unique set of timing parameters for {exp_name} {block_id}, but found {len(df_transitions)}')
-    pre_time_ms = float(df_transitions.loc[0, 'pre_time'])
-    stim_time_ms = float(df_transitions.loc[0, 'stim_time'])
-    tail_time_ms = float(df_transitions.loc[0, 'tail_time'])
+
+    # Check if preTime, stimTime and tailTime exist, which they sometimes don't for LED stimuli.
+    if df_transitions.at[0, 'pre_time'] is None:
+        print(f'Warning: preTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'pre_time'] = 0
+
+    if df_transitions.at[0, 'stim_time'] is None:
+        print(f'Warning: stimTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'stim_time'] = 0
+    
+    if df_transitions.at[0, 'tail_time'] is None:
+        print(f'Warning: tailTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'tail_time'] = 0
+
+    pre_time_ms = float(df_transitions.at[0, 'pre_time'])
+    stim_time_ms = float(df_transitions.at[0, 'stim_time'])
+    tail_time_ms = float(df_transitions.at[0, 'tail_time'])
     
     d_timing['pre_time_ms'] = pre_time_ms
     d_timing['stim_time_ms'] = stim_time_ms

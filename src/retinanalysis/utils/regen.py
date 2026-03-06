@@ -100,50 +100,7 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
     }
 
     return d_out
-def center_image_on_canvas(image, canvas_size, center_coords):
-    """
-    Centers an image on a canvas of a specified size using cv2.remap.
 
-    Args:
-        image (np.ndarray): The source image to be centered.
-        canvas_size (tuple): A tuple (width, height) for the destination canvas.
-        center_coords (tuple): A tuple (x, y) specifying the canvas coordinates
-                               where the center of the image should be placed.
-
-    Returns:
-        np.ndarray: The new canvas with the image centered at the specified coordinates.
-    """
-    canvas_width, canvas_height = canvas_size
-    img_height, img_width = image.shape[:2]
-    target_center_x, target_center_y = center_coords
-
-    # 1. Create a blank canvas with the correct dimensions and channels
-    # The canvas should have the same number of channels as the source image
-    # For a color image, the shape is (height, width, 3)
-    canvas = np.zeros((canvas_height, canvas_width), dtype=np.uint8)
-
-    # 2. Calculate the center of the source image
-    img_center_x = img_width / 2.0
-    img_center_y = img_height / 2.0
-
-    # 3. Calculate the translation offset
-    offset_x = target_center_x - img_center_x
-    offset_y = target_center_y - img_center_y
-
-    # 4. Create the mapping arrays using a vectorized approach
-    map_x, map_y = np.meshgrid(np.arange(canvas_width, dtype=np.float32),
-                               np.arange(canvas_height, dtype=np.float32))
-
-    # Apply the inverse translation to the map arrays
-    map_x -= offset_x
-    map_y -= offset_y
-
-    # 5. Apply the remapping directly into the canvas
-    # Use borderMode=cv2.BORDER_CONSTANT to fill the border with a constant color (e.g., black)
-    centered_image = cv2.remap(image, map_x, map_y, cv2.INTER_NEAREST, dst=canvas,
-                               borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
-    
-    return centered_image
 
 def lcr_video_device_um_to_pix(um_value: float, micronsPerPixel: float) -> int:
     # Rounding like in LCRVideoDevice.m
@@ -1137,8 +1094,16 @@ def make_single_doves_movie(
     n_stim_idx = int(n_stim_idx)
     wait_time_s = srs_epoch['epoch_parameters']['waitTime'] / 1e3
     duration_s = srs_epoch['epoch_parameters']['stimTime'] / 1e3
-    duration_frames = int(np.round(duration_s * d_display['mean_frame_rate']))
-    wait_frames = int(np.round(wait_time_s * d_display['mean_frame_rate']))
+    duration_frames = int(np.round(duration_s * d_display['stage_frame_rate']))
+    wait_frames = int(np.round(wait_time_s * d_display['stage_frame_rate']))
+    if verbose:
+        print(f'Movie params: ')
+        print(f'    magnificationFactor: {n_mag_factor}')
+        print(f'    stimulusIndex: {n_stim_idx} (matlab 1-based index)')
+        print(f'    waitTime: {wait_time_s:.2f} s')
+        print(f'    stimTime: {duration_s:.2f} s')
+        print(f'    wait_frames: {wait_frames}')
+        print(f'    total_frames: {duration_frames}')
 
     n_stim_idx -= 1 # from matlab to python indexing
     img_size = np.array([1024, 1536])
@@ -1183,12 +1148,19 @@ def make_single_doves_movie(
     # Upscale img to scene_size with nn
     img = cv2.resize(img, tuple(scene_size[::-1].astype(int)), interpolation=cv2.INTER_NEAREST)
 
+    # Final movie dims
     n_traj_frames = duration_frames - wait_frames
-    frames = np.zeros((screen_size[0], screen_size[1], n_traj_frames))
+    if not b_ds_to_stix:
+        stix_dims = screen_size
+    frames = np.zeros((n_traj_frames, stix_dims[0], stix_dims[1]))
     frames = frames + img_mean
 
     if verbose:
         print(f'Creating movie for {imageName} with shape {img.shape} and scene size {scene_size}, fitting in {screen_size}')
+    if b_ds_to_stix:
+        print(f'And downsampling to stix dims {stix_dims}.')
+    ls_px = []
+    ls_py = []
     for f_idx in tqdm.trange(n_traj_frames, desc='Generating frames'):
         t = f_idx * 1/d_display['mean_frame_rate']
         if t > timeTraj.max():
@@ -1198,29 +1170,26 @@ def make_single_doves_movie(
 
         # Update position
         p = p0 + np.array([dy, dx]).squeeze()
+        ls_px.append(p[1])
+        ls_py.append(p[0])
         x_idx = np.round(p[1] + x_vals).astype(int)
         y_idx = np.round(p[0] + y_vals).astype(int)
 
         x_good = (x_idx >= 0) & (x_idx < scene_size[1])
         y_good = (y_idx >= 0) & (y_idx < scene_size[0])
         
-        assign_idx = np.ix_(np.where(y_good)[0], np.where(x_good)[0], np.array([f_idx]))
-        frames[assign_idx]= img[y_idx[y_good], :][:, x_idx[x_good]][:,:,np.newaxis]
-
-    # Move time axis to first dimension
-    frames = np.moveaxis(frames, 2, 0)
-    
-    if b_ds_to_stix:
-        ls_ds = []
-        if verbose:
-            print(f'Downsampling frames to {stix_dims}')
-        for f in tqdm.tqdm(frames, desc='Downsampling frames'):
-            ls_ds.append(cv2.resize(f, stix_dims[::-1], interpolation=cv2.INTER_AREA))
-        frames = np.array(ls_ds)
+        frame = np.zeros(screen_size) + img_mean
+        assign_idx = np.ix_(np.where(y_good)[0], np.where(x_good)[0])
+        frame[assign_idx] = img[y_idx[y_good], :][:, x_idx[x_good]]
+        
+        if b_ds_to_stix:
+            frame = cv2.resize(frame, stix_dims[::-1], interpolation=cv2.INTER_AREA)
+        
+        frames[f_idx] = frame
 
     # Add wait frames
     if verbose:
-        print(f'Adding {wait_frames} wait frames to {frames.shape}')
+        print(f'Adding {wait_frames} wait frames to {frames.shape} for {wait_time_s} s.')
     full_frames = np.zeros((duration_frames, frames.shape[1], frames.shape[2]))
     full_frames[:wait_frames] = frames[0]
     full_frames[wait_frames:] = frames
@@ -1236,7 +1205,9 @@ def make_single_doves_movie(
     d_out = {
         'frames': frames, # (frames, rows, cols)
         'image_name': imageName,
-        'image': img # (1024, 1536) original image, upscaled to scene size by mag factor
+        'image': img, # (1024, 1536) original image, upscaled to scene size by mag factor
+        'center_x_pos': ls_px,
+        'center_y_pos': ls_py
     }
     
     return d_out
@@ -1251,7 +1222,9 @@ def make_all_doves_movies(
     d_out = {
         'movies': [],
         'image_names': [],
-        'images': []
+        'images': [],
+        'center_x_pos': [],
+        'center_y_pos': []
     }
     
     n_epochs = len(df_epochs)
@@ -1261,11 +1234,19 @@ def make_all_doves_movies(
             df_epochs.iloc[i], D_DOVES_DATA, STR_DOVES_IMG_DIR,
             d_display, b_ds_to_stix, stix_dims, verbose
         )
-        d_out['movies'].append(d_movie)
+        d_out['movies'].append(d_movie['frames'])
         d_out['image_names'].append(d_movie['image_name'])
         d_out['images'].append(d_movie['image'])
+        d_out['center_x_pos'].append(d_movie['center_x_pos'])
+        d_out['center_y_pos'].append(d_movie['center_y_pos'])
 
-    # (n_epochs, frames, rows, cols)
-    d_out['movies'] = np.array(d_out['movies'])
+    # If all movie have same frames, can stack into array
+    frame_counts = [movie.shape[0] for movie in d_out['movies']]
+    if len(np.unique(frame_counts)) == 1:
+        print(f'All movies have same frame count of {frame_counts[0]}, stacking into array.')
+        # (n_epochs, frames, rows, cols)
+        d_out['movies'] = np.array(d_out['movies'])
+    else:
+        print(f'Movies have different frame counts: {frame_counts}, keeping as list.')
     
     return d_out
