@@ -544,10 +544,12 @@ class MEAPipeline:
             pickle.dump(d_out, f)
         print(f"MEAPipeline exported to {file_path}")
 
-def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_chunk_name: Optional[str] = None,
-                        typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
-                        b_LED: Optional[bool] = False, ls_params: Optional[list] = None, 
-                        b_load_fd: bool = False, verbose: bool = True):
+def create_mea_pipeline(
+        exp_name: str, datafile_name: str | List[str], analysis_chunk_name: Optional[str] = None,
+        typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
+        ls_params: Optional[list] = None, b_load_fd: bool = False, 
+        b_LED: Optional[bool] = False, verbose: bool = True
+    ):
     """
     Helper function for initializing an MEAPipeline from metadata.
 

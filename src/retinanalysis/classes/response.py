@@ -73,8 +73,8 @@ class ResponseBlock:
     Generic class for single cell or MEA response blocks. 
     """
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 h5_file: Optional[str]=None, b_LED: Optional[bool]=False,
-                 pkl_file: Optional[str | dict]=None, b_load_fd: bool=True,
+                 h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None, 
+                 b_load_fd: bool=True, b_LED: Optional[bool]=False,
                  verbose: bool = True):
 
         self.verbose = verbose
@@ -192,9 +192,9 @@ class SCResponseBlock(ResponseBlock):
 class MEAResponseBlock(ResponseBlock):
 
     def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
-                 ss_version: str = 'kilosort2.5', b_LED: Optional[bool]=False,
-                 pkl_file: Optional[str]=None, h5_file: Optional[str]=None, 
-                 include_ei: bool=True, b_load_fd: bool=False,
+                 ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None, 
+                 h5_file: Optional[str]=None, include_ei: bool=True, 
+                 b_load_fd: bool=False, b_LED: Optional[bool]=False,
                  verbose: bool = True):
         # If pkl_file is provided, block_id can be None.
         block_id = None
@@ -698,9 +698,10 @@ class MEAResponseGroup:
 
 
 def create_mea_response_group(
-    exp_name: str, ls_datafile_names: List[str], 
-    ss_version: str=None, b_LED: bool=False,
-    b_load_fd: bool = False, verbose: bool = False):
+        exp_name: str, ls_datafile_names: List[str], 
+        ss_version: str=None, b_load_fd: bool = False, 
+        b_LED: bool=False, verbose: bool = False
+    ):
 
     response_blocks = [
         MEAResponseBlock(
