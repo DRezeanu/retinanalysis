@@ -856,8 +856,6 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> di
 
     d_timing['n_epochs'] = n_epochs
     
-    # TODO: Check if preTime, stimTime and tailTime exist in first epoch
-    
     e_q = e_q.proj(
         pre_time="parameters->>'$.preTime'",
         stim_time="parameters->>'$.stimTime'",
@@ -868,9 +866,23 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> di
     if len(df_transitions) != 1:
         display(df_transitions)
         raise ValueError(f'Expected a unique set of timing parameters for {exp_name} {block_id}, but found {len(df_transitions)}')
-    pre_time_ms = float(df_transitions.loc[0, 'pre_time'])
-    stim_time_ms = float(df_transitions.loc[0, 'stim_time'])
-    tail_time_ms = float(df_transitions.loc[0, 'tail_time'])
+
+    # Check if preTime, stimTime and tailTime exist, which they sometimes don't for LED stimuli.
+    if df_transitions.at[0, 'pre_time'] is None:
+        print(f'Warning: preTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'pre_time'] = 0
+
+    if df_transitions.at[0, 'stim_time'] is None:
+        print(f'Warning: stimTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'stim_time'] = 0
+    
+    if df_transitions.at[0, 'tail_time'] is None:
+        print(f'Warning: tailTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'tail_time'] = 0
+
+    pre_time_ms = float(df_transitions.at[0, 'pre_time'])
+    stim_time_ms = float(df_transitions.at[0, 'stim_time'])
+    tail_time_ms = float(df_transitions.at[0, 'tail_time'])
     
     d_timing['pre_time_ms'] = pre_time_ms
     d_timing['stim_time_ms'] = stim_time_ms
