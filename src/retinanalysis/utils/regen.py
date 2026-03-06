@@ -100,50 +100,7 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
     }
 
     return d_out
-def center_image_on_canvas(image, canvas_size, center_coords):
-    """
-    Centers an image on a canvas of a specified size using cv2.remap.
 
-    Args:
-        image (np.ndarray): The source image to be centered.
-        canvas_size (tuple): A tuple (width, height) for the destination canvas.
-        center_coords (tuple): A tuple (x, y) specifying the canvas coordinates
-                               where the center of the image should be placed.
-
-    Returns:
-        np.ndarray: The new canvas with the image centered at the specified coordinates.
-    """
-    canvas_width, canvas_height = canvas_size
-    img_height, img_width = image.shape[:2]
-    target_center_x, target_center_y = center_coords
-
-    # 1. Create a blank canvas with the correct dimensions and channels
-    # The canvas should have the same number of channels as the source image
-    # For a color image, the shape is (height, width, 3)
-    canvas = np.zeros((canvas_height, canvas_width), dtype=np.uint8)
-
-    # 2. Calculate the center of the source image
-    img_center_x = img_width / 2.0
-    img_center_y = img_height / 2.0
-
-    # 3. Calculate the translation offset
-    offset_x = target_center_x - img_center_x
-    offset_y = target_center_y - img_center_y
-
-    # 4. Create the mapping arrays using a vectorized approach
-    map_x, map_y = np.meshgrid(np.arange(canvas_width, dtype=np.float32),
-                               np.arange(canvas_height, dtype=np.float32))
-
-    # Apply the inverse translation to the map arrays
-    map_x -= offset_x
-    map_y -= offset_y
-
-    # 5. Apply the remapping directly into the canvas
-    # Use borderMode=cv2.BORDER_CONSTANT to fill the border with a constant color (e.g., black)
-    centered_image = cv2.remap(image, map_x, map_y, cv2.INTER_NEAREST, dst=canvas,
-                               borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
-    
-    return centered_image
 
 def lcr_video_device_um_to_pix(um_value: float, micronsPerPixel: float) -> int:
     # Rounding like in LCRVideoDevice.m
