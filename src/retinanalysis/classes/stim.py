@@ -2,12 +2,13 @@ import retinanalysis.config.schema as schema
 import numpy as np
 from retinanalysis.utils.datajoint_utils import (get_exp_summary,
                                                  get_epoch_data_from_exp,
-                                                 get_block_id_from_datafile)
+                                                 get_block_id_from_datafile,
+                                                 get_noise_name_by_exp,
+                                                 get_display_params_by_exp)
 import pandas as pd
 from typing import List
 import retinanalysis.utils.regen as regen
 import pickle
-from retinanalysis.classes.analysis_chunk import get_noise_name_by_exp
 from typing import Optional
 from retinanalysis.config.settings import ANALYSIS_DIR
 import os
@@ -18,8 +19,8 @@ D_REGEN_FXNS = {
     'manookinlab.protocols.PresentImages': regen.load_all_present_images,
     'edu.washington.riekelab.rachel.protocols.DovesPerturbationAlpha': regen.make_doves_perturbation_alpha,
     'edu.washington.riekelab.turner.protocols.ExpandingSpots': regen.make_expanding_spots,
-    'edu.washington.riekelab.rachel.protocols.CheckerboardNoiseProjectRachel': regen.make_checkerboard_noise_project
-    # 'manookinlab.protocols.DovesMovie'
+    'edu.washington.riekelab.rachel.protocols.CheckerboardNoiseProjectRachel': regen.make_checkerboard_noise_project,
+    'manookinlab.protocols.DovesMovie': regen.make_all_doves_movies
 }
 
 class StimBlock:
@@ -68,6 +69,8 @@ class StimBlock:
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
+        self.d_display = get_display_params_by_exp(self.exp_name)
+
     def regenerate_stimulus(self, ls_epochs: Optional[int | list]=None, **kwargs):
         """
         Regenerate the stimulus for the block based on the epochs provided.
@@ -106,6 +109,7 @@ class StimBlock:
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        str_self += f"  d_display with keys: {self.d_display.keys()}\n"
         return str_self
 
     def export_to_pkl(self, file_path: str):
@@ -233,6 +237,7 @@ class MEAStimBlock(StimBlock):
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
         str_self += f"  b_LED: {self.b_LED} (whether LED stimulus)\n"
+        str_self += f"  d_display with keys: {self.d_display.keys()}\n"
         str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
         str_self += f"  chunk_name: {self.d_block_summary['chunk_name']}\n"
@@ -242,6 +247,7 @@ class MEAStimBlock(StimBlock):
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        str_self += f"  d_display with keys: {self.d_display.keys()}\n"
         return str_self
 
 class MEAStimGroup:
@@ -299,6 +305,7 @@ class MEAStimGroup:
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        str_self += f"  d_display with keys: {self.ls_blocks[0].d_display.keys()}\n"
         return str_self
 
     def export_to_pkl(self, file_path: str):
