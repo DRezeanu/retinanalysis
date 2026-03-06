@@ -497,7 +497,7 @@ def get_display_params_by_exp(exp_name: str):
         mu_per_pixel = 1.3
         n_ht = 1140
         n_wt = 1824
-        mean_frame_rate = 60.0
+        mean_frame_rate = 59.9422
     else:
         raise ValueError(f'Unexpected Rig identified in MEA experiment name {exp_name} !')
 
