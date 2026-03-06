@@ -1232,7 +1232,13 @@ def make_all_doves_movies(
         d_out['center_x_pos'].append(d_movie['center_x_pos'])
         d_out['center_y_pos'].append(d_movie['center_y_pos'])
 
-    # (n_epochs, frames, rows, cols)
-    d_out['movies'] = np.array(d_out['movies'])
+    # If all movie have same frames, can stack into array
+    frame_counts = [movie.shape[0] for movie in d_out['movies']]
+    if len(np.unique(frame_counts)) == 1:
+        print(f'All movies have same frame count of {frame_counts[0]}, stacking into array.')
+        # (n_epochs, frames, rows, cols)
+        d_out['movies'] = np.array(d_out['movies'])
+    else:
+        print(f'Movies have different frame counts: {frame_counts}, keeping as list.')
     
     return d_out
