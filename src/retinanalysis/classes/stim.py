@@ -28,8 +28,10 @@ class StimBlock:
     """
 
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 ls_params: Optional[list]=None, verbose: bool = True, pkl_file: Optional[str]=None):
-        
+                 ls_params: Optional[list]=None, b_LED: Optional[bool]=False,
+                 verbose: bool = True, pkl_file: Optional[str]=None):
+        self.verbose = verbose
+        self.b_LED = b_LED
         if pkl_file is None:
             if verbose:
                 print(f"Initializing StimBlock for {exp_name} block {block_id}")
@@ -40,6 +42,7 @@ class StimBlock:
                 print(f"Initializing StimBlock for {exp_name} block {block_id} from pickle file")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
+                print(f"  pkl_file: {pkl_file}")
                 with open(pkl_file, 'rb') as f:
                     d_out = pickle.load(f)
             else:
@@ -61,7 +64,7 @@ class StimBlock:
         epoch_block = schema.EpochBlock() & {'id': block_id}
         self.d_epoch_block_params = epoch_block.fetch('parameters')[0]
 
-        df_e = get_epoch_data_from_exp(exp_name, block_id, ls_params=ls_params)
+        df_e = get_epoch_data_from_exp(exp_name, block_id, b_LED=self.b_LED, ls_params=ls_params)
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
@@ -97,6 +100,7 @@ class StimBlock:
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  b_LED: {self.b_LED} (whether LED stimulus)\n"
         str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
@@ -120,9 +124,9 @@ class MEAStimBlock(StimBlock):
     """
 
     def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
-                 ls_params: Optional[list]=None, verbose: bool = True, pkl_file: Optional[str]=None):
+                ls_params: Optional[list]=None, b_LED: Optional[bool]=False,
+                verbose: bool = True, pkl_file: Optional[str]=None):
         # If pkl_file is provided, block_id can be None.
-        self.verbose = verbose
         block_id = None
         if pkl_file is None:
             # Either pkl_file or exp_name and datafile_name must be provided
@@ -132,7 +136,10 @@ class MEAStimBlock(StimBlock):
                 # If exp_name and datafile_name are provided, get block_id from datafile_name
                 block_id = get_block_id_from_datafile(exp_name, datafile_name)
         
-        super().__init__(exp_name=exp_name, block_id=block_id, ls_params=ls_params, verbose = self.verbose, pkl_file=pkl_file)
+        super().__init__(
+            exp_name=exp_name, block_id=block_id, b_LED=b_LED,
+            ls_params=ls_params, verbose = verbose, pkl_file=pkl_file
+            )
         
         # If pkl_file, everything is already loaded in parent init.
         if pkl_file is not None:
@@ -225,6 +232,7 @@ class MEAStimBlock(StimBlock):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  b_LED: {self.b_LED} (whether LED stimulus)\n"
         str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
         str_self += f"  chunk_name: {self.d_block_summary['chunk_name']}\n"
@@ -281,6 +289,7 @@ class MEAStimGroup:
         str_self += f"  ls_blocks containing {len(self.ls_blocks)} MEAStimBlocks\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_ids: {[block.block_id for block in self.ls_blocks]}\n"
+        str_self += f"  b_LED: {self.ls_blocks[0].b_LED} (whether LED stimulus)\n"
         str_self += f"  prep_label: {self.ls_blocks[0].prep_label}\n"
         str_self += f"  datafile_names: {self.datafile_names}\n"
         str_self += f"  chunk_name: {self.ls_blocks[0].d_block_summary['chunk_name']}\n"
@@ -300,6 +309,15 @@ class MEAStimGroup:
             pickle.dump(self, f)
         print(f"StimGroup exported to {file_path}")
 
-def create_mea_stim_group(exp_name, ls_datafile_names, ls_params: Optional[list] = None, verbose: bool = False):
-    ls_blocks = [MEAStimBlock(exp_name, datafile, ls_params = ls_params, verbose = verbose) for datafile in ls_datafile_names]
+def create_mea_stim_group(
+        exp_name, ls_datafile_names, ls_params: Optional[list] = None, 
+        b_LED: Optional[bool]=False, verbose: bool = False
+    ):
+
+    ls_blocks = [
+        MEAStimBlock(
+            exp_name, datafile, b_LED=b_LED, 
+            ls_params = ls_params, verbose = verbose
+            ) for datafile in ls_datafile_names
+            ]
     return MEAStimGroup(ls_blocks)
