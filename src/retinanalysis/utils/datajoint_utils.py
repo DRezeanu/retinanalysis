@@ -468,6 +468,49 @@ def get_noise_name_by_exp(exp_name: str) -> str:
 
     return noise_protocol_name
 
+def get_display_params_by_exp(exp_name: str):
+    # Rig H
+    if exp_name[8] == 'H':
+        raise NotImplementedError('LCR display params not defined for Rig H yet.')
+    # Rig C
+    elif exp_name[8] == 'C':
+        print(f'For Rig C {exp_name}:')
+        if int(exp_name[:8]) < 20230926:
+            disp_type = 'OLED'
+            mu_per_pixel = 3.8
+            n_ht = 600
+            n_wt = 800
+            mean_frame_rate = 60.31807657
+        else:
+            disp_type = 'LCR'
+            # As saved in sta_analysis.py. Rig Config indicates 3.37 so not sure what's best...
+            # I figure sta_analysis.py value is better as that's used to generate STAs 
+            # and will be useful to convert regen stim from pixel to stixel space.
+            mu_per_pixel = 3.34 
+            n_ht = 1140
+            n_wt = 1824
+            mean_frame_rate = 59.941548817817917
+    # Rig E (Fred confocal)
+    elif 'E' in exp_name:
+        print(f'For Rig E {exp_name}, assuming ConfocalWithLightCrafterAbove rig config:')
+        disp_type = 'LCR'
+        mu_per_pixel = 1.3
+        n_ht = 1140
+        n_wt = 1824
+        mean_frame_rate = 60.0
+    else:
+        raise ValueError(f'Unexpected Rig identified in MEA experiment name {exp_name} !')
+
+    d_display = {
+        'disp_type': disp_type,
+        'mu_per_pixel': mu_per_pixel,
+        'n_ht': n_ht,
+        'n_wt': n_wt,
+        'mean_frame_rate': mean_frame_rate
+    }
+    print(d_display)
+    return d_display
+
 def get_typing_files_for_datasets(df: pd.DataFrame, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM'],
                                   verbose: bool = False):
     # Return df_typed with columns:

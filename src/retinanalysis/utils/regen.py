@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
+from scipy.io import loadmat
 import tqdm
 import pandas as pd
 import os
@@ -99,6 +100,50 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
     }
 
     return d_out
+def center_image_on_canvas(image, canvas_size, center_coords):
+    """
+    Centers an image on a canvas of a specified size using cv2.remap.
+
+    Args:
+        image (np.ndarray): The source image to be centered.
+        canvas_size (tuple): A tuple (width, height) for the destination canvas.
+        center_coords (tuple): A tuple (x, y) specifying the canvas coordinates
+                               where the center of the image should be placed.
+
+    Returns:
+        np.ndarray: The new canvas with the image centered at the specified coordinates.
+    """
+    canvas_width, canvas_height = canvas_size
+    img_height, img_width = image.shape[:2]
+    target_center_x, target_center_y = center_coords
+
+    # 1. Create a blank canvas with the correct dimensions and channels
+    # The canvas should have the same number of channels as the source image
+    # For a color image, the shape is (height, width, 3)
+    canvas = np.zeros((canvas_height, canvas_width), dtype=np.uint8)
+
+    # 2. Calculate the center of the source image
+    img_center_x = img_width / 2.0
+    img_center_y = img_height / 2.0
+
+    # 3. Calculate the translation offset
+    offset_x = target_center_x - img_center_x
+    offset_y = target_center_y - img_center_y
+
+    # 4. Create the mapping arrays using a vectorized approach
+    map_x, map_y = np.meshgrid(np.arange(canvas_width, dtype=np.float32),
+                               np.arange(canvas_height, dtype=np.float32))
+
+    # Apply the inverse translation to the map arrays
+    map_x -= offset_x
+    map_y -= offset_y
+
+    # 5. Apply the remapping directly into the canvas
+    # Use borderMode=cv2.BORDER_CONSTANT to fill the border with a constant color (e.g., black)
+    centered_image = cv2.remap(image, map_x, map_y, cv2.INTER_NEAREST, dst=canvas,
+                               borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
+    
+    return centered_image
 
 def lcr_video_device_um_to_pix(um_value: float, micronsPerPixel: float) -> int:
     # Rounding like in LCRVideoDevice.m
@@ -1061,3 +1106,176 @@ def make_expanding_spots(df_epochs: pd.DataFrame, ds_mu: float=10.0):
 
     return d_output
 
+
+def load_doves_img(img_path, shape=(1024, 1536)):
+    # Read in the image as ieee-be
+    with open(img_path, 'rb') as f:
+        data = f.read()
+    data_f = np.frombuffer(data, dtype='uint16').byteswap()
+
+    img = data_f.reshape(shape)
+    img = img.astype(float)   
+    img = img / img.max()
+
+    # Convert to unsigned 8-bit integer
+    # img = img*255
+    # img = img.astype(np.uint8)
+
+    return img
+
+
+def make_single_doves_movie(
+        srs_epoch: pd.Series,
+        D_DOVES_DATA: dict, STR_DOVES_IMG_DIR: str,
+        d_display: dict,
+        b_ds_to_stix=True, stix_dims=(127, 203),
+        verbose=False
+    ):
+    # Fetch stimulus params
+    n_mag_factor = srs_epoch['epoch_parameters']['magnificationFactor']
+    n_stim_idx = srs_epoch['epoch_parameters']['stimulusIndex']
+    n_stim_idx = int(n_stim_idx)
+    wait_time_s = srs_epoch['epoch_parameters']['waitTime'] / 1e3
+    duration_s = srs_epoch['epoch_parameters']['stimTime'] / 1e3
+    duration_frames = int(np.round(duration_s * d_display['mean_frame_rate']))
+    wait_frames = int(np.round(wait_time_s * d_display['mean_frame_rate']))
+
+    n_stim_idx -= 1 # from matlab to python indexing
+    img_size = np.array([1024, 1536])
+    scene_size = img_size * n_mag_factor
+    scene_size = np.round(scene_size).astype(int)
+    screen_size = np.array([d_display['n_ht'], d_display['n_wt']], dtype=int)
+
+    p0 = scene_size / 2
+    x_vals = np.arange(-screen_size[1] / 2, screen_size[1] / 2)
+    y_vals = np.arange(-screen_size[0] / 2, screen_size[0] / 2)
+
+    idx_imgname = 2
+    idx_eyeX = 3
+    idx_eyeY = 4
+    # idx_frozenX = 7
+    # idx_frozenY = 8
+    # micronsPerArcmin = 3.3
+    xTraj = D_DOVES_DATA['FEMdata'][0, n_stim_idx][idx_eyeX][0]
+    yTraj = D_DOVES_DATA['FEMdata'][0, n_stim_idx][idx_eyeY][0]
+
+    timeTraj = np.arange(0,len(xTraj)) / 200
+
+    # Normalize xy trajectories relative to center of image
+    xTraj = -(xTraj - img_size[1] / 2)
+    yTraj = yTraj - img_size[0] / 2
+
+    # Negate xTraj bc here we are moving screen, protocol moves center of image
+    xTraj = -xTraj
+    # yTraj stays bc (0,0) is bottom left in display. Positive yTraj moves image up, screen down.
+
+    # Convert from arcmin to pixels. 1 VH pixel = 1 arcmin = 3.3 um on monkey retina.
+    xTraj = xTraj * 3.3 / d_display['mu_per_pixel']
+    yTraj = yTraj * 3.3 / d_display['mu_per_pixel']
+
+    imageName = D_DOVES_DATA['FEMdata'][0, n_stim_idx][idx_imgname][0]
+    str_img_path = os.path.join(STR_DOVES_IMG_DIR, imageName)
+    if verbose:
+        print(f'Loading image {imageName} from {str_img_path}')
+    img = load_doves_img(str_img_path, shape=img_size)
+
+    img_mean = np.mean(img)
+    # Upscale img to scene_size with nn
+    img = cv2.resize(img, tuple(scene_size[::-1].astype(int)), interpolation=cv2.INTER_NEAREST)
+
+    # Final movie dims
+    n_traj_frames = duration_frames - wait_frames
+    if not b_ds_to_stix:
+        stix_dims = screen_size
+    frames = np.zeros((n_traj_frames, stix_dims[0], stix_dims[1]))
+    frames = frames + img_mean
+
+    if verbose:
+        print(f'Creating movie for {imageName} with shape {img.shape} and scene size {scene_size}, fitting in {screen_size}')
+    if b_ds_to_stix:
+        print(f'And downsampling to stix dims {stix_dims}.')
+    ls_px = []
+    ls_py = []
+    for f_idx in tqdm.trange(n_traj_frames, desc='Generating frames'):
+        t = f_idx * 1/d_display['mean_frame_rate']
+        if t > timeTraj.max():
+            t = timeTraj.max()
+        dx = np.interp(t, timeTraj, xTraj)
+        dy = np.interp(t, timeTraj, yTraj)
+
+        # Update position
+        p = p0 + np.array([dy, dx]).squeeze()
+        ls_px.append(p[1])
+        ls_py.append(p[0])
+        x_idx = np.round(p[1] + x_vals).astype(int)
+        y_idx = np.round(p[0] + y_vals).astype(int)
+
+        x_good = (x_idx >= 0) & (x_idx < scene_size[1])
+        y_good = (y_idx >= 0) & (y_idx < scene_size[0])
+        
+        frame = np.zeros(screen_size) + img_mean
+        assign_idx = np.ix_(np.where(y_good)[0], np.where(x_good)[0])
+        frame[assign_idx] = img[y_idx[y_good], :][:, x_idx[x_good]]
+        
+        if b_ds_to_stix:
+            frame = cv2.resize(frame, stix_dims[::-1], interpolation=cv2.INTER_AREA)
+        
+        frames[f_idx] = frame
+
+    # Add wait frames
+    if verbose:
+        print(f'Adding {wait_frames} wait frames to {frames.shape} for {wait_time_s} s.')
+    full_frames = np.zeros((duration_frames, frames.shape[1], frames.shape[2]))
+    full_frames[:wait_frames] = frames[0]
+    full_frames[wait_frames:] = frames
+    frames = full_frames
+    if verbose:
+        print(f'New frames shape: {frames.shape}')
+
+    # Rescale from (0,1) to (-1, 1)
+    frames = (frames*2 - 1)
+    if verbose:
+        print(f'Movie scaled to (-1, 1) contrast: min {frames.min():.2f}, max {frames.max():.2f}')
+
+    d_out = {
+        'frames': frames, # (frames, rows, cols)
+        'image_name': imageName,
+        'image': img, # (1024, 1536) original image, upscaled to scene size by mag factor
+        'center_x_pos': ls_px,
+        'center_y_pos': ls_py
+    }
+    
+    return d_out
+
+def make_all_doves_movies(
+        df_epochs, str_manookin_pkg_dir, d_display,
+        b_ds_to_stix=True, stix_dims=(127, 203), verbose=True
+    ):
+    D_DOVES_DATA = loadmat(os.path.join(str_manookin_pkg_dir, 'resources', 'doves', 'dovesFEMstims20160826.mat'))
+    STR_DOVES_IMG_DIR = os.path.join(str_manookin_pkg_dir, 'resources', 'doves', 'images')
+    
+    d_out = {
+        'movies': [],
+        'image_names': [],
+        'images': [],
+        'center_x_pos': [],
+        'center_y_pos': []
+    }
+    
+    n_epochs = len(df_epochs)
+    for i in range(n_epochs):
+        print(f'Processing epoch {i+1}/{n_epochs}')
+        d_movie = make_single_doves_movie(
+            df_epochs.iloc[i], D_DOVES_DATA, STR_DOVES_IMG_DIR,
+            d_display, b_ds_to_stix, stix_dims, verbose
+        )
+        d_out['movies'].append(d_movie['frames'])
+        d_out['image_names'].append(d_movie['image_name'])
+        d_out['images'].append(d_movie['image'])
+        d_out['center_x_pos'].append(d_movie['center_x_pos'])
+        d_out['center_y_pos'].append(d_movie['center_y_pos'])
+
+    # (n_epochs, frames, rows, cols)
+    d_out['movies'] = np.array(d_out['movies'])
+    
+    return d_out
