@@ -482,7 +482,7 @@ def get_stage_frame_rate_by_exp(exp_name: str):
     # Remove NaN values if any
     stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
     if len(np.unique(stage_frame_rates))!=1:
-        print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {stage_frame_rates}')
+        print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}')
         print(f'd_display will keep the first one: {stage_frame_rates[0]}')
 
     return stage_frame_rates[0]
