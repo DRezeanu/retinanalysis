@@ -1094,8 +1094,16 @@ def make_single_doves_movie(
     n_stim_idx = int(n_stim_idx)
     wait_time_s = srs_epoch['epoch_parameters']['waitTime'] / 1e3
     duration_s = srs_epoch['epoch_parameters']['stimTime'] / 1e3
-    duration_frames = int(np.round(duration_s * d_display['mean_frame_rate']))
-    wait_frames = int(np.round(wait_time_s * d_display['mean_frame_rate']))
+    duration_frames = int(np.round(duration_s * d_display['stage_frame_rate']))
+    wait_frames = int(np.round(wait_time_s * d_display['stage_frame_rate']))
+    if verbose:
+        print(f'Movie params: ')
+        print(f'    magnificationFactor: {n_mag_factor}')
+        print(f'    stimulusIndex: {n_stim_idx} (matlab 1-based index)')
+        print(f'    waitTime: {wait_time_s:.2f} s')
+        print(f'    stimTime: {duration_s:.2f} s')
+        print(f'    wait_frames: {wait_frames}')
+        print(f'    total_frames: {duration_frames}')
 
     n_stim_idx -= 1 # from matlab to python indexing
     img_size = np.array([1024, 1536])

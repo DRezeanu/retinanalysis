@@ -468,12 +468,32 @@ def get_noise_name_by_exp(exp_name: str) -> str:
 
     return noise_protocol_name
 
+def get_stage_frame_rate_by_exp(exp_name: str):
+    exp_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    exp_id = exp_q.fetch1('id')
+    eb_q = schema.EpochBlock() & f'experiment_id={exp_id}'
+    # Get epochs for all these epoch blocks based on id (parent_id)
+    e_q = schema.Epoch() & [f'parent_id={eb_id}' for eb_id in eb_q.fetch('id')]
+    e_q = e_q.proj(
+        stage_frame_rate="parameters->>'$.frameRate'"
+    )
+    stage_frame_rates = e_q.fetch('stage_frame_rate')
+    stage_frame_rates = stage_frame_rates.astype(float)
+    # Remove NaN values if any
+    stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
+    if len(np.unique(stage_frame_rates))!=1:
+        print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {stage_frame_rates}')
+        print(f'd_display will keep the first one: {stage_frame_rates[0]}')
+
+    return stage_frame_rates[0]
+
+
 def get_display_params_by_exp(exp_name: str):
     # Rig H
-    if exp_name[8] == 'H':
+    if 'H' in exp_name:
         raise NotImplementedError('LCR display params not defined for Rig H yet.')
     # Rig C
-    elif exp_name[8] == 'C':
+    elif 'C' in exp_name:
         print(f'For Rig C {exp_name}:')
         if int(exp_name[:8]) < 20230926:
             disp_type = 'OLED'
@@ -501,12 +521,15 @@ def get_display_params_by_exp(exp_name: str):
     else:
         raise ValueError(f'Unexpected Rig identified in MEA experiment name {exp_name} !')
 
+    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name)
+
     d_display = {
         'disp_type': disp_type,
         'mu_per_pixel': mu_per_pixel,
         'n_ht': n_ht,
         'n_wt': n_wt,
-        'mean_frame_rate': mean_frame_rate
+        'mean_frame_rate': mean_frame_rate,
+        'stage_frame_rate': stage_frame_rate,
     }
     print(d_display)
     return d_display
