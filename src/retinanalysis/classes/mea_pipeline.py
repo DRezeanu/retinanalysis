@@ -544,9 +544,12 @@ class MEAPipeline:
             pickle.dump(d_out, f)
         print(f"MEAPipeline exported to {file_path}")
 
-def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_chunk_name: Optional[str] = None,
-                    typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
-                        ls_params: Optional[list] = None, b_load_fd: bool = False, verbose: bool = True):
+def create_mea_pipeline(
+        exp_name: str, datafile_name: str | List[str], analysis_chunk_name: Optional[str] = None,
+        typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
+        ls_params: Optional[list] = None, b_load_fd: bool = False, 
+        b_LED: Optional[bool] = False, verbose: bool = True
+    ):
     """
     Helper function for initializing an MEAPipeline from metadata.
 
@@ -576,12 +579,12 @@ def create_mea_pipeline(exp_name: str, datafile_name: str | List[str], analysis_
         datafile_name = list(datafile_name)
 
     if isinstance(datafile_name, list):
-        s = create_mea_stim_group(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
-        r = create_mea_response_group(exp_name, datafile_name, b_load_fd = b_load_fd, verbose = verbose)
+        s = create_mea_stim_group(exp_name, datafile_name, b_LED=b_LED, ls_params = ls_params, verbose = verbose)
+        r = create_mea_response_group(exp_name, datafile_name, ss_version = ss_version, b_LED=b_LED, b_load_fd = b_load_fd, verbose = verbose)
 
     elif isinstance(datafile_name, str):
-        s = MEAStimBlock(exp_name, datafile_name, ls_params = ls_params, verbose = verbose)
-        r = MEAResponseBlock(exp_name, datafile_name, ss_version, b_load_fd = b_load_fd, verbose = verbose)
+        s = MEAStimBlock(exp_name, datafile_name, b_LED=b_LED, ls_params = ls_params, verbose = verbose)
+        r = MEAResponseBlock(exp_name, datafile_name, ss_version, b_LED=b_LED, b_load_fd = b_load_fd, verbose = verbose)
 
     assert s is not None, 'Unable to create stim block or stim group for given parameters'
     assert r is not None, 'Unable to create response block or response group for given parameters'

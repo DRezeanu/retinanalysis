@@ -38,11 +38,11 @@ pip install -U Pillow.
 ```
 [DEFAULT]
 analysis = /Volumes/Vyom MEA/analysis
-data = /Volumes/Vyom MEA/analysis
+data = /Volumes/Vyom MEA/data/sorted
 raw = /Volumes/Vyom MEA/data/raw
-h5 = /Volumes/Vyom MEA/data/samarjit_datajoint/data_dirs/data
-meta = /Volumes/Vyom MEA/data/samarjit_datajoint/data_dirs/meta
-tags = /Volumes/Vyom MEA/data/samarjit_datajoint/data_dirs/tags
+h5 = /Volumes/Vyom MEA/data/datajoint_testbed/data_dirs/data
+meta = /Volumes/Vyom MEA/data/datajoint_testbed/data_dirs/meta
+tags = /Volumes/Vyom MEA/data/datajoint_testbed/data_dirs/tags
 query = /Volumes/data-1/analysis
 user = vyomr
 

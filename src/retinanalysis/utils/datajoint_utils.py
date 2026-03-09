@@ -468,6 +468,72 @@ def get_noise_name_by_exp(exp_name: str) -> str:
 
     return noise_protocol_name
 
+def get_stage_frame_rate_by_exp(exp_name: str):
+    exp_q = schema.Experiment() & f'exp_name="{exp_name}"'
+    exp_id = exp_q.fetch1('id')
+    eb_q = schema.EpochBlock() & f'experiment_id={exp_id}'
+    # Get epochs for all these epoch blocks based on id (parent_id)
+    e_q = schema.Epoch() & [f'parent_id={eb_id}' for eb_id in eb_q.fetch('id')]
+    e_q = e_q.proj(
+        stage_frame_rate="parameters->>'$.frameRate'"
+    )
+    stage_frame_rates = e_q.fetch('stage_frame_rate')
+    stage_frame_rates = stage_frame_rates.astype(float)
+    # Remove NaN values if any
+    stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
+    if len(np.unique(stage_frame_rates))!=1:
+        print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}')
+        print(f'd_display will keep the first one: {stage_frame_rates[0]}')
+
+    return stage_frame_rates[0]
+
+
+def get_display_params_by_exp(exp_name: str):
+    # Rig H
+    if 'H' in exp_name:
+        raise NotImplementedError('LCR display params not defined for Rig H yet.')
+    # Rig C
+    elif 'C' in exp_name:
+        print(f'For Rig C {exp_name}:')
+        if int(exp_name[:8]) < 20230926:
+            disp_type = 'OLED'
+            mu_per_pixel = 3.8
+            n_ht = 600
+            n_wt = 800
+            mean_frame_rate = 60.31807657
+        else:
+            disp_type = 'LCR'
+            # As saved in sta_analysis.py. Rig Config indicates 3.37 so not sure what's best...
+            # I figure sta_analysis.py value is better as that's used to generate STAs 
+            # and will be useful to convert regen stim from pixel to stixel space.
+            mu_per_pixel = 3.34 
+            n_ht = 1140
+            n_wt = 1824
+            mean_frame_rate = 59.941548817817917
+    # Rig E (Fred confocal)
+    elif 'E' in exp_name:
+        print(f'For Rig E {exp_name}, assuming ConfocalWithLightCrafterAbove rig config:')
+        disp_type = 'LCR'
+        mu_per_pixel = 1.3
+        n_ht = 1140
+        n_wt = 1824
+        mean_frame_rate = 59.9422
+    else:
+        raise ValueError(f'Unexpected Rig identified in MEA experiment name {exp_name} !')
+
+    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name)
+
+    d_display = {
+        'disp_type': disp_type,
+        'mu_per_pixel': mu_per_pixel,
+        'n_ht': n_ht,
+        'n_wt': n_wt,
+        'mean_frame_rate': mean_frame_rate,
+        'stage_frame_rate': stage_frame_rate,
+    }
+    print(d_display)
+    return d_display
+
 def get_typing_files_for_datasets(df: pd.DataFrame, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM'],
                                   verbose: bool = False):
     # Return df_typed with columns:
@@ -633,8 +699,9 @@ def add_parameters_col(df, ls_params, src_col: str='epoch_parameters'):
     return df
 
 
-def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[List]=None,
-                                stim_time_name: str='stimTime') -> pd.DataFrame:
+def get_epoch_data_from_exp(exp_name: str, block_id: int, b_LED: Optional[bool]=False,
+                            ls_params: Optional[List]=None,
+                            stim_time_name: str='stimTime') -> pd.DataFrame:
     # Filter Experiment by exp_name, EpochBlock by block_id, then join down to Epoch
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
     is_mea = (ex_q.fetch1('is_mea') == 1)
@@ -669,8 +736,6 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[Li
 
     df = e_q.fetch(format='frame')
     df = df.reset_index()
-    # Make frame_times_ms list using json.loads
-    df['frame_times_ms'] = df['frame_times_ms'].apply(lambda x: json.loads(x))
 
     if is_mea:
         df['datafile_name'] = df['data_dir'].apply(lambda x: os.path.split(x)[-1])
@@ -695,6 +760,13 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, ls_params: Optional[Li
             'epoch_parameters'] + ls_time_cols + \
             ['experiment_id', 'group_id', 'block_id', 'protocol_id', 'epoch_id']
     df = df[ls_order]
+
+    if b_LED:
+        # Delete frame_times_ms column
+        df = df.drop(columns=['frame_times_ms'])
+    else:
+        # Make frame_times_ms list using json.loads
+        df['frame_times_ms'] = df['frame_times_ms'].apply(lambda x: json.loads(x))
     
     # Add column for 'epoch_index'
     df.index = df.index.rename('epoch_index')
@@ -721,7 +793,7 @@ def get_epochblock_query(exp_name: str, block_id: int):
     eb_q = eb_q & f'block_id={block_id}'
     return eb_q
 
-def get_epochblock_timing(exp_name: str, block_id: int):
+def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> dict:
     eb_q = get_epochblock_query(exp_name, block_id)
     df = eb_q.fetch(format='frame').reset_index()
     if len(df) > 1:
@@ -730,29 +802,18 @@ def get_epochblock_timing(exp_name: str, block_id: int):
         raise ValueError(f'No EpochBlock found for {exp_name} {block_id}')
     d_data = df.loc[0].to_dict()
     is_mea = df.loc[0, 'is_mea']
-    # epoch_starts = d_data['block_properties']['epochStarts']
-    # epoch_ends = d_data['block_properties']['epochEnds']
-    # n_samples = d_data['block_properties']['n_samples']
-    # frame_times_ms = d_data['block_properties']['frameTimesMs']
 
     d_timing = {
         'exp_name': exp_name,
-        'block_id': block_id,
-        # 'epoch_starts': epoch_starts,
-        # 'epoch_ends': epoch_ends,
-        # 'n_samples': n_samples,
-        # 'frame_times_ms': frame_times_ms
+        'block_id': block_id
     }
     
-    # For MEA data, this has epoch_starts, epoch_ends, n_samples, frame_times_ms
+    # For MEA data, 'block_properties' has epoch_starts, epoch_ends, n_samples, and if LED frame_times_ms
     # For SC data, this has just frame_times_ms
-    # d_group = d_data['block_properties']
-    # for key in d_group.keys():
-    #     d_timing[key] = d_group[key]
-    d_timing['frameTimesMs'] = d_data['block_properties']['frameTimesMs']
+    if not b_LED:
+        d_timing['frameTimesMs'] = d_data['block_properties']['frameTimesMs']
+    
     if is_mea:
-        # d_timing['epochStarts'] = d_data['block_properties']['epochStarts']
-        # d_timing['epochEnds'] = d_data['block_properties']['epochEnds']
         epoch_starts = d_data['block_properties']['epochStarts']
         epoch_ends = d_data['block_properties']['epochEnds']
 
@@ -765,8 +826,9 @@ def get_epochblock_timing(exp_name: str, block_id: int):
             epoch_starts = epoch_starts[:len(epoch_ends)]
             print(f'Keeping only {len(epoch_starts)} epochs.')
 
-            # Remove last epoch of frame times as well
-            d_timing['frameTimesMs'].pop()
+            if not b_LED:
+                # Remove last epoch of frame times as well
+                d_timing['frameTimesMs'].pop()
             
         elif len(epoch_ends) != len(epoch_starts):
             raise ValueError("Mismatch in number of epoch starts and ends.")
@@ -793,6 +855,7 @@ def get_epochblock_timing(exp_name: str, block_id: int):
             raise ValueError(f'For {exp_name} block {block_id}, found {n_epoch_times} epoch times but only {n_epochs} epochs in metadata.')
 
     d_timing['n_epochs'] = n_epochs
+    
     e_q = e_q.proj(
         pre_time="parameters->>'$.preTime'",
         stim_time="parameters->>'$.stimTime'",
@@ -803,47 +866,62 @@ def get_epochblock_timing(exp_name: str, block_id: int):
     if len(df_transitions) != 1:
         display(df_transitions)
         raise ValueError(f'Expected a unique set of timing parameters for {exp_name} {block_id}, but found {len(df_transitions)}')
-    pre_time_ms = float(df_transitions.loc[0, 'pre_time'])
-    stim_time_ms = float(df_transitions.loc[0, 'stim_time'])
-    tail_time_ms = float(df_transitions.loc[0, 'tail_time'])
-    stage_frame_rate = df_transitions.loc[0, 'stage_frame_rate']
-    if stage_frame_rate is None:
-        print(f'Warning: for {exp_name} block {block_id}, error in finding stage frame rate.')
-    else:
-        stage_frame_rate = float(stage_frame_rate)
 
+    # Check if preTime, stimTime and tailTime exist, which they sometimes don't for LED stimuli.
+    if df_transitions.at[0, 'pre_time'] is None:
+        print(f'Warning: preTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'pre_time'] = 0
+
+    if df_transitions.at[0, 'stim_time'] is None:
+        print(f'Warning: stimTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'stim_time'] = 0
+    
+    if df_transitions.at[0, 'tail_time'] is None:
+        print(f'Warning: tailTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.')
+        df_transitions.loc[0, 'tail_time'] = 0
+
+    pre_time_ms = float(df_transitions.at[0, 'pre_time'])
+    stim_time_ms = float(df_transitions.at[0, 'stim_time'])
+    tail_time_ms = float(df_transitions.at[0, 'tail_time'])
+    
     d_timing['pre_time_ms'] = pre_time_ms
     d_timing['stim_time_ms'] = stim_time_ms
     d_timing['tail_time_ms'] = tail_time_ms
-    d_timing['stage_frame_rate'] = stage_frame_rate
+    
+    if not b_LED:
+        stage_frame_rate = df_transitions.loc[0, 'stage_frame_rate']
+        if stage_frame_rate is None:
+            print(f'Warning: for {exp_name} block {block_id}, error in finding stage frame rate.')
+            print(f'If this is for an LED stimulus, be sure to set b_LED=True!\n')
+        else:
+            stage_frame_rate = float(stage_frame_rate)
+
+        d_timing['stage_frame_rate'] = stage_frame_rate
     
 
-    try:
-        # Set transition times from measured frame times
-        pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
-        stim_frames = np.floor(stim_time_ms * 1e-3 * stage_frame_rate).astype(int)
+    if not b_LED:
+        try:
+            # Set transition times from measured frame times
+            pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
+            stim_frames = np.floor(stim_time_ms * 1e-3 * stage_frame_rate).astype(int)
 
-        # This assumes protocol is visible >=preTime and <preTime+stimTime.
-        # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
-        frame_times_ms = d_timing['frameTimesMs']
-        n_epochs = len(frame_times_ms)
-        actual_onset_times_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]
-        actual_offset_times_ms = [frame_times_ms[i][pre_frames+stim_frames] for i in range(n_epochs)]
-    # Exceptions can occur when frame_times_ms are messed up and don't have correct number of frames.
-    except Exception as e:
-        print(f'Error occurred while getting actual onset/offset times: {e}')
-        print('It could be that frame_times_ms do not have the correct number of frames due to some error in frame detection.')
-        print('Check the frame monitor sample rate! On MEA Rigs, prefer 1k, errors likely with 10k.')
-        actual_onset_times_ms = []
-        actual_offset_times_ms = []
-    # print(f'For {exp_name} block {block_id}:')
-    # print(f'Set pre_time_ms={pre_time_ms}, stim_time_ms={stim_time_ms}, tail_time_ms={tail_time_ms}')
-    # print(f'Delivered pre_frames={pre_frames}, stim_frames={stim_frames}')
-    # print(f'Actual onset times (ms): {actual_onset_times_ms}')
-    # print(f'Actual offset times (ms): {actual_offset_times_ms}')
+            # This assumes protocol is visible >=preTime and <preTime+stimTime.
+            # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
+            frame_times_ms = d_timing['frameTimesMs']
+            n_epochs = len(frame_times_ms)
+            actual_onset_times_ms = [frame_times_ms[i][pre_frames] for i in range(n_epochs)]
+            actual_offset_times_ms = [frame_times_ms[i][pre_frames+stim_frames] for i in range(n_epochs)]
+        
+        # Exceptions can occur when frame_times_ms are messed up and don't have correct number of frames.
+        except Exception as e:
+            print(f'Error occurred while getting actual onset/offset times: {e}')
+            print('It could be that frame_times_ms do not have the correct number of frames due to some error in frame detection.')
+            print('Check the frame monitor sample rate! On MEA Rigs, prefer 1k, errors likely with 10k.')
+            actual_onset_times_ms = []
+            actual_offset_times_ms = []
 
-    d_timing['actual_onset_times_ms'] = actual_onset_times_ms
-    d_timing['actual_offset_times_ms'] = actual_offset_times_ms
+        d_timing['actual_onset_times_ms'] = actual_onset_times_ms
+        d_timing['actual_offset_times_ms'] = actual_offset_times_ms
 
     return d_timing
 
@@ -899,6 +977,10 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str
         print(f'Loaded {frame_data.shape} frame_data.\n')
 
     sample_rates = df_frame['sample_rate'].unique().astype(float)
+    if len(sample_rates) == 0 and len(frame_data)==0:
+        print(f"WARNING: Didn't find any frame monitor data and sample rate.")
+        print(f"If this is for LED stimulus, be sure to set b_LED=True to skip loading this.\n")
+        return np.array([]), None
     if len(sample_rates) != 1:
         raise ValueError(f'Expected single sample rate for Frame Monitor data, but found {len(sample_rates)}: {sample_rates}')
     sample_rate = sample_rates[0]

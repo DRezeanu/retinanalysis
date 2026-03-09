@@ -73,10 +73,15 @@ class ResponseBlock:
     Generic class for single cell or MEA response blocks. 
     """
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None, b_load_fd: bool=True,
+                 h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None, 
+                 b_load_fd: bool=True, b_LED: Optional[bool]=False,
                  verbose: bool = True):
 
         self.verbose = verbose
+        self.b_LED = b_LED
+        if self.b_LED:
+            # No frame data for LED blocks
+            b_load_fd = False
 
         if pkl_file is None:
             if self.verbose:
@@ -103,7 +108,7 @@ class ResponseBlock:
         self.exp_name = exp_name
         self.block_id = block_id    
         self.h5_file = h5_file
-        self.d_timing = get_epochblock_timing(self.exp_name, self.block_id)
+        self.d_timing = get_epochblock_timing(self.exp_name, self.block_id, b_LED=self.b_LED)
 
         if b_load_fd:
             frame_data, frame_sample_rate = get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file, verbose = self.verbose)    
@@ -121,6 +126,7 @@ class ResponseBlock:
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  b_LED: {self.b_LED} (whether response to LED stimulus)\n"
         str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}"
         str_self += f"  d_timing with keys: {list(self.d_timing.keys())}\n"
         str_self += f"  frame_sample_rate: {self.frame_sample_rate} Hz\n"
@@ -147,12 +153,13 @@ class ResponseBlock:
 
 class SCResponseBlock(ResponseBlock):
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 h5_file: Optional[str]=None, pkl_file: Optional[str]=None,
-                 b_spiking: bool=False, b_load_fd: bool=True, verbose: bool = True, **detector_kwargs):
+                 h5_file: Optional[str]=None, b_LED: Optional[bool]=False,
+                 pkl_file: Optional[str]=None, b_spiking: bool=False, 
+                 b_load_fd: bool=True, verbose: bool = True, **detector_kwargs):
 
-        self.verbose = verbose
-
-        super().__init__(exp_name=exp_name, block_id=block_id, h5_file=h5_file, pkl_file=pkl_file, b_load_fd=b_load_fd, verbose = self.verbose)
+        super().__init__(
+            exp_name=exp_name, block_id=block_id, h5_file=h5_file, b_LED=b_LED,
+            pkl_file=pkl_file, b_load_fd=b_load_fd, verbose = verbose)
 
         if pkl_file is not None:
             return
@@ -185,12 +192,10 @@ class SCResponseBlock(ResponseBlock):
 class MEAResponseBlock(ResponseBlock):
 
     def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
-                 ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None,
-                 h5_file: Optional[str]=None, include_ei: bool=True, b_load_fd: bool=False,
+                 ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None, 
+                 h5_file: Optional[str]=None, include_ei: bool=True, 
+                 b_load_fd: bool=False, b_LED: Optional[bool]=False,
                  verbose: bool = True):
-
-        self.verbose = verbose
-
         # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
@@ -204,7 +209,10 @@ class MEAResponseBlock(ResponseBlock):
                 self.ss_version = ss_version
                 self.datafile_name = datafile_name
 
-        super().__init__(exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, h5_file=h5_file, b_load_fd=b_load_fd, verbose = self.verbose)
+        super().__init__(
+            exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, 
+            h5_file=h5_file, b_LED=b_LED, b_load_fd=b_load_fd, verbose = verbose)
+
         self.amp_sample_rate = SAMPLE_RATE # MEA DAQ sample rate in Hz, analogous variable in SCResponseBlock
 
         self.vcd = get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei, verbose = self.verbose)
@@ -277,6 +285,9 @@ class MEAResponseBlock(ResponseBlock):
         return n_max_bins
     
     def bin_spike_times_by_frames(self): # , stride: int=1
+        if self.b_LED:
+            raise ValueError("Cannot bin spike times by frames for LED blocks, no frame data.")
+
         stride = 1
         # TODO implement stride > 1 with interpolating bw frame times.
         frame_times_ms = self.d_timing['frameTimesMs']
@@ -435,6 +446,7 @@ class MEAResponseBlock(ResponseBlock):
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
         str_self += f"  protocol_name: {self.protocol_name}\n"
+        str_self += f"  b_LED: {self.b_LED} (whether response to LED stimulus)\n"
         str_self += f"  ss_version: {self.ss_version}\n"
         str_self += f"  n_epochs: {self.n_epochs}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
@@ -459,6 +471,7 @@ class MEAResponseGroup:
     def __init__(self, ls_blocks: List[MEAResponseBlock], b_load_fd: bool = False, verbose: bool = False):
 
         self.verbose = verbose
+        self.b_LED = ls_blocks[0].b_LED
 
         if not all(block.exp_name == ls_blocks[0].exp_name for block in ls_blocks):
             raise ValueError("All ResponseBlocks must have the same exp_name")
@@ -498,17 +511,21 @@ class MEAResponseGroup:
         # Recreate d_timing dictionary by concatenating values that need to be joined
         d_timing = {'exp_name' : ls_blocks[0].d_block_summary['exp_name'],
                     'block_ids' : [block.block_id for block in ls_blocks],
-                    'frameTimesMs': [times for block in ls_blocks for times in block.d_timing['frameTimesMs']],
                     'epochStarts' : [starts for block in ls_blocks for starts in block.d_timing['epochStarts']],
                     'epochEnds' : [ends for block in ls_blocks for ends in block.d_timing['epochEnds']],
                     'n_samples' : [block.d_timing['n_samples'] for block in ls_blocks],
                     'n_epochs' : [block.d_timing['n_epochs'] for block in ls_blocks],
                     'pre_time_ms' : [block.d_timing['pre_time_ms'] for block in ls_blocks],
                     'stim_time_ms' : [block.d_timing['stim_time_ms'] for block in ls_blocks],
-                    'tail_time_ms' : [block.d_timing['tail_time_ms'] for block in ls_blocks],
-                    'stage_frame_rate' : ls_blocks[0].d_timing['stage_frame_rate'],
-                    'actual_onset_times_ms' : [onsets for block in ls_blocks for onsets in block.d_timing['actual_onset_times_ms']],
-                    'actual_offset_times_ms' : [offsets for block in ls_blocks for offsets in block.d_timing['actual_offset_times_ms']]}
+                    'tail_time_ms' : [block.d_timing['tail_time_ms'] for block in ls_blocks]
+        }
+        if not self.b_LED:
+            d_timing.update({
+                'frameTimesMs': [times for block in ls_blocks for times in block.d_timing['frameTimesMs']],
+                'stage_frame_rate' : ls_blocks[0].d_timing['stage_frame_rate'],
+                'actual_onset_times_ms' : [onsets for block in ls_blocks for onsets in block.d_timing['actual_onset_times_ms']],
+                'actual_offset_times_ms' : [offsets for block in ls_blocks for offsets in block.d_timing['actual_offset_times_ms']]
+                })
 
 
         self.ls_blocks = ls_blocks
@@ -666,6 +683,7 @@ class MEAResponseGroup:
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  datafile_names: {self.datafile_names}\n"
         str_self += f"  protocol_name: {self.protocol_name}\n"
+        str_self += f"  b_LED: {self.b_LED} (whether response to LED stimulus)\n"
         str_self += f"  ss_version: {self.ss_version}\n"
         str_self += f"  n_epochs: {self.n_epochs}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
@@ -679,8 +697,17 @@ class MEAResponseGroup:
 
 
 
-def create_mea_response_group(exp_name: str, ls_datafile_names: List[str], b_load_fd: bool = False, verbose: bool = False):
+def create_mea_response_group(
+        exp_name: str, ls_datafile_names: List[str], 
+        ss_version: str=None, b_load_fd: bool = False, 
+        b_LED: bool=False, verbose: bool = False
+    ):
 
-    response_blocks = [MEAResponseBlock(exp_name, datafile_name, b_load_fd = b_load_fd, verbose = verbose) for datafile_name in ls_datafile_names]
+    response_blocks = [
+        MEAResponseBlock(
+            exp_name, datafile_name, ss_version = ss_version, b_LED = b_LED, 
+            b_load_fd = b_load_fd, verbose = verbose
+            ) for datafile_name in ls_datafile_names
+            ]
 
     return MEAResponseGroup(ls_blocks = response_blocks, b_load_fd = b_load_fd, verbose = verbose)
