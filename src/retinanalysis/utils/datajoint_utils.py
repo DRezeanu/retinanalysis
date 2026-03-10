@@ -488,7 +488,7 @@ def get_stage_frame_rate_by_exp(exp_name: str):
     return stage_frame_rates[0]
 
 
-def get_display_params_by_exp(exp_name: str, verbose: bool = False):
+def get_display_params_by_exp(exp_name: str, verbose: bool = True):
     # Rig H
     if 'H' in exp_name:
         raise NotImplementedError('LCR display params not defined for Rig H yet.')
