@@ -327,6 +327,10 @@ class AnalysisChunk:
         # By default load red and blue channel spatial maps. 
         mat_file = os.path.join(DATA_DIR, self.exp_name, self.chunk_name, self.ss_version, f'{self.ss_version}_params.mat')
         if not os.path.exists(mat_file):
+            # look in analysis dir instead
+            mat_file = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version,f'{self.ss_version}_params.mat')
+        
+        if not os.path.exists(mat_file):
             print(f'_params.mat file not found: {mat_file}')
             return
         

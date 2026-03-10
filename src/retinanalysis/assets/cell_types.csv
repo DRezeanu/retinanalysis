@@ -1,9 +1,13 @@
 cell_types
 OnP
 OffP
+LOnM
+MOnM
 OnM
-OffM
 BlueOffM
+LOffM
+MOffM
+OffM
 OnS
 OffS
 SBC
