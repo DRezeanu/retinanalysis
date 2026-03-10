@@ -72,7 +72,7 @@ class StimBlock:
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
-        self.d_display = get_display_params_by_exp(self.exp_name)
+        self.d_display = get_display_params_by_exp(self.exp_name, verbose = self.verbose)
 
     def regenerate_stimulus(self, ls_epochs: Optional[int | list]=None, **kwargs):
         """
@@ -250,7 +250,6 @@ class MEAStimBlock(StimBlock):
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
-        str_self += f"  d_display with keys: {self.d_display.keys()}\n"
         return str_self
 
 class MEAStimGroup:

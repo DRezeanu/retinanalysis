@@ -488,13 +488,14 @@ def get_stage_frame_rate_by_exp(exp_name: str):
     return stage_frame_rates[0]
 
 
-def get_display_params_by_exp(exp_name: str):
+def get_display_params_by_exp(exp_name: str, verbose: bool = False):
     # Rig H
     if 'H' in exp_name:
         raise NotImplementedError('LCR display params not defined for Rig H yet.')
     # Rig C
     elif 'C' in exp_name:
-        print(f'For Rig C {exp_name}:')
+        if verbose:
+            print(f'For Rig C {exp_name}:')
         if int(exp_name[:8]) < 20230926:
             disp_type = 'OLED'
             mu_per_pixel = 3.8
@@ -512,7 +513,8 @@ def get_display_params_by_exp(exp_name: str):
             mean_frame_rate = 59.941548817817917
     # Rig E (Fred confocal)
     elif 'E' in exp_name:
-        print(f'For Rig E {exp_name}, assuming ConfocalWithLightCrafterAbove rig config:')
+        if verbose:
+            print(f'For Rig E {exp_name}, assuming ConfocalWithLightCrafterAbove rig config:')
         disp_type = 'LCR'
         mu_per_pixel = 1.3
         n_ht = 1140
@@ -531,7 +533,8 @@ def get_display_params_by_exp(exp_name: str):
         'mean_frame_rate': mean_frame_rate,
         'stage_frame_rate': stage_frame_rate,
     }
-    print(d_display)
+    if verbose:
+        print(d_display)
     return d_display
 
 def get_typing_files_for_datasets(df: pd.DataFrame, ls_cell_types: list = ['OffP', 'OffM', 'OnP', 'OnM'],
