@@ -345,7 +345,9 @@ class MEAPipeline:
         Function for creating an array of post-stimulus time histograms (PSTHs) for a
         list of protocol_ids, a list of cell_types, or both. As with plot_rfs() and 
         plot_timecourses(), you can give a minimum_n value so that cell types with less
-        than the minumum number of cells are not included int he final array. 
+        than the minumum number of cells are not included int he final array. If no 
+        bin_rate or bins are given, bin edges are created using the average frame length
+        calculated from the frame times.
 
         Parameters:
         protocol_ids (List[int] | int): A single integer ID or list of cell IDs to include
@@ -359,9 +361,9 @@ class MEAPipeline:
         minimum_n (int): Optional, default 1. A minimum number of cells required for a cell type
         to be included in the output array.
 
-        bins (np.ndarray | list | int): Optional. Frame times used by default. If an integer
-        is given, the spike times will be binned in that many evenly spaced bins. If a list
-        is given, the values in the list are used as bin edges.
+        bins (np.ndarray | list | int): Optional. If an integer is given, the spike times will
+        be binned in that many evenly spaced bins. If a list is given, the values in the list 
+        are used as bin edges.
         
         bin_rate (float): Optional. Default None. If a bin rate (in Hz) is given, the bins input
         will be ignored and bin_edges will be created from the bin_rate value.
@@ -387,13 +389,19 @@ class MEAPipeline:
             bin_edges = np.arange(epoch_start, epoch_end+ms_per_bin, ms_per_bin)
             n_bins = len(bin_edges)-1
 
-        # Bins by frame times by default if no bin_rate and no bins are given
+        # Bin using avg frame time by default if no bin_rate and no bins are given
         elif bins is None:
             # Workaround for getting frame times as a (n_epochs,) array of lists
             fts = self.resp.d_timing['frameTimesMs']
-            bin_edges = np.empty(len(fts), dtype = object)
-            bin_edges[:] = [list(r) for r in fts]
-            n_bins = len(bin_edges[0])-1
+            ms_per_bin = np.mean([np.mean(np.diff(frame_times)) for frame_times in fts])
+            epoch_starts_ms = np.array([frame_times[0] for frame_times in self.resp.d_timing['frameTimesMs']])
+            epoch_ends_ms = np.array([frame_times[-1] for frame_times in self.resp.d_timing['frameTimesMs']])
+
+            epoch_start = 0
+            epoch_end = np.mean(epoch_ends_ms-epoch_starts_ms)
+
+            bin_edges = np.arange(epoch_start, epoch_end+ms_per_bin, ms_per_bin)
+            n_bins = len(bin_edges)-1
 
         # If given a bins value, determine if it's an integer or a list and set bin edge accordingly
         else:
@@ -427,19 +435,12 @@ class MEAPipeline:
             output, _ = np.histogram(arr, bin_edges)
             return output
 
-        if bins is None and bin_rate is None:
-            psth_xarr = xr.apply_ufunc(apply_hist, spike_times, bin_edges,
-                                       output_core_dims = [['bin']],
-                                       vectorize = True, dask = 'allowed')
-            psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
-            psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[0][:-1])})
-        else:
-            psth_xarr = xr.apply_ufunc(apply_hist, spike_times,
-                                   kwargs = {'bin_edges' : bin_edges}, 
-                                   input_core_dims = [[]], output_core_dims = [['bin']],
-                                   vectorize = True)
-            psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
-            psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[:-1])})
+        psth_xarr = xr.apply_ufunc(apply_hist, spike_times,
+                               kwargs = {'bin_edges' : bin_edges}, 
+                               input_core_dims = [[]], output_core_dims = [['bin']],
+                               vectorize = True)
+        psth_xarr = psth_xarr.assign_coords({'bin' : np.arange(0, n_bins)})
+        psth_xarr = psth_xarr.assign_coords({'bin_edges' : ('bin', bin_edges[:-1])})
 
 
         return psth_xarr
