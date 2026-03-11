@@ -7,3 +7,4 @@ src/retinanalysis/assets/resources/
 .DS_Store
 src/.DS_Store
 src/retinanalysis/.DS_Store
+.vscode/
