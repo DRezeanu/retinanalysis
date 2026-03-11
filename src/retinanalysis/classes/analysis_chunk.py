@@ -4,16 +4,22 @@ import os
 from retinanalysis.config.settings import (ANALYSIS_DIR,
                                            DATA_DIR)
 import pandas as pd
-# import retinanalysis.utils.vision_utils as vu
 from retinanalysis.utils.vision_utils import (get_analysis_vcd,
                                               get_ells,
                                               get_timecourses)
 from hdf5storage import loadmat
 import pickle
 import numpy as np
-from typing import (List,
-                    Dict)
+from typing import (cast,
+                    List,
+                    Dict,
+                    Optional,
+                    Any)
+
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+import visionloader as vl
+from scipy.ndimage import zoom
 
 try:
     import importlib.resources as ir
@@ -24,11 +30,39 @@ from retinanalysis.utils.datajoint_utils import get_noise_name_by_exp
 
 class AnalysisChunk:
     """
-    Class for storing data from an MEA sorting chunk created from spatial noise.
+    Class that contains data from an MEA sorting chunk created primarily from spatial noise.
+
+    This is unique to spatial noise chunks because these chunks contain '.sta'. and '.params'
+    files while regular sorting chunks and data files do not.
+
+    Init Parameters:
+    exp_name (str): The name of the experiment as seen in the 'exp_name' entry of the datajoint database
+
+    chunk_name (str): The name of the sorting chunk (e.g. 'chunk2'). This chunk must be findable in the
+    analysis directory defined by the config.ini file in the retinanalysis_root/config folder.
+
+    ss_version (str): spike sorting version, default is 'kilosort2.5'. This is mostly used to find the
+    right folder. Relevant files should be located at: 'analysis_directory/chunk_name/ss_version/'
+
+    b_load_spatial_maps (bool): Whether or not to load the spatial maps for the cells in this chunk,
+    default value is True.
+
+    pkl_file (dict | str): Optional. If you have exported an analysis chunk to a pickle file using
+    the export_to_pkl() method, you can give only this input to reload the object from the pickle file.
+
+    Init Returns:
+    AnalysisChunk object for experiment name, chunk, and ss_version given in the initializer.
+
+    Properties:
+    Use the print command on a AnalysisChunk instance to get a list of all properties contained in
+    the object
     """
-    def __init__(self, exp_name: str=None, chunk_name: str=None, 
-                 ss_version: str = 'kilosort2.5', pkl_file: str=None, 
-                 b_load_spatial_maps: bool=True, **vu_kwargs):
+    def __init__(self, exp_name: Optional[str]=None, chunk_name: Optional[str]=None, 
+                 ss_version: str = 'kilosort2.5', pkl_file: Optional[dict | str]=None, 
+                 b_load_spatial_maps: bool=True, verbose: bool = True, **vu_kwargs):
+
+        self.verbose = verbose
+
         if pkl_file is None:
             if exp_name is None or chunk_name is None:
                 raise ValueError("Either exp_name and chunk_name or pkl_file must be provided.")
@@ -41,8 +75,9 @@ class AnalysisChunk:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
-            print(f"AnalysisChunk loaded from {pkl_file}")
+            self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
+            if self.verbose:
+                print(f"AnalysisChunk loaded from {pkl_file}")
             return
         
         self.exp_name = exp_name
@@ -63,14 +98,61 @@ class AnalysisChunk:
         protocol_id = schema.Protocol() & {'name' : self.noise_protocol}
         self.protocol_id = protocol_id.fetch('protocol_id')[0]
 
-        self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, **vu_kwargs)
+        self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
+        self.cell_ids = np.array(self.vcd.get_cell_ids())
+
+        # Pull EIs into an EI dictionary (if include_ei param is true)
+        if 'include_ei' in vu_kwargs:
+            if vu_kwargs['include_ei'] == False:
+                pass
+            else:
+                self.d_EIs = dict()
+                bad_ids = []
+                for id in self.cell_ids:
+                    try:
+                        self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
+                    except:
+                        print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
+                        bad_ids.append(id)
+
+                mask = ~np.isin(self.cell_ids, bad_ids)
+                self.cell_ids = self.cell_ids[mask]
+        else:
+            self.d_EIs = dict()
+            bad_ids = []
+            for id in self.cell_ids:
+                try:
+                    self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
+                except:
+                    print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
+                    bad_ids.append(id)
+
+            mask = ~np.isin(self.cell_ids, bad_ids)
+            self.cell_ids = self.cell_ids[mask]
+
+        # Pull timecourses into an timecourse dictionary 
+        self.d_timecourses = dict()
+        for id in self.cell_ids:
+            timecourse_r = self.vcd.main_datatable[id]['RedTimeCourse']
+            timecourse_g = self.vcd.main_datatable[id]['GreenTimeCourse']
+            timecourse_b = self.vcd.main_datatable[id]['BlueTimeCourse']
+            self.d_timecourses[id] = {'red' : timecourse_r,
+                                      'green' : timecourse_g,
+                                      'blue' : timecourse_b}
+
+        # Pull ISIs into an ISI  dictionary 
+        self.d_ISIs = dict()
+        for id in self.cell_ids:
+            isi = self.vcd.get_acf_numpairs_for_cell(id)
+            np.nan_to_num(isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
+            self.d_ISIs[id] = isi
+
         self.get_noise_params()
-        self.cell_ids = self.vcd.get_cell_ids()
         self.get_rf_params()
         self.get_df()
+
         if b_load_spatial_maps:
             self.get_spatial_maps()
-        self.cell_ids = np.array(self.cell_ids, dtype=int)
 
     def get_noise_params(self):
         """
@@ -85,17 +167,25 @@ class AnalysisChunk:
         epoch_block_ids = [epoch_blocks.fetch('id')[idx] for idx in range(len(epoch_blocks))]
         epochs = [schema.Epoch() & {'experiment_id' : self.exp_id, 'parent_id' : block_id} for block_id in epoch_block_ids]
 
-        self.numXChecks = [epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs]
-        self.numYChecks = [epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs]
+        numXChecks = np.array([epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs])
+        numYChecks = np.array([epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs])
+        
+        if (not all(element == numXChecks[0] for element in numXChecks) and
+            not all(element == numYChecks[0] for element in numYChecks)):
+            print('WARNING: Not all epoch blocks used the same number of X and Y checks\n')
 
-        assert all(element == self.numXChecks[0] for element in self.numXChecks), "Not all epoch blocks used same number of X checks"
-        assert all(element == self.numYChecks[0] for element in self.numYChecks), "Not all epoch blocks used same number of Y checks"
+            vision_micronsPerStixel = self.vcd.runtimemovie_params.micronsPerStixelX
+            gridSizes = np.array([epoch.fetch('parameters')[0]['gridSize'] for epoch in epochs])
+            
+            self.numXChecks = int(numXChecks[gridSizes == vision_micronsPerStixel])
+            self.numYChecks = int(numYChecks[gridSizes == vision_micronsPerStixel])
 
-        self.numXChecks = self.numXChecks[0]
-        self.numYChecks = self.numYChecks[0]
+        else:
+            self.numXChecks = int(numXChecks[0])
+            self.numYChecks = int(numYChecks[0])
 
-        self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
-        self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
+        self.deltaXChecks = (self.numXChecks - self.staXChecks)/2
+        self.deltaYChecks = (self.numYChecks - self.staYChecks)/2
         
         self.microns_per_pixel = epochs[0].fetch('parameters')[0]['micronsPerPixel']
         self.canvas_size = epochs[0].fetch('parameters')[0]['canvasSize']
@@ -104,18 +194,13 @@ class AnalysisChunk:
         noise_data_dirs = epoch_blocks.fetch('data_dir')
         self.data_files = [os.path.basename(path) for path in noise_data_dirs]
 
-        typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id, 'algorithm': self.ss_version}
-        typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
+        # Pull typing files directly from available Analysis Directory... avoids issues with datajoint
+        # not updating typing files on existing experiments
+        typing_file_dir = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version)
+        self.typing_files = [file for file in os.listdir(typing_file_dir) if 'txt' in os.path.splitext(file)[1]]
 
-        # Keep only typing_files with paths that exist
-        existing_typing_files = []
-        for tf in typing_files:
-            fp = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, tf)
-            if not os.path.exists(fp):
-                print(f"Warning: Typing file not found, skipping: {fp}")
-                continue
-            existing_typing_files.append(tf)
-        self.typing_files = existing_typing_files
+        # typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id, 'algorithm': self.ss_version}
+        # self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
 
         self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
         self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
@@ -143,7 +228,7 @@ class AnalysisChunk:
                 broken_ids.append(id)
             
         for id in broken_ids:
-            self.cell_ids.remove(id)
+            self.cell_ids = self.cell_ids[self.cell_ids != id]
 
     def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
         """
@@ -201,7 +286,7 @@ class AnalysisChunk:
                    'center_y': center_y, 'std_x' : std_x,
                    'std_y' : std_y, 'rot' : rot} 
 
-        cell_types_list_path = ir.files(retinanalysis) / "assets/cell_types.csv"
+        cell_types_list_path = str(ir.files(retinanalysis) / "assets/cell_types.csv")
         cell_types_list = pd.read_csv(cell_types_list_path)
         cell_types = cell_types_list['cell_types'].values
 
@@ -260,14 +345,15 @@ class AnalysisChunk:
             d_spatial_maps[n_ID] = padded
             
         self.d_spatial_maps = d_spatial_maps
-        print(f'Loaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
-        print(f'Spatial maps have been padded to align with RF parameters.\n')
+        if self.verbose:
+            print(f'\nLoaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
+            print(f'Spatial maps have been padded to align with RF parameters.\n')
         # TODO could also load convex hull fits too under 'hull_vertices'
 
-    def plot_rfs(self, noise_ids: List[int] = None, cell_types: List[str] = None,
-                 typing_file: str = None, units: str = 'pixels', std_scaling: float = 1.6,
+    def plot_rfs(self, noise_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None,
+                 typing_file: Optional[str] = None, units: str = 'pixels', std_scaling: float = 1.6,
                  b_zoom: bool = False, n_pad: int = 6, minimum_n: int = 1,
-                 roi: Dict[str, float] = None, label_cells: bool = False, axs=None):
+                 roi: Optional[Dict[str, float]] = None, label_cells: bool = False) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         """
         Method for plotting the receptive fields for a given list of cell ids, cell types, 
         or a union of both. If no cell_ids or cell types are given, all cells in the
@@ -306,20 +392,25 @@ class AnalysisChunk:
             noise_ids = [int(noise_ids)]
 
         if typing_file is None:
-            typing_file = self.typing_files[0]
-        
-        typing_file_idx = self.typing_files.index(typing_file)
+            try:
+                typing_file = self.typing_files[0]
+            except:
+                print(f'No typing files for {self.exp_name} {self.chunk_name}')
+                return
 
         if typing_file not in self.typing_files:
-            raise FileNotFoundError("Given Typing File Doesn't Exist in Analysis Chunk")
+            print(f"{typing_file} Doesn't Exist in {self.exp_name} {self.chunk_name}")
+            return
+
+        typing_file_idx = self.typing_files.index(typing_file)
         
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
-            noise_ids = filtered_df['cell_id'].values
+            noise_ids = list(filtered_df['cell_id'].values)
             cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif noise_ids is None:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
-            noise_ids = filtered_df['cell_id'].values
+            noise_ids = list(filtered_df['cell_id'].values)
             cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif cell_types is None:
             filtered_df = self.df_cell_params.query(f'cell_id  in @noise_ids')
@@ -331,6 +422,7 @@ class AnalysisChunk:
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
             filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
 
         if len(filtered_df) == 0:
             print("No data found for the given noise_ids and cell_types.")
@@ -343,9 +435,10 @@ class AnalysisChunk:
         for ct in too_few_cells:
             cell_types.remove(ct) 
 
-                
+        cell_types = sorted(cell_types)
 
-        d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
+                
+        d_noise_ids_by_type = {ct : list(filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values) for ct in cell_types}
         d_ells_by_type, scale_factor = get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)
 
 
@@ -353,13 +446,12 @@ class AnalysisChunk:
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
         size = (4*cols, int(3*rows))
 
-        if axs is None:
-            fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
-            fig.suptitle("RFs by Cell Type", fontsize = 15)
-            if cols != 1:
-                axs = axs.flatten()
-            else:
-                axs = np.array([axs])
+        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
+
+        if cols != 1:
+            axs = np.array(axs).flatten()
+        else:
+            axs = np.array([axs])
 
         for idx, ct in enumerate(cell_types):
             ax = axs[idx]
@@ -379,11 +471,11 @@ class AnalysisChunk:
             ax.set_title(f"{ct}, (n = {n_cells})")
 
         # Remove extra empty axes 
-        num_axes = (rows-1)*4 + cols
+        num_axes = rows * cols
         empty_axes = num_axes - len(cell_types)
 
         for i in range(empty_axes):
-            fig.delaxes(axs[num_axes - 1 - i])
+            fig.delaxes(cast(Axes, axs[num_axes - 1 - i]))
 
         if b_zoom:
             x_min, x_max = filtered_df['center_x'].min(), filtered_df['center_x'].max()
@@ -393,14 +485,14 @@ class AnalysisChunk:
                 ax.set_xlim((x_min - n_pad)*scale_factor, (x_max + n_pad)*scale_factor)
                 ax.set_ylim((y_min - n_pad)*scale_factor, (y_max + n_pad)*scale_factor)
         
-        
-        plt.tight_layout()
+        fig.suptitle("RFs by Cell Type", fontsize = 15)
+        fig.tight_layout()
 
         return axs
         
-    def plot_timecourses(self, noise_ids: List[int]=None, cell_types: List[int]=None,
-                         typing_file: str = None, units: str = 'ms', std_scaling: float = 2,
-                         roi: Dict[str, float] = None, roi_units: str = 'pixels') -> np.ndarray:
+    def plot_timecourses(self, noise_ids: Optional[List[int]]=None, cell_types: Optional[List[str]]=None,
+                         typing_file: Optional[str] = None, units: str = 'ms', std_scaling: float = 2, minimum_n: int = 1,
+                         roi: Optional[Dict[str, float]] = None, roi_units: str = 'pixels') -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         """
         Method for plotting the timecourses for a given list of cell ids, cell types, 
         or a union of both. If no cell_ids or cell types are given, the timecourses for
@@ -447,83 +539,95 @@ class AnalysisChunk:
 
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
-            noise_ids = filtered_df['cell_id'].values
-            cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
+            noise_ids = list(filtered_df['cell_id'].values)
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif noise_ids is None:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
-            noise_ids = filtered_df['cell_id'].values
+            noise_ids = list(filtered_df['cell_id'].values)
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         elif cell_types is None:
             filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids')
-            cell_types = filtered_df[f'typing_file_{typing_file_idx}'].unique()
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
-        
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = roi_units)
             filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
+            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+
+        # Check that we actually have cells to plot
+        if len(filtered_df) == 0:
+            print("No data found for the given noise_ids and cell_types.")
+            return
+
+        # Remove cells velow minimum threshold
+        too_few_cells = [ct for ct in cell_types if len(filtered_df.query(f"typing_file_{typing_file_idx} == @ct")['cell_id'].values) < minimum_n]
+        
+        for ct in too_few_cells:
+            cell_types.remove(ct) 
+
 
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
         d_timecourses_by_type = get_timecourses(self, d_noise_ids_by_type)
 
-        rows = int(np.ceil(len(cell_types)/4))
+
+        rows = np.ceil(len(cell_types)/4).astype(int)
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
         size = (4*cols, int(3*rows))
 
-        fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = size)
+        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
 
         if cols != 1:
-            ax = ax.flatten()
+            axs = np.array(axs).flatten()
+        else:
+            axs = np.array([axs])
 
         for idx, ct in enumerate(cell_types):
+            ax = axs[idx]
 
-            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['rg_mean']))*scale_factor
-            if cols != 1:
-                rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
-                rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
-                ax[idx].plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
-                ax[idx].fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
+            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['g_mean']))*scale_factor
 
-                b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
-                b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
-                ax[idx].plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
-                ax[idx].fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
+            if np.array_equal(d_timecourses_by_type[ct]['r_mean'], d_timecourses_by_type[ct]['g_mean']):
+                g_err_top = d_timecourses_by_type[ct]['g_mean'] + d_timecourses_by_type[ct]['g_std']*std_scaling
+                g_err_bottom = d_timecourses_by_type[ct]['g_mean'] - d_timecourses_by_type[ct]['g_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['g_mean'], '-g')
+                ax.fill_between(time_vals, g_err_bottom, g_err_top, alpha = 0.4, color = 'g')
+            else:
+                r_err_top = d_timecourses_by_type[ct]['r_mean'] + d_timecourses_by_type[ct]['r_std']*std_scaling
+                r_err_bottom = d_timecourses_by_type[ct]['r_mean'] - d_timecourses_by_type[ct]['r_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['r_mean'], '-r')
+                ax.fill_between(time_vals, r_err_bottom, r_err_top, alpha = 0.4, color = 'r')
 
-                ax[idx].set_xlim([time_vals[0], time_vals[-1]])
+                g_err_top = d_timecourses_by_type[ct]['g_mean'] + d_timecourses_by_type[ct]['g_std']*std_scaling
+                g_err_bottom = d_timecourses_by_type[ct]['g_mean'] - d_timecourses_by_type[ct]['g_std']*std_scaling
+                ax.plot(time_vals, d_timecourses_by_type[ct]['g_mean'], '-g')
+                ax.fill_between(time_vals, g_err_bottom, g_err_top, alpha = 0.4, color = 'g')
 
-                ax[idx].set_ylabel(f"STA (arb. units)")
-                ax[idx].set_xlabel(f"Time ({units})")
-                
-                ax[idx].set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
 
-            else: 
-                rg_err_top = d_timecourses_by_type[ct]['rg_mean'] + d_timecourses_by_type[ct]['rg_std']*std_scaling
-                rg_err_bottom = d_timecourses_by_type[ct]['rg_mean'] - d_timecourses_by_type[ct]['rg_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['rg_mean'], '-g')
-                ax.fill_between(time_vals, rg_err_bottom, rg_err_top, alpha = 0.4, color = 'g')
+            b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
+            b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
+            ax.plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
+            ax.fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
 
-                b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
-                b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
-                ax.fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
+            ax.set_xlim([time_vals[0], time_vals[-1]])
 
-                ax.set_xlim([time_vals[0], time_vals[-1]])
+            ax.set_ylabel(f"STA (arb. units)")
+            ax.set_xlabel(f"Time ({units})")
+            
+            ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['r_timecourses'].shape[0]})")
 
-                ax.set_ylabel(f"STA (arb. units)")
-                ax.set_xlabel(f"Time ({units})")
-                
-                ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['rg_timecourses'].shape[0]})")
-        
         # Remove extra empty axes 
-        num_axes = (rows-1)*4 + cols
+        num_axes = rows*cols
         empty_axes = num_axes - len(cell_types)
 
         for i in range(empty_axes):
-            fig.delaxes(ax[num_axes - 1 - i])
+            fig.delaxes(cast(Axes, axs[num_axes - 1 - i]))
 
         fig.suptitle("Timecourse by Cell Type", fontsize = 15)
         fig.tight_layout()
 
-        return ax
+        return axs
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
@@ -533,6 +637,10 @@ class AnalysisChunk:
         str_self += f"  noise_protocol: {self.noise_protocol}\n"
         str_self += f"  data_files: {self.data_files}\n"
         str_self += f"  typing_files: {self.typing_files}\n"
+        str_self += f"  vcd: {self.vcd}\n"
+        str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  d_ISIs dictionary containing ISIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  d_timecourses dictionary containing dictionary with 'red' 'green' and 'blue' timecourses for {len(self.cell_ids)} cell IDs\n"
         str_self += f"  numXChecks: {self.numXChecks}\n"
         str_self += f"  numYChecks: {self.numYChecks}\n"
         str_self += f"  staXChecks: {self.staXChecks}\n"
@@ -547,6 +655,291 @@ class AnalysisChunk:
         else:
             str_self += "  d_spatial_maps not loaded\n"
         return str_self
+    
+    def get_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
+                  typing_file: Optional[str] = None, padded: bool = True, units: str = 'stixels') -> dict:
+        """
+        Function for loading the STAs of a given list of cell types and/or noise ids. If both are given, will only
+        pull the union of the two.
+        
+        Parameters:
+        noise_ids (int or List[int]): list of cell ids, optional, default is None
+
+        cell_types (str or List[str]): list of cell types, optional, default is None
+        
+        typing_file (str): name of a typing file to use for cell type classification
+
+        padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
+        noise frame. Most STAs are cropped for the sake of memory, but it makes them inaccurate relative to the
+        stimulus. Default is True.
+
+        units (str): Either 'stixels', 'pixels', or 'microns'. This will scale the STAs to the appropriate units
+        using nearest neighbor scaling.
+        
+        Returns:
+        all_stas (numpy array or dict of numpy arrays): numpy array that contains all STAs. If a typing file is given and/or 
+        cell type info is available, the output will have cell type information. Otherwise it 
+        will not. 
+        """
+
+        if isinstance(noise_ids, int):
+            noise_ids = [noise_ids]
+
+        if isinstance(cell_types, str):
+            cell_types = [cell_types]
+
+        if 'pixels' in units.lower():
+            unit_scaling = self.pixels_per_stixel
+        elif 'microns' in units.lower():
+            unit_scaling = self.microns_per_stixel
+        elif 'stixels' in units.lower():
+            unit_scaling = 1
+        else:
+            raise Exception("Units must be 'pixels', 'microns' or 'stixels'")
+
+        
+        if noise_ids is None:
+            if cell_types is None:
+                if not self.typing_files:
+                    print('WARNING: No typing files exist for this chunk, will not organize cells by type')
+                    filtered_df = self.df_cell_params
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = None
+                    typing_file_idx = None
+                else:
+                    print('WARNING: Loading all STAs... this will take up a huge amount of memory')
+                    if typing_file is None:
+                        typing_file = self.typing_files[0]
+
+                    typing_file_idx = self.typing_files.index(typing_file)
+
+                    filtered_df = self.df_cell_params
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            else:
+                if not self.typing_files:
+                    raise ValueError('No typing files exist for this chunk, try again without cell type argument')
+                else:
+                    if typing_file is None:
+                        typing_file = self.typing_files[0]
+                    
+                    typing_file_idx = self.typing_files.index(typing_file)
+
+                    filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+        
+        else:
+            if cell_types is None:
+                if not self.typing_files:
+                    print('WARNING: No typing files exist for this chunk, will not organize cells by type')
+
+                    filtered_df = self.df_cell_params.query('cell_id in @noise_ids')
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = None
+                    typing_file_idx = None
+                else:
+                    if typing_file is None:
+                        typing_file = self.typing_files[0]
+
+                    typing_file_idx = self.typing_files.index(typing_file)
+
+                    filtered_df = self.df_cell_params.query('cell_id in @noise_ids')
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            else:
+                if not self.typing_files:
+                    raise ValueError('No typing files exist for this chunk, try again without the cell type')
+                else:
+                    if typing_file is None:
+                        typing_file = self.typing_files[0]
+                    
+                    typing_file_idx = self.typing_files.index(typing_file)
+
+                    filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids and typing_file_{typing_file_idx} in @cell_types')
+                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique()) 
+
+        # Pull STAs and organize by cell id alone, or nested inside a dictionary organized by cell id
+        sta_reader = vl.STAReader(os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version), self.ss_version)
+
+        if available_types is None:
+            id_dict = dict()
+            for cell_id in cell_ids:
+                # Pull Raw STA
+                data = sta_reader.get_sta_for_cell_id(cell_id)
+                sta = np.stack([data.red, data.green, data.blue])
+                sta = np.transpose(sta, (3,1,2,0))
+                if unit_scaling > 1:
+                    sta = zoom(sta, zoom = [1.0, unit_scaling, unit_scaling, 1.0], order = 0)
+                id_dict[cell_id] = sta
+
+            d_stas = id_dict
+        else:
+            ct_dict = dict()
+            for ct in available_types:
+                ct_ids = filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].to_numpy()
+                id_dict = dict()
+                for cell_id in ct_ids:
+                    data = sta_reader.get_sta_for_cell_id(cell_id)
+                    sta = np.stack([data.red, data.green, data.blue])
+                    sta = np.transpose(sta, (3,1,2,0))
+
+                    if padded:
+                        left_pad = int(self.deltaXChecks)
+                        right_pad = int(self.numXChecks - self.staXChecks - self.deltaXChecks)
+                        top_pad = int(self.deltaYChecks)
+                        bottom_pad = int(self.numYChecks - self.staYChecks - self.deltaYChecks)
+
+                        pad_width_config = [(0, 0), (bottom_pad, top_pad), (left_pad, right_pad), (0, 0)]
+                        sta = np.pad(sta, pad_width_config, mode = 'constant', constant_values = 0)
+
+                    if unit_scaling > 1:
+                        sta = zoom(sta, zoom = [1.0, unit_scaling, unit_scaling, 1.0], order = 0)
+                    id_dict[cell_id] = sta
+
+                ct_dict[ct] = id_dict
+
+            d_stas = ct_dict
+                    
+
+        return d_stas
+
+    def plot_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
+                  typing_file: Optional[str] = None, cols: int = 4, padded: bool = False,
+                  units: str = 'stixels') -> List[np.ndarray] | List[Axes]:
+        """
+        Method for plotting STAs for a list of cell ids, a list of cell types, or the union of the two. The
+        user also has the option of providing a typing file to use. If there exists a typing file or one
+        is provided, the function will plot STAs in separate figures organized by cell type. One figure per
+        cell type, one STA per axis, number of axes = number of cells of that cell type.
+
+        Parameters:
+        noise_ids (int or List[int]) a single cell id or list of cell ids to be plotted. Optional, default None.
+
+        cell_types (str or List[str]) a single cell type or list of cell types to be plotted. Optional, default None. 
+
+        typing_file (str): The name of a typing file to use for linking cell types to cell ids. If no typing file is given
+        typing file [0] from the analysis chunk is used. If there are no typing files, only one figure is plotted, with no
+        cell type information.
+
+        cols (int): number of columns to use in the resulting figure(s).
+
+        padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
+        noise frame. Most STAs are cropped for the sake of memory, but it makes them inaccurate relative to the
+        stimulus. Default value for plotting purposes is False.
+
+        units (str): units to plot the STAs in. Must be stixels, pixels, or microns. Default is stixels. If other units
+        are used, the STA is scaled using nearest neighbor interpolation. 
+
+        Returns:
+        sta_axes: will return a list of Axes objects (multiple single cells of different types) or a list of numpy arrays
+        of axes (multiple cells of multiple types). 
+
+        The function will also plot the results automatically if you're in a jupyter notebook, but it does not call
+        plt.show() on the figure.
+        """
+
+        d_stas = self.get_stas(noise_ids = noise_ids, cell_types = cell_types,
+                                typing_file = typing_file, padded = padded, units = units)
+
+        all_axes = []
+        if isinstance(list(d_stas.keys())[0], str):
+            # This indicates that the dictionary is organized by cell type
+            available_types: List[str] = sorted(list(d_stas.keys()))
+            
+            for ct_idx, ct in enumerate(available_types):
+                cell_ids = list(d_stas[ct].keys())
+                
+                rows = np.ceil(len(cell_ids)/cols).astype(int)
+                if len(cell_ids) > 1:
+                    fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = (5*cols, 3.5*rows),
+                                           layout = 'constrained')
+                    ax = ax.flatten()
+                else:
+                    fig, ax = plt.subplots(figsize = (5, 3.5), layout = 'constrained')
+                    ax = [ax]
+
+                for c_idx, cell_id in enumerate(cell_ids):
+                    sta = d_stas[ct][cell_id]
+                    min_index = np.unravel_index(np.argmin(sta), sta.shape) 
+                    max_index = np.unravel_index(np.argmax(sta), sta.shape) 
+
+                    if np.abs(np.min(sta)) > np.abs(np.max(sta)):
+                        timebin_to_plot = min_index[0]
+                    else:
+                        timebin_to_plot = max_index[0]
+
+                    sta_img = (sta[timebin_to_plot, :, :, :]+1)/2
+                    ax[c_idx].imshow(sta_img)
+                    ax[c_idx].set_title(f'Cell ID #{cell_id}')
+                    ax[c_idx].set_xlabel(f'{units}')
+                    ax[c_idx].set_ylabel(f'{units}')
+
+
+                if self.deltaXChecks > 0 and not padded:
+                    fig.suptitle(f'Cropped {ct} STAs')
+                else:
+                    fig.suptitle(f'{ct} STAs')
+
+                if len(cell_ids) > 1:
+                    # Delete unused axes
+                    num_axes = rows*cols
+                    empty_axes = num_axes - len(cell_ids)
+
+                    for i in range(empty_axes):
+                        fig.delaxes(ax[num_axes-1-i])
+
+                all_axes.append(ax)
+
+        else:
+            assert (isinstance(list(d_stas.keys())[0], int)),\
+            (f'The keys in the sta dict should either be ints or strs, yours is a {type(list(d_stas.keys())[0])}')
+            # This indicates the sta dictionary is organized by cell id and has no types associated with it.
+            cell_ids = list(d_stas.keys())
+
+            rows = np.ceil(len(cell_ids)/cols).astype(int)
+            fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = (5*cols, 3.5*rows),
+                                   layout = 'constrained')
+            
+            if rows*cols > 1:
+                ax = ax.flatten()
+            else:
+                ax = [ax]
+
+            for c_idx, cell_id in enumerate(cell_ids):
+                sta = d_stas[cell_id]
+                min_index = np.unravel_index(np.argmin(sta), sta.shape) 
+                max_index = np.unravel_index(np.argmax(sta), sta.shape) 
+
+                if np.abs(np.min(sta)) > np.abs(np.max(sta)):
+                    timebin_to_plot = min_index[0]
+                else:
+                    timebin_to_plot = max_index[0]
+
+                sta_img = (sta[timebin_to_plot, :, :, :]+1)/2
+                ax[c_idx].imshow(sta_img)
+                ax[c_idx].set_title(f'Cell ID #{cell_id}')
+                ax[c_idx].set_xlabel('Stixels X')
+                ax[c_idx].set_ylabel('Stixels Y')
+
+
+            if self.deltaXChecks > 0 and not padded:
+                fig.suptitle(f'Cropped STAs by Cell ID')
+            else:
+                fig.suptitle(f'STAs by Cell ID')
+
+            if len(cell_ids)>1:
+                # Delete unused axes
+                num_axes = rows*cols
+                empty_axes = num_axes - len(cell_ids)
+
+                for i in range(empty_axes):
+                    fig.delaxes(ax[num_axes-1-i])
+
+            all_axes.append(ax)
+
+        return all_axes
 
     def export_to_pkl(self, file_path: str):
         d_out = self.__dict__.copy()
@@ -554,5 +947,7 @@ class AnalysisChunk:
         d_out.pop('vcd')
         with open(file_path, 'wb') as f:
             pickle.dump(d_out, f)
-        print(f"AnalysisChunk exported to {file_path}")
+        
+        if self.verbose:
+            print(f"AnalysisChunk exported to {file_path}")
 

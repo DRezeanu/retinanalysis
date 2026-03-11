@@ -2,12 +2,16 @@ import retinanalysis.config.schema as schema
 import numpy as np
 from retinanalysis.utils.datajoint_utils import (get_exp_summary,
                                                  get_epoch_data_from_exp,
-                                                 get_block_id_from_datafile)
+                                                 get_block_id_from_datafile,
+                                                 get_noise_name_by_exp,
+                                                 get_display_params_by_exp)
 import pandas as pd
 from typing import List
 import retinanalysis.utils.regen as regen
 import pickle
-from retinanalysis.classes.analysis_chunk import get_noise_name_by_exp
+from typing import Optional
+from retinanalysis.config.settings import ANALYSIS_DIR
+import os
 
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
@@ -15,33 +19,41 @@ D_REGEN_FXNS = {
     'manookinlab.protocols.PresentImages': regen.load_all_present_images,
     'edu.washington.riekelab.rachel.protocols.DovesPerturbationAlpha': regen.make_doves_perturbation_alpha,
     'edu.washington.riekelab.turner.protocols.ExpandingSpots': regen.make_expanding_spots,
-    'edu.washington.riekelab.rachel.protocols.CheckerboardNoiseProjectRachel': regen.make_checkerboard_noise_project
-    # 'manookinlab.protocols.DovesMovie'
+    'edu.washington.riekelab.rachel.protocols.CheckerboardNoiseProjectRachel': regen.make_checkerboard_noise_project,
+    'manookinlab.protocols.DovesMovie': regen.make_all_doves_movies
 }
 
 class StimBlock:
     """
     Generic class for single cell or MEA stimulus blocks. 
     """
-    def __init__(self, exp_name: str=None, block_id: int=None, ls_params: list=None, pkl_file: str=None):
-        
+
+    def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
+                 ls_params: Optional[list]=None, b_LED: Optional[bool]=False,
+                 verbose: bool = True, pkl_file: Optional[str]=None):
+        self.verbose = verbose
+        self.b_LED = b_LED
         if pkl_file is None:
-            print(f"Initializing StimBlock for {exp_name} block {block_id}")
+            if verbose:
+                print(f"Initializing StimBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError("Either exp_name and block_id or pkl_file must be provided.")
         else:
-            print(f"Initializing StimBlock for {exp_name} block {block_id} from pickle file")
+            if verbose:
+                print(f"Initializing StimBlock for {exp_name} block {block_id} from pickle file")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
+                print(f"  pkl_file: {pkl_file}")
                 with open(pkl_file, 'rb') as f:
                     d_out = pickle.load(f)
             else:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            print(f"StimBlock loaded from {pkl_file}")
+            if verbose:
+                print(f"StimBlock loaded from {pkl_file}")
             return
-        
+
         self.exp_name = exp_name
         self.block_id = block_id
 
@@ -53,17 +65,23 @@ class StimBlock:
         epoch_block = schema.EpochBlock() & {'id': block_id}
         self.d_epoch_block_params = epoch_block.fetch('parameters')[0]
 
-        df_e = get_epoch_data_from_exp(exp_name, block_id, ls_params=ls_params)
+        df_e = get_epoch_data_from_exp(exp_name, block_id, b_LED=self.b_LED, ls_params=ls_params)
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
-    def regenerate_stimulus(self, ls_epochs: list=None, **kwargs):
+        self.d_display = get_display_params_by_exp(self.exp_name)
+
+    def regenerate_stimulus(self, ls_epochs: Optional[int | list]=None, **kwargs):
         """
         Regenerate the stimulus for the block based on the epochs provided.
         If no epochs are provided, it regenerates for all epochs in the block.
         """
         if ls_epochs is None:
             ls_epochs = self.df_epochs.index.tolist()
+        
+        # Convert single values into a list since the function doesn't know what to do with an int
+        if isinstance(ls_epochs, int):
+            ls_epochs = [ls_epochs]
         
         if self.protocol_name in D_REGEN_FXNS.keys():
             print(f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.block_id}")
@@ -85,11 +103,13 @@ class StimBlock:
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  b_LED: {self.b_LED} (whether LED stimulus)\n"
         str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  protocol_name: {self.d_block_summary['protocol_name']}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        str_self += f"  d_display with keys: {self.d_display.keys()}\n"
         return str_self
 
     def export_to_pkl(self, file_path: str):
@@ -106,7 +126,10 @@ class MEAStimBlock(StimBlock):
     """
     MEA stimulus block class that gets associated noise protocol and nearest noise chunk.
     """
-    def __init__(self, exp_name: str=None, datafile_name: str=None, ls_params: list=None, pkl_file: str=None):
+
+    def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
+                ls_params: Optional[list]=None, b_LED: Optional[bool]=False,
+                verbose: bool = True, pkl_file: Optional[str]=None):
         # If pkl_file is provided, block_id can be None.
         block_id = None
         if pkl_file is None:
@@ -117,7 +140,10 @@ class MEAStimBlock(StimBlock):
                 # If exp_name and datafile_name are provided, get block_id from datafile_name
                 block_id = get_block_id_from_datafile(exp_name, datafile_name)
         
-        super().__init__(exp_name=exp_name, block_id=block_id, ls_params=ls_params, pkl_file=pkl_file)
+        super().__init__(
+            exp_name=exp_name, block_id=block_id, b_LED=b_LED,
+            ls_params=ls_params, verbose = verbose, pkl_file=pkl_file
+            )
         
         # If pkl_file, everything is already loaded in parent init.
         if pkl_file is not None:
@@ -136,6 +162,7 @@ class MEAStimBlock(StimBlock):
 
         # pull relevant information from datajoint
         experiment_summary = get_exp_summary(self.exp_name)
+        
         # Keep only rows with same prep_label
         experiment_summary = experiment_summary.query('prep_label == @self.prep_label')
         
@@ -162,8 +189,12 @@ class MEAStimBlock(StimBlock):
         # Find the minimum distance between target protocol and each chunk
         minimum_distance = np.minimum(protocolstart_to_noisestop, protocolstop_to_noisestart)
         
+        # Instantiate nearest_noise_chunk so that if minimum_distance is None, we still have a
+        # variable to return
+        nearest_noise_chunk = None
+
         # Iterate through minimum distances until we find the nearest chunk with a sorting file
-        for distance in minimum_distance:
+        for _ in minimum_distance:
 
             # Use min val to pull the nearest noise chunk
             min_val = min(minimum_distance)
@@ -174,10 +205,15 @@ class MEAStimBlock(StimBlock):
             nearest_noise_chunk = nearest_noise_chunk.reset_index(drop = True).loc[0, 'chunk_name']
 
             # Check if this chunk has a typing file
-            noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
-            noise_chunk_id = noise_chunk_id.fetch('id')[0]
+            
+            # New way to check for typing files... avoids missing typing files in database
+            ss_version = os.listdir(os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk))[0]
+            typing_file_path = os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version)
+            typing_files = [file for file in os.listdir(typing_file_path) if '.txt' in file]
 
-            typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
+            # noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
+            # noise_chunk_id = noise_chunk_id.fetch('id')[0]
+            # typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
 
             # If there's no typing file, remove the minimum value and try again
             if len(typing_files) == 0:
@@ -189,15 +225,19 @@ class MEAStimBlock(StimBlock):
         
         # Check if we looped through all the values. If so, no sorting files found
         if minimum_distance.size == 0:
-            print("Warning, none of the noise chunks in this experiment have typing files\n")
+            print(f"Warning, none of the noise chunks in this experiment have typing files, {nearest_noise_chunk} is None\n")
         else:
-            print(f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n")
+            if self.verbose:
+                print(f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n")
+
         return nearest_noise_chunk
         
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  exp_name: {self.exp_name}\n"
         str_self += f"  block_id: {self.block_id}\n"
+        str_self += f"  b_LED: {self.b_LED} (whether LED stimulus)\n"
+        str_self += f"  d_display with keys: {self.d_display.keys()}\n"
         str_self += f"  prep_label: {self.prep_label}\n"
         str_self += f"  datafile_name: {self.datafile_name}\n"
         str_self += f"  chunk_name: {self.d_block_summary['chunk_name']}\n"
@@ -205,8 +245,9 @@ class MEAStimBlock(StimBlock):
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
-        str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
+        str_self += f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        str_self += f"  d_display with keys: {self.d_display.keys()}\n"
         return str_self
 
 class MEAStimGroup:
@@ -223,22 +264,48 @@ class MEAStimGroup:
         if len(set(datafile_names)) != len(datafile_names):
             raise ValueError(f"StimBlocks must have unique datafile_names, but found: {datafile_names}")
         
+        # Find noise chunk that's closest to the majority of blocks
+        nearest_chunks = np.array([block.nearest_noise_chunk for block in ls_blocks])
+        vals, counts = np.unique(nearest_chunks, return_counts = True)
+        max_count_idx = np.argmax(counts)
+        self.nearest_noise_chunk = vals[max_count_idx]
+
+        # Create d_epoch_block_params by concatenating only those values that change from
+        # block to block.
+        self.d_epoch_block_params = dict()
+        for key in ls_blocks[0].d_epoch_block_params.keys():
+            concatenated_values = np.array([block.d_epoch_block_params[key] for block in ls_blocks])
+            if np.all(concatenated_values == concatenated_values[0]):
+                concatenated_values = concatenated_values[0]
+            self.d_epoch_block_params[key] = concatenated_values
+
+
+
         self.ls_blocks = ls_blocks
         self.exp_name = ls_blocks[0].exp_name
-        self.parameter_names = ls_blocks[0].parameter_names
         self.datafile_names = datafile_names
         self.df_epochs = pd.concat([block.df_epochs for block in ls_blocks], ignore_index=True)
-        self.df_epochs.index = self.df_epochs.index.rename('epoch_index')
-        self.df_epochs = self.df_epochs.reset_index(drop=False)
+        self.df_epochs = self.df_epochs.rename(columns = {'epoch_index':'datafile_epoch_index'})
+        self.df_epochs.insert(0, 'epoch_index', self.df_epochs.index.values)
+        self.parameter_names = list(self.df_epochs.at[0,'epoch_parameters'].keys())
+        self.noise_protocol_name = get_noise_name_by_exp(self.exp_name)
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  ls_blocks containing {len(self.ls_blocks)} MEAStimBlocks\n"
         str_self += f"  exp_name: {self.exp_name}\n"
-        str_self += f"  protocol_name: {self.ls_blocks[0].d_block_summary['protocol_name']}\n"
-        str_self += f"  chunk_name: {self.ls_blocks[0].d_block_summary['chunk_name']}\n"
+        str_self += f"  block_ids: {[block.block_id for block in self.ls_blocks]}\n"
+        str_self += f"  b_LED: {self.ls_blocks[0].b_LED} (whether LED stimulus)\n"
+        str_self += f"  prep_label: {self.ls_blocks[0].prep_label}\n"
         str_self += f"  datafile_names: {self.datafile_names}\n"
+        str_self += f"  chunk_name: {self.ls_blocks[0].d_block_summary['chunk_name']}\n"
+        str_self += f"  protocol_name: {self.ls_blocks[0].d_block_summary['protocol_name']}\n"
+        str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
+        str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
+        str_self += f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        str_self += f"  d_display with keys: {self.ls_blocks[0].d_display.keys()}\n"
         return str_self
 
     def export_to_pkl(self, file_path: str):
@@ -249,9 +316,15 @@ class MEAStimGroup:
             pickle.dump(self, f)
         print(f"StimGroup exported to {file_path}")
 
-def make_mea_stim_group(exp_name, ls_datafile_names, ls_params: list=None):
-    ls_blocks = []
-    for datafile_name in ls_datafile_names:
-        block = MEAStimBlock(exp_name, datafile_name, ls_params=ls_params)
-        ls_blocks.append(block)
+def create_mea_stim_group(
+        exp_name, ls_datafile_names, ls_params: Optional[list] = None, 
+        b_LED: Optional[bool]=False, verbose: bool = False
+    ):
+
+    ls_blocks = [
+        MEAStimBlock(
+            exp_name, datafile, b_LED=b_LED, 
+            ls_params = ls_params, verbose = verbose
+            ) for datafile in ls_datafile_names
+            ]
     return MEAStimGroup(ls_blocks)

@@ -3,11 +3,12 @@ from typing import (Union,
                     List,
                     Dict,
                     Tuple,
+                    Optional,
                     TYPE_CHECKING)
 
 if TYPE_CHECKING:
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
-    from retinanalysis.classes.response import MEAResponseBlock
+    from retinanalysis.classes.response import MEAResponseBlock, MEAResponseGroup
     from visionloader import VisionCellDataTable
     
 from retinanalysis.utils import (DATA_DIR,
@@ -16,6 +17,7 @@ from retinanalysis.utils import (DATA_DIR,
 
 import os
 import numpy as np
+from pandas import DataFrame
 # from retinanalysis.utils.datajoint_utils import get_exp_summary
 from visionloader import load_vision_data
 
@@ -26,6 +28,7 @@ from collections import Counter
 def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
                     include_ei: bool = True, include_neurons: bool = True,
                     verbose: bool = True) -> VisionCellDataTable:
+
         data_path = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version)
         
         if verbose:
@@ -42,7 +45,7 @@ def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
         return vcd
 
 def get_protocol_vcd(exp_name: str, datafile_name: str, ss_version: str,
-                     verbose: bool = True, include_ei: bool=True) -> VisionCellDataTable:
+                     include_ei: bool=True, verbose: bool = True) -> VisionCellDataTable:
         
         data_path = os.path.join(DATA_DIR, exp_name, datafile_name, ss_version)
         
@@ -68,12 +71,11 @@ def get_roi_dict(location: List[float], distance_x: float, distance_y: float):
     
     return roi
 
-def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_object: Union[AnalysisChunk, MEAResponseBlock],
+def cluster_match(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
+                  test_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
                 corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
                 use_timecourse: bool = False, n_removed_channels: int = 1, verbose: bool = True):
 
-        ref_vcd = ref_object.vcd
-        test_vcd = test_object.vcd
         ref_ids = ref_object.cell_ids
         test_ids = test_object.cell_ids
         
@@ -96,12 +98,6 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
         else:
             raise NameError("Method property must be 'all', 'full', 'space', or 'power'")
 
-        # to avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
-        # this is just an issue with python
-        from retinanalysis.classes.response import MEAResponseBlock
-        if isinstance(ref_object, MEAResponseBlock) or isinstance(test_object, MEAResponseBlock):
-            if use_timecourse:
-                raise FileNotFoundError("Response blocks don't have .params files, can't use timecourse for cluster matching")
 
         match_dict = dict()
         corr_dict = dict()
@@ -111,6 +107,8 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
         rgb_corr = 1
 
         if verbose:
+            # to avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
+            # this is just an issue with python
             from retinanalysis.classes.analysis_chunk import AnalysisChunk
             if isinstance(ref_object, AnalysisChunk):
                 if isinstance(test_object, AnalysisChunk):
@@ -165,8 +163,10 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
                 
             # Pull the index of the highest remaing correlation
             best_match = np.argmax(max_corrs)
+
             # Pull that correlation value
             max_corr = max_corrs[best_match]
+
             # Pull the index of that correlation value
             max_ind = max_inds[best_match]     
 
@@ -213,26 +213,42 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
                 # if use timecourses is true, pull timecourses for the ref and test cell, and 
                 # calculate the correlation.
                 if use_timecourse:
-                    ref_rg = ref_vcd.main_datatable[ref_cell]['GreenTimeCourse']
-                    ref_b = ref_vcd.main_datatable[ref_cell]['BlueTimeCourse']
-                    test_rg = test_vcd.main_datatable[test_ids[max_ind]]['GreenTimeCourse']
-                    test_b = test_vcd.main_datatable[test_ids[max_ind]]['BlueTimeCourse']
-                    
-                    ref_rgb = np.concatenate([ref_rg, ref_b])
-                    test_rgb = np.concatenate([test_rg, test_b])
-                    np.nan_to_num(ref_rgb, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
-                    np.nan_to_num(test_rgb, copy = False, nan=0.001, neginf=0.001, posinf=0.001)
-                    
-                    rgb_corr = np.corrcoef(ref_rgb, test_rgb)[0,1]
+                    from retinanalysis.classes.analysis_chunk import AnalysisChunk
+                    if isinstance(ref_object, AnalysisChunk) and isinstance(test_object, AnalysisChunk):
+                        ref_r = ref_object.d_timecourses[ref_cell]['red']
+                        ref_g = ref_object.d_timecourses[ref_cell]['green']
+                        ref_b = ref_object.d_timecourses[ref_cell]['blue']
+
+                        test_r = test_object.d_timecourses[test_ids[max_ind]]['red']
+                        test_g = test_object.d_timecourses[test_ids[max_ind]]['green']
+                        test_b = test_object.d_timecourses[test_ids[max_ind]]['blue']
+
+                        ref_rgb = np.concatenate([ref_r, ref_g, ref_b])
+                        test_rgb = np.concatenate([test_r, ref_g, test_b])
+                        np.nan_to_num(ref_rgb, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
+                        np.nan_to_num(test_rgb, copy = False, nan=0.001, neginf=0.001, posinf=0.001)
+
+                        rgb_corr = np.corrcoef(ref_rgb, test_rgb)[0,1]
+                    else:
+                        raise ValueError("To use timecourses, ref and test object must both be AnalysisChunks")
+
                 # If use_isi is true, pull isi's for the ref and test cells, and calculate the
                 # correlation
                 if use_isi:
-                    ref_isi = ref_vcd.get_acf_numpairs_for_cell(ref_cell)
-                    match_isi = test_vcd.get_acf_numpairs_for_cell(test_ids[max_ind])
-                    np.nan_to_num(ref_isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
-                    np.nan_to_num(match_isi, copy = False, nan=0.001, neginf=0.001, posinf=0.001)
+                    from retinanalysis.classes.analysis_chunk import AnalysisChunk
+                    if isinstance(ref_object, AnalysisChunk) and isinstance(test_object, AnalysisChunk):
+                        ref_isi = ref_object.d_ISIs[ref_cell]
+                        match_isi = test_object.d_ISIs[test_ids[max_ind]]
 
-                    isi_corr = np.corrcoef(ref_isi, match_isi)[0,1]
+                        # ref_isi = ref_vcd.get_acf_numpairs_for_cell(ref_cell)
+                        # match_isi = test_vcd.get_acf_numpairs_for_cell(test_ids[max_ind])
+                        # np.nan_to_num(ref_isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
+                        # np.nan_to_num(match_isi, copy = False, nan=0.001, neginf=0.001, posinf=0.001)
+
+                        isi_corr = np.corrcoef(ref_isi, match_isi)[0,1]
+                    else:
+                        raise ValueError("To use ISIs, ref and test objects must both be AnalysisChunks")
+
                 # If the isi_correlation or the rgb_correlation is below 0.3, throw out the cell
                 if  isi_corr < 0.3 or rgb_corr < 0.3:
                     bad_match_count += 1
@@ -257,7 +273,7 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
             percent_good = match_count/len(ref_ids)
             percent_bad = bad_match_count/len(ref_ids)
             print(f"{np.round(percent_good*100, 2)}% matched, {np.round(percent_bad*100, 2)}% unmatched.\n")
-            
+
         match_dict = dict(sorted(match_dict.items()))
         corr_dict = dict(sorted(corr_dict.items()))
 
@@ -274,7 +290,10 @@ def cluster_match(ref_object: Union[AnalysisChunk, MEAResponseBlock], test_objec
 
 def get_protocol_from_datafile(exp_name: str, datafile_name: str) -> str:
     exp_summary = get_exp_summary(exp_name)
+
+    assert exp_summary is not None, f"Experiment summary failed to generate for {exp_name}, {datafile_name}"
     protocol_name = exp_summary.query('datafile_name == @datafile_name').reset_index(drop = True)
+
     return protocol_name.loc[0,'protocol_name']
 
 def get_classification_file_path(classification_file_name: str, exp_name: str, chunk_name: str, 
@@ -319,17 +338,27 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
     d_timecourses_by_type = dict()
 
     for ct in d_cells_by_type.keys():
-        rg_timecourses = [analysis_chunk.vcd.main_datatable[cell]['GreenTimeCourse'] for cell in d_cells_by_type[ct]]
-        rg_timecourses = np.array(rg_timecourses)
-        if rg_timecourses.shape[0] > 1:
-            rg_mean = np.mean(rg_timecourses, axis = 0)
-            rg_std = np.std(rg_timecourses, axis = 0)
-        else:
-            rg_mean = rg_timecourses.squeeze()
-            rg_std = 0
+        r_timecourses = [analysis_chunk.d_timecourses[cell]['red'] for cell in d_cells_by_type[ct]]
+        g_timecourses = [analysis_chunk.d_timecourses[cell]['green'] for cell in d_cells_by_type[ct]]
+        b_timecourses = [analysis_chunk.d_timecourses[cell]['blue'] for cell in d_cells_by_type[ct]]
 
-        b_timecourses = [analysis_chunk.vcd.main_datatable[cell]['BlueTimeCourse'] for cell in d_cells_by_type[ct]]
+        r_timecourses = np.array(r_timecourses)
+        g_timecourses = np.array(g_timecourses)
         b_timecourses = np.array(b_timecourses)
+
+        if r_timecourses.shape[0] > 1:
+            r_mean = np.mean(r_timecourses, axis = 0)
+            r_std = np.std(r_timecourses, axis = 0)
+        else:
+            r_mean = r_timecourses.squeeze()
+            r_std = 0
+
+        if g_timecourses.shape[0] > 1:
+            g_mean = np.mean(g_timecourses, axis = 0)
+            g_std = np.std(g_timecourses, axis = 0)
+        else:
+            g_mean = g_timecourses.squeeze()
+            g_std = 0
 
         if b_timecourses.shape[0] > 1:
             b_mean = np.mean(b_timecourses, axis = 0)
@@ -338,13 +367,15 @@ def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dic
             b_mean = b_timecourses.squeeze()
             b_std = 0
 
-        d_timecourses_by_type[ct] = {'rg_timecourses' : rg_timecourses, 'rg_mean' : rg_mean, 'rg_std' : rg_std,
+        d_timecourses_by_type[ct] = {'r_timecourses' : r_timecourses, 'r_mean' : r_mean, 'r_std' : r_std,
+                                     'g_timecourses' : g_timecourses, 'g_mean' : g_mean, 'g_std' : g_std,
                             'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
 
     return d_timecourses_by_type
 
-def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = None,
-                   cell_types: List[str] = None, minimum_n: int = 1) -> xr.DataArray:
+def get_spike_xarr(response_block: MEAResponseBlock | MEAResponseGroup,
+                   protocol_ids: Optional[List[int] | int] = None,
+                   cell_types: Optional[List[str] | str] = None, minimum_n: int = 1) -> xr.DataArray:
     
     if isinstance(cell_types, str):
         cell_types = [cell_types]
@@ -352,7 +383,13 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = N
     if isinstance(protocol_ids, int):
         protocol_ids = [protocol_ids]
 
-    spike_time_df = response_block.df_spike_times
+    
+    # Check that cell_type data included in spike times dataframe, if not, add it
+    if 'cell_type' not in response_block.df_spike_times.columns:
+        response_block.add_cell_types()
+        spike_time_df = response_block.df_spike_times
+    else:
+        spike_time_df = response_block.df_spike_times
 
     if protocol_ids is None and cell_types is None:
         filtered_df = spike_time_df
@@ -374,7 +411,7 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = N
         if len(filtered_df.query('cell_type == @ct').values) < minimum_n:
             print(f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})...")
             indices = filtered_df.query('cell_type == @ct').index
-            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True)
+            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True) #type: ignore 
 
 
     spike_time_arr = [filtered_df.loc[cell_idx, 'spike_times'] for cell_idx in filtered_df.index]
@@ -384,18 +421,24 @@ def get_spike_xarr(response_block: MEAResponseBlock, protocol_ids: List[int] = N
 
     coords = {'epoch' : np.arange(response_block.n_epochs),
             'cell_id' : filtered_df['cell_id'].values,
-            'cell_type' : ('cell_id', filtered_df['cell_type'].values),
+            'cell_type' : ('cell_id', np.asarray(filtered_df['cell_type'].values, dtype = 'U')),
             'noise_id' : ('cell_id', filtered_df['noise_id'].values)}
 
     spike_time_xarr = xr.DataArray(spike_time_arr, dims = dims, coords = coords)
 
     return spike_time_xarr
 
-def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = None, 
-                         cell_types: List[str] = None, minimum_n:int = 1) -> dict:
+def get_spike_dict(response_block: MEAResponseBlock | MEAResponseGroup,
+                   protocol_ids: Optional[List[int] | int] = None, 
+                   cell_types: Optional[List[str] | str] = None, minimum_n:int = 1) -> dict:
     
-    spike_time_df = response_block.df_spike_times
-
+    # Check that cell_type data included in spike times dataframe, if not, add it
+    if 'cell_type' not in response_block.df_spike_times.columns:
+        response_block.add_cell_types()
+        spike_time_df = response_block.df_spike_times
+    else:
+        spike_time_df = response_block.df_spike_times
+    
     if protocol_ids is None and cell_types is None:
         filtered_df = spike_time_df
         cell_types = sorted(filtered_df['cell_type'].unique())
@@ -416,7 +459,7 @@ def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = N
         if len(filtered_df.query('cell_type == @ct').values) < minimum_n:
             print(f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})...")
             indices = filtered_df.query('cell_type == @ct').index
-            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True)
+            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True) #type: ignore
 
     d_spike_times = dict()
     for ct in cell_types:
@@ -432,14 +475,14 @@ def get_spike_dict(response_block: MEAResponseBlock, protocol_ids: List[int] = N
 
     return d_spike_times
 
-def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[AnalysisChunk, MEAResponseBlock],
-                                 ss_version: str = None, input_typing_file: str = None, 
-                                 output_typing_file: str = 'RA_autoClassification.txt', **kwargs):
+def classification_transfer(analysis_chunk: AnalysisChunk, target_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
+                                 ss_version: Optional[str] = None, input_typing_file: Optional[str] = None, 
+                            output_typing_file: str = 'RA_autoClassification.txt', verbose: bool = True, **kwargs):
 
-    """Transfer classification between analysis an chunk and another analysis chunk or a response block
+    """Transfer classification between an analysis chunk and another analysis chunk or a response block
     Inputs:
         analysis_chunk: AnalysisChunk
-        target_object: AnalysisChunk or ResponseBlock 
+        target_object: AnalysisChunk or ResponseBlock or ResponseGroup
         ss_version: str such as 'kilosort2.5', if None, uses same ss_version as analysis_chunk
         input_typing_file: str, filename of classification file to use, if None will use
                             the first typing file in analysis_chunk.typing_files
@@ -456,8 +499,11 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
 
     if len(analysis_chunk.typing_files) == 0:
             raise FileNotFoundError("No typing files available for this analysis chunk")
-        
-    if target_object == analysis_chunk:
+
+    # To avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
+    # this is just an issue with python
+    from retinanalysis.classes.analysis_chunk import AnalysisChunk
+    if isinstance(target_object, AnalysisChunk) and target_object == analysis_chunk:
         raise Exception(f"Target chunk ({target_object.chunk_name}) cannot be the same as analysis chunk {analysis_chunk.chunk_name}")
 
     # If no input typing file is specified, use typing_file_0
@@ -472,16 +518,15 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
     if ss_version is None:
         ss_version = analysis_chunk.ss_version
 
-    # To avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
-    # this is just an issue with python
-    from retinanalysis.classes.analysis_chunk import AnalysisChunk
     if isinstance(target_object, AnalysisChunk):
-        print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n")
+        if verbose:
+            print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n")
         destination_file_path = os.path.join(ANALYSIS_DIR, analysis_chunk.exp_name,
                                                 target_object.chunk_name, ss_version, output_typing_file)
         
     else:
-        print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.protocol_name}\n")
+        if verbose:
+            print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.protocol_name}\n")
         destination_file_path = os.path.join(os.getcwd(), output_typing_file)
         if 'use_timecourse' in kwargs:
             if kwargs['use_timecourse']:
@@ -521,13 +566,18 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Union[
 
     return match_dict
 
-def ei_corr(ref_object: Union[AnalysisChunk, MEAResponseBlock], target_object: Union[AnalysisChunk, MEAResponseBlock],
+def ei_corr(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
+            target_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
             method: str = 'full', n_removed_channels: int = 1) -> np.ndarray:
 
 
         # Pull reference eis
         ref_ids = ref_object.cell_ids
-        ref_eis = [ref_object.vcd.get_ei_for_cell(cell).ei for cell in ref_ids]
+
+        # New code ensures cells with no or broken EIs don't break cluster matching
+        ref_eis = []
+        for id in ref_ids:
+            ref_eis.append(ref_object.d_EIs[id])
 
         if n_removed_channels > 0:
             max_ref_vals = [np.array(np.max(ei, axis = 1)) for ei in ref_eis]
@@ -554,12 +604,15 @@ def ei_corr(ref_object: Union[AnalysisChunk, MEAResponseBlock], target_object: U
             ref_eis_mean = [np.mean(ei**2, axis = 1) for ei in ref_eis]
             ref_eis = np.array(ref_eis_mean)
         else:
-            raise NameError("Method poperty must be 'full', 'time', or 'power'.")
-
-
+            raise NameError("Method poperty must be 'full', 'space', or 'power'.")
+        
         # Pull test eis
         test_ids = target_object.cell_ids
-        test_eis = [target_object.vcd.get_ei_for_cell(cell).ei for cell in test_ids]
+
+        # New code makes sure that cells with broken or no EIs don't break cluster matching
+        test_eis = []
+        for id in test_ids:
+            test_eis.append(target_object.d_EIs[id])
 
         if n_removed_channels > 0:
             max_test_vals = [np.array(np.max(ei, axis = 1)) for ei in test_eis]
@@ -587,7 +640,6 @@ def ei_corr(ref_object: Union[AnalysisChunk, MEAResponseBlock], target_object: U
             test_eis = np.array(test_eis_mean)
         else:
             raise NameError("Method poperty must be 'full', 'space', or 'power'.")
-
 
         num_pts = ref_eis.shape[1]
 
