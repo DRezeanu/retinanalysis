@@ -59,7 +59,7 @@ class AnalysisChunk:
     """
     def __init__(self, exp_name: Optional[str]=None, chunk_name: Optional[str]=None, 
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[dict | str]=None, 
-                 b_load_spatial_maps: bool=True, verbose: bool = True, **vu_kwargs):
+                 b_load_spatial_maps: bool=False, verbose: bool = True, **vu_kwargs):
 
         self.verbose = verbose
 

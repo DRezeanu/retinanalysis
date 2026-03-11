@@ -6,6 +6,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.interpolate import griddata
 
 
 
@@ -87,16 +88,60 @@ def get_top_electrodes(n_ID: int, vcd: VisionCellDataTable, n_interval=2, n_mark
 
     return top_idx
 
+def compute_interpolated_ei_map(ei: np.ndarray,
+    channel_positions: np.ndarray) -> np.ndarray:
+
+    if ei.shape[0] != 512:
+        print(f'Warning: Expected EI shape (512, n_timepoints), got {ei.shape}')
+
+    xrange = (np.min(channel_positions[:, 0]), np.max(channel_positions[:, 0]))
+    yrange = (np.min(channel_positions[:, 1]), np.max(channel_positions[:, 1]))
+
+    y_dim = 30 # Fixed y dimension for scaling
+    x_dim = int((xrange[1] - xrange[0])/(yrange[1] - yrange[0]) * y_dim) # x dim is proportional to y dim
+
+    x_e = np.linspace(xrange[0], xrange[1], x_dim)
+    y_e = np.linspace(yrange[0], yrange[1], y_dim)
+
+    grid_x, grid_y = np.meshgrid(x_e, y_e)
+    grid_x = grid_x.T
+    grid_y = grid_y.T
+
+    # ei_energy = np.log10(np.mean(np.power(ei, 2), axis=1) + .000000001)
+    ei_energy = np.log10(np.max(np.abs(ei), axis=1) + 1e-9)
+    ei_energy_grid = griddata(
+        channel_positions, ei_energy, 
+        (grid_x, grid_y), method='linear', 
+        fill_value=np.median(ei_energy))
+    ei_energy_grid = ei_energy_grid.T
+    ei_energy_grid = ei_energy_grid[::-1, :] # Flip y axis for plotting
+    d_out = {
+        'x_pts': x_e,
+        'y_pts': y_e,
+        'ei_grid': ei_energy_grid
+    }
+
+    return d_out
+
 
 def get_ei_and_map(n_ID: int, vcd: VisionCellDataTable):
-     # Reshape EI timeseries
+    # Get EI
     ei = vcd.get_ei_for_cell(n_ID).ei
+    
+    # Reshape EI timeseries by sorted electrode
     sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
-    ei = reshape_ei(ei, sorted_electrodes)
-    ei_map = np.max(np.abs(ei), axis=2)
-    return ei, ei_map
+    ei_rs = reshape_ei(ei, sorted_electrodes)
 
-def plot_ei_spatial_map(ei_map, sorted_electrodes, top_idx, axs=None, n_ID=None, vcd=None):
+    # Compute simple EI map
+    ei_map = np.max(np.abs(ei_rs), axis=2)
+
+    # Compute interpolated EI map
+    d_grid = compute_interpolated_ei_map(ei, vcd.get_electrode_map())
+    return ei_rs, ei_map, d_grid
+
+def plot_ei_spatial_map(
+        ei_map, sorted_electrodes, top_idx, 
+        axs=None, n_ID=None, vcd: VisionCellDataTable=None, d_grid=None):
     """
     Plot the spatial EI map and highlight the peak and selected electrodes.
     """
@@ -106,23 +151,37 @@ def plot_ei_spatial_map(ei_map, sorted_electrodes, top_idx, axs=None, n_ID=None,
     else:
         ax = axs
 
-    im = ax.imshow(ei_map, cmap='hot', aspect='auto')
-    plt.colorbar(im, ax=ax, label='log10(abs(EI amplitude))')
-
     # Get index of peak
     peak_channel = np.argmax(ei_map)
     peak_idx = np.unravel_index(peak_channel, ei_map.shape)
     peak_channel_idx = sorted_electrodes[peak_channel]
-    ax.plot(peak_idx[1], peak_idx[0], 'o', color='blue')
-    ax.axhline(peak_idx[0], color='blue')
-    ax.axvline(peak_idx[1], color='blue')
 
-    for i in range(n_markers):
-        top = top_idx[i]
-        channel_idx = sorted_electrodes[top]
-        y, x = np.unravel_index(top, ei_map.shape)
-        ax.plot(x, y, 'o', color='C2', ms=5)
-        ax.text(x, y, str(i), color='k')
+    if d_grid is None:
+        im = ax.imshow(ei_map, cmap='hot', aspect='auto')
+        plt.colorbar(im, ax=ax, label='log10(abs(EI amplitude))')
+        
+        ax.plot(peak_idx[1], peak_idx[0], 'o', color='blue')
+        ax.axhline(peak_idx[0], color='blue')
+        ax.axvline(peak_idx[1], color='blue')
+
+        for i in range(n_markers):
+            top = top_idx[i]
+            channel_idx = sorted_electrodes[top]
+            y, x = np.unravel_index(top, ei_map.shape)
+            ax.plot(x, y, 'o', color='C2', ms=5)
+            ax.text(x, y, str(i), color='k')
+    else:
+        im = ax.imshow(d_grid['ei_grid'], cmap='hot', aspect='auto', 
+        extent=[d_grid['x_pts'].min(), d_grid['x_pts'].max(), d_grid['y_pts'].min(), d_grid['y_pts'].max()])
+        plt.colorbar(im, ax=ax, label='log10(abs(EI amplitude))')
+
+        channel_positions = vcd.get_electrode_map()
+        for i in range(n_markers):
+            top = top_idx[i]
+            channel_idx = sorted_electrodes[top]
+            pos = channel_positions[channel_idx]
+            ax.plot(pos[0], pos[1], 'o', color='C2', ms=5)
+            ax.text(pos[0], pos[1], str(i), color='k')
 
     str_title = ''
     if n_ID is not None and vcd is not None:
@@ -180,7 +239,7 @@ def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None,
             n_ID, vcd, n_interval=n_interval, 
             n_markers=n_markers, b_sort=True)
 
-    ei, ei_map = get_ei_and_map(n_ID, vcd)
+    ei, ei_map, d_grid = get_ei_and_map(n_ID, vcd)
     # Log is better for visualization
     ei_map = np.log10(ei_map + 1e-6)
     
@@ -197,7 +256,8 @@ def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None,
     # Plot spatial map on first axis
     plot_ei_spatial_map(
         ei_map, sorted_electrodes, top_idx,
-        axs=axs[0], n_ID=n_ID, vcd=vcd
+        axs=axs[0], n_ID=n_ID, vcd=vcd,
+        d_grid=d_grid
     )
 
     # Plot timeseries on remaining axes
@@ -210,43 +270,12 @@ def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None,
     plt.tight_layout()
     return axs
 
-
-def compute_ei_map_grid(
-    ei: np.ndarray,
-    channel_positions: np.ndarray) -> np.ndarray:
-    from scipy.interpolate import griddata
-
-    if ei.shape[0] != 512:
-        print(f'Warning: Expected EI shape (512, n_timepoints), got {ei.shape}')
-
-    xrange = (np.min(channel_positions[:, 0]), np.max(channel_positions[:, 0]))
-    yrange = (np.min(channel_positions[:, 1]), np.max(channel_positions[:, 1]))
-
-    y_dim = 30 # Fixed y dimension for scaling
-    x_dim = int((xrange[1] - xrange[0])/(yrange[1] - yrange[0]) * y_dim) # x dim is proportional to y dim
-
-    x_e = np.linspace(xrange[0], xrange[1], x_dim)
-    y_e = np.linspace(yrange[0], yrange[1], y_dim)
-
-    grid_x, grid_y = np.meshgrid(x_e, y_e)
-    grid_x = grid_x.T
-    grid_y = grid_y.T
-
-    # ei_energy = np.log10(np.mean(np.power(ei, 2), axis=1) + .000000001)
-    ei_energy = np.log10(np.max(np.abs(ei), axis=1) + 1e-9)
-    ei_energy_grid = griddata(
-        channel_positions, ei_energy, 
-        (grid_x, grid_y), method='linear', 
-        fill_value=np.median(ei_energy))
-
-    return ei_energy_grid.T
-
 def plot_test(n_ID, vcd):
     import matplotlib.colors as mcolors
     
     sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
 
-    ei, ei_map = get_ei_and_map(n_ID, vcd)
+    ei, ei_map, ei_map_intrp = get_ei_and_map(n_ID, vcd)
     top_idx = get_top_electrodes(n_ID, vcd, n_interval=1, n_markers=20, b_sort=True)
     ei_ts_min = get_ei_ts_min(ei, top_idx, ei_map.shape)
     diff = np.abs(np.diff(ei_ts_min))
@@ -281,7 +310,7 @@ def plot_test(n_ID, vcd):
                 color=color, lw=3)
         # ax.text(elec_locs[i, 0], elec_locs[i, 1], f"{cval:.2f}", color='k')
     # Overlap ei map
-    ei_map = compute_ei_map_grid(vcd.get_ei_for_cell(n_ID).ei, electrode_map)
+    ei_map = compute_interpolated_ei_map(vcd.get_ei_for_cell(n_ID).ei, electrode_map)
 
     ax.imshow(ei_map[::-1], cmap='hot', alpha=0.3, 
     extent=[electrode_map[:,0].min(), electrode_map[:,0].max(),

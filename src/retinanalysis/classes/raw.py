@@ -16,6 +16,8 @@ class RawTraces:
         self.d_timing = rb.d_timing
         self.sorted_electrodes = eiu.sort_electrode_map(rb.vcd.get_electrode_map())
         self.data = None
+        self.r_data = None # requested data
+        self.d_meta = {'start_sample': None, 'end_sample': None, 'channels': None}
         self.ttl_times = None
         self.ttl_samples = None
         self.sample_rate = SAMPLE_RATE  # Hz
@@ -49,7 +51,7 @@ class RawTraces:
         self.ttl_samples = data
 
 
-    def load_bin_data(self, start_sample=0, end_sample=None, verbose=False):
+    def load_bin_data(self, start_sample=0, end_sample=None, verbose=False, channels=None):
         """
         Load raw .bin data into a NumPy array.
 
@@ -63,11 +65,35 @@ class RawTraces:
         """
         with bin2py.PyBinFileReader(self.binpath, chunk_samples=RW_BLOCKSIZE, is_row_major=True) as pbfr:
             # Determine the number of electrodes and total samples
-            n_channels = pbfr.num_electrodes
+            if channels is None:
+                n_channels = pbfr.num_electrodes
+                channels = np.arange(n_channels)
+            else:
+                # Ensure array
+                channels = np.array(channels)
+                n_channels = len(channels)
+                
+            # Check if already loaded for this range and channels
+            if self.data is not None:
+                if (self.d_meta['start_sample'] <= start_sample and 
+                    self.d_meta['end_sample'] >= end_sample and
+                    np.array_equal(self.d_meta['channels'], channels)):
+                    if verbose:
+                        print("Requested data range and channels already loaded.")
+                    # Return relevant slice
+                    start_idx = start_sample - self.d_meta['start_sample']
+                    end_idx = end_sample - self.d_meta['start_sample']
+                    self.r_data = self.data[:, start_idx:end_idx]
+                    return
+                else:
+                    if verbose:
+                        print("Requested data range or channels differ from loaded data. Reloading.")
+                    self.data = None  # Clear existing data to load new range/channels
+            
             total_samples = pbfr.length
             
             if verbose:
-                print(f"Number of electrodes: {n_channels}, Total samples: {total_samples}.")
+                print(f"Querying number of electrodes: {n_channels}, Total samples: {total_samples}.")
                 print(f"Total time: {total_samples / SAMPLE_RATE} seconds")
                 print(f"Sample rate: {SAMPLE_RATE} Hz")
 
@@ -107,7 +133,7 @@ class RawTraces:
                 ttl_times_buffer.append(trigger_indices[:, 0])
 
                 # Populate the data matrix (exclude channel 0)
-                data[:, start_idx - start_sample:start_idx - start_sample + n_samples_to_get] = chunk[1:, :]
+                data[:, start_idx - start_sample:start_idx - start_sample + n_samples_to_get] = chunk[channels + 1, :]
                 # ttl_samples[start_idx - start_sample:start_idx - start_sample + n_samples_to_get] = chunk[0, :]
 
             # Concatenate TTL times
@@ -117,6 +143,10 @@ class RawTraces:
             print(f'Data shape: {data.shape}')
         # print(f'TTL times shape: {ttl_times.shape}')
         self.data = data
+        self.r_data = data
+        self.d_meta['start_sample'] = start_sample
+        self.d_meta['end_sample'] = end_sample
+        self.d_meta['channels'] = channels
         self.ttl_times = ttl_times
         self.ttl_samples = ttl_samples
         

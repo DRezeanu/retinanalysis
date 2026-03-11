@@ -32,6 +32,8 @@ from .utils.datajoint_utils import *
 from .utils import ei_utils
 from .utils.ei_utils import *
 
+from .utils import spike_detector
+
 from .utils import regen
 from .utils.regen import *
 
@@ -63,6 +65,8 @@ from .classes.response import (ResponseBlock,
 from .classes import qc
 from .classes.qc import MEAQC
 
+from .classes import raw
+from .classes.raw import RawTraces
 
 # Pipeline must be imported last as it references the above pieces.
 from .classes import mea_pipeline

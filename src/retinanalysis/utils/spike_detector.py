@@ -1,8 +1,10 @@
 import numpy as np
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # Import for 3D plotting
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.gridspec as gridspec
 import os
+
 
 def fit_kmeans(data, n_clusters):
     # KMeans
@@ -208,10 +210,11 @@ def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_
     - sigF: Spike factor for the current trace.
     - str_save_plot: Path to save the plots.
     """
-    fig = plt.figure(figsize=(12, 6))
+    fig = plt.figure(figsize=(24, 6))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[1, 8])
 
     # 3D scatter plot for clustering data
-    ax1 = fig.add_subplot(1, 2, 1, projection='3d')
+    ax1 = fig.add_subplot(gs[0, 0], projection='3d')
     # ax1.scatter(
     #     peak_amplitudes[cluster_index == spike_cluster_indices],
     #     rebound['Left'][cluster_index == spike_cluster_indices],
@@ -246,7 +249,7 @@ def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_
     ax1.set_title('Clustering Data')
 
     # 2D plot for the trace
-    ax2 = fig.add_subplot(1, 2, 2)
+    ax2 = fig.add_subplot(gs[0, 1])
     ax2.plot(current_trace, 'k', label='Trace')
     if len(spike_times) > 0:
         ax2.scatter(spike_times, current_trace[spike_times], c='r', label='Spikes')
@@ -264,6 +267,7 @@ def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_
         ax2.scatter(spike_times[refractory_violations], current_trace[ref_sts], c='g', label='Refractory Violations')
     ax2.set_title(f'SpikeFactor = {sigF:.2f}')
     ax2.legend()
+    ax2.grid(True)
 
     plt.tight_layout()
     if str_save_plot:
