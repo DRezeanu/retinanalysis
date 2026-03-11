@@ -652,7 +652,7 @@ class AnalysisChunk:
         str_self += f"  canvas_size: {self.canvas_size}\n"
         str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
-        str_self += f"  rf_params with fiels: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
+        str_self += f"  rf_params with fields: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
         str_self += f"  df_cell_params of shape: {self.df_cell_params.shape}\n"
         if hasattr(self, 'd_spatial_maps'):
             str_self += f"  d_spatial_maps with {len(self.d_spatial_maps)} cells\n"
