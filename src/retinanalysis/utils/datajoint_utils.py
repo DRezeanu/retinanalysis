@@ -842,11 +842,11 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> di
 
     # Get stim timing and frame rate
     e_q = schema.Epoch() & f'parent_id={block_id}'
-    n_epoch_times = len(d_timing['epochStarts'])
     n_epochs = len(e_q)
 
     # If mea, check for inequality with number of epochStarts and epochs of metadata
     if is_mea:
+        n_epoch_times = len(d_timing['epochStarts'])
         # Can have 1 more metadata entry in case of failed TTL signal... in that case throwing away metadata and using only those epochs
         # where we have reliable starts and stops.
         if n_epochs > n_epoch_times:
