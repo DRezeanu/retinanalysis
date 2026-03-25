@@ -73,22 +73,6 @@ class RawTraces:
                 channels = np.array(channels)
                 n_channels = len(channels)
                 
-            # Check if already loaded for this range and channels
-            if self.data is not None:
-                if (self.d_meta['start_sample'] <= start_sample and 
-                    self.d_meta['end_sample'] >= end_sample and
-                    np.array_equal(self.d_meta['channels'], channels)):
-                    if verbose:
-                        print("Requested data range and channels already loaded.")
-                    # Return relevant slice
-                    start_idx = start_sample - self.d_meta['start_sample']
-                    end_idx = end_sample - self.d_meta['start_sample']
-                    self.r_data = self.data[:, start_idx:end_idx]
-                    return
-                else:
-                    if verbose:
-                        print("Requested data range or channels differ from loaded data. Reloading.")
-                    self.data = None  # Clear existing data to load new range/channels
             
             total_samples = pbfr.length
             
@@ -111,6 +95,23 @@ class RawTraces:
                 print(f'Queried time: {query_samples / SAMPLE_RATE} seconds')
                 print(f'From {start_sample / SAMPLE_RATE} to {end_sample / SAMPLE_RATE} seconds')
                 
+            # Check if already loaded for this range and channels
+            if self.data is not None:
+                if (self.d_meta['start_sample'] <= start_sample and 
+                    self.d_meta['end_sample'] >= end_sample and
+                    np.array_equal(self.d_meta['channels'], channels)):
+                    if verbose:
+                        print("Requested data range and channels already loaded.")
+                    # Return relevant slice
+                    start_idx = start_sample - self.d_meta['start_sample']
+                    end_idx = end_sample - self.d_meta['start_sample']
+                    self.r_data = self.data[:, start_idx:end_idx]
+                    return
+                else:
+                    if verbose:
+                        print("Requested data range or channels differ from loaded data. Reloading.")
+                    self.data = None  # Clear existing data to load new range/channels
+            
             # Preallocate array for the data
             data = np.zeros((n_channels, query_samples), dtype=np.float32)
 
