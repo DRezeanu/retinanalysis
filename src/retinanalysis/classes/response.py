@@ -738,7 +738,7 @@ class MEAResponseGroup:
 
 def create_mea_response_group(
         exp_name: str, ls_datafile_names: List[str], 
-        ss_version: str=None, b_load_fd: bool = False, 
+        ss_version: str='kilosort2.5', b_load_fd: bool = False, 
         b_LED: bool=False, verbose: bool = False
     ):
 
