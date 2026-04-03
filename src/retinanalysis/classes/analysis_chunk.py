@@ -146,6 +146,8 @@ class AnalysisChunk:
             isi = self.vcd.get_acf_numpairs_for_cell(id)
             np.nan_to_num(isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
             self.d_ISIs[id] = isi
+        self.isi_bin_edges = np.linspace(0,300,601)
+
 
         self.get_noise_params()
         self.get_rf_params()

@@ -87,7 +87,7 @@ def get_pct_refractory(isi_dict, n_bin_max):
     return pct_refractory
 
 class MEAQC():
-    def __init__(self, rb: MEAResponseBlock, ac: AnalysisChunk, match_dict: dict,
+    def __init__(self, rb: MEAResponseBlock | MEAResponseGroup, ac: AnalysisChunk, match_dict: dict,
                  corr_dict: dict, refractory_period_ms: float=1.5, verbose: bool = False):
         self.rb = rb
         self.ac = ac
