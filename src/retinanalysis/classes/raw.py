@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from retinanalysis.classes.response import MEAResponseBlock
 from retinanalysis.config.settings import RAW_DIR
 from retinanalysis import ei_utils as eiu
+from typing import Optional
 
 # Constants
 RW_BLOCKSIZE = 100000  # Block size for reading data
@@ -100,7 +101,7 @@ class RawTraces:
 
 def plot_sts_over_trace(rt: RawTraces, rb: MEAResponseBlock, 
                         cell_id, epoch_idx, start_time=0, end_time=None,
-                        n_highlight_width=18, channel_idx:int=None, ax=None):
+                        n_highlight_width=18, channel_idx: Optional[int]=None, ax=None):
     # Load epoch_idx if needed
     if rt.epoch_idx != epoch_idx:
         rt.load_epoch_index(epoch_idx, verbose=True)
