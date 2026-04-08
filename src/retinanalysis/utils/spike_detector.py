@@ -74,9 +74,10 @@ def apply_min_peak_amp(min_peak_amplitude, peak_amplitudes, peak_times, spike_in
 def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_period=1.5e-3, search_window=1.2e-3, 
              cutoff_frequency=500, global_polarity=False, min_peak_amplitude=0,
              n_clusters=2, max_trial_length_s=1, str_save_dir=None):
-    refractory_period_dp = refractory_period * sample_rate  # datapoints
-    search_window_dp = search_window * sample_rate  # datapoints
-    max_trial_length_dp = int(max_trial_length_s * sample_rate)  # Convert seconds to datapoints
+    # Convert from s to data points
+    refractory_period_dp = refractory_period * sample_rate 
+    search_window_dp = search_window * sample_rate 
+    max_trial_length_dp = int(max_trial_length_s * sample_rate) 
     print(f'Max trial length in data points: {max_trial_length_dp} = {max_trial_length_s} s')
 
     data_matrix = high_pass_filter(data_matrix, cutoff_frequency, 1/sample_rate)
@@ -183,12 +184,6 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_per
                 plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_indices,
                                     non_spike_cluster_index, current_trace, spike_times[tt],
                                     refractory_violations[tt], sigF, str_save_plot=str_save_plot)
-
-    # if len(spike_times) == 1:  # return vector not list if only 1 trial
-    #     spike_times = spike_times[0]
-    #     spike_amplitudes = spike_amplitudes[0]
-    #     refractory_violations = refractory_violations[0]
-    
 
     return spike_times, spike_amplitudes, refractory_violations
 

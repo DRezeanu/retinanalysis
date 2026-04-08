@@ -2,19 +2,37 @@ import bin2py
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+import retinanalysis
 from retinanalysis.classes.response import MEAResponseBlock
 from retinanalysis.config.settings import RAW_DIR
 from retinanalysis import ei_utils as eiu
+try:
+    import importlib.resources as ir
+except:
+    import importlib_resources as ir #type: ignore
 
 # Constants
 RW_BLOCKSIZE = 100000  # Block size for reading data
 TTL_THRESHOLD = 1000
 SAMPLE_RATE = 20000 # Hz
+D_ELECTRODE_MAPS = {
+    '60um': np.loadtxt(ir.files(retinanalysis) / "assets/electrode_maps/60um_electrode_map.txt", dtype=int)
+}
 class RawTraces:
-    def __init__(self, rb: MEAResponseBlock):
-        self.binpath = os.path.join(RAW_DIR, rb.exp_name, rb.datafile_name)
-        self.d_timing = rb.d_timing
-        self.sorted_electrodes = eiu.sort_electrode_map(rb.vcd.get_electrode_map())
+    def __init__(self, rb: MEAResponseBlock=None, binpath=None):
+        if rb is None and binpath is None:
+            raise ValueError("Either rb (MEAResponseBlock) or binpath must be provided.")
+
+        if rb is None:
+            self.binpath = binpath
+            self.d_timing = {}    
+            print(f"Assuming 60um electrode map for binpath {binpath} since no MEAResponseBlock provided.")
+            self.sorted_electrodes = eiu.sort_electrode_map(D_ELECTRODE_MAPS['60um'])
+        else:
+            self.binpath = os.path.join(RAW_DIR, rb.exp_name, rb.datafile_name)
+            self.d_timing = rb.d_timing
+            self.sorted_electrodes = eiu.sort_electrode_map(rb.vcd.get_electrode_map())
+        
         self.data = None
         self.r_data = None # requested data
         self.d_meta = {'start_sample': None, 'end_sample': None, 'channels': None}
@@ -152,6 +170,9 @@ class RawTraces:
         self.ttl_samples = ttl_samples
         
     def load_epoch_index(self, epoch_idx, verbose=True):
+        # Raise error if d_timing empty
+        if not self.d_timing:
+            raise ValueError("Timing information (d_timing) is empty. Cannot load epoch index.")
         epoch_start = self.d_timing['epochStarts'][epoch_idx]
         epoch_end = self.d_timing['epochEnds'][epoch_idx]
         self.load_bin_data(start_sample=epoch_start, end_sample=epoch_end, verbose=verbose)
