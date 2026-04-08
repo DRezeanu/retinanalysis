@@ -34,7 +34,9 @@ class RawTraces:
             self.sorted_electrodes = eiu.sort_electrode_map(rb.vcd.get_electrode_map())
         
         self.data = None
-        self.r_data = None # requested data
+        # requested data variable, for holding 
+        # smaller range of data from already loaded data
+        self.r_data = None 
         self.d_meta = {'start_sample': None, 'end_sample': None, 'channels': None}
         self.ttl_times = None
         self.ttl_samples = None
