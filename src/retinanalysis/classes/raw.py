@@ -133,10 +133,10 @@ class RawTraces:
                     self.data = None  # Clear existing data to load new range/channels
             
             # Preallocate array for the data
-            data = np.zeros((n_channels, query_samples), dtype=np.float32)
+            data = np.zeros((n_channels, query_samples), dtype=np.int16)
 
             ttl_times_buffer = []
-            ttl_samples = np.zeros((query_samples,), dtype=np.float32)
+            ttl_samples = np.zeros((query_samples,), dtype=np.int16)
             # Read data in chunks
             for start_idx in range(start_sample, end_sample, RW_BLOCKSIZE):
                 n_samples_to_get = min(RW_BLOCKSIZE, end_sample - start_idx)
