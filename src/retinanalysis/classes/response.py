@@ -172,10 +172,11 @@ class SCResponseBlock(ResponseBlock):
             self.get_spike_times(**detector_kwargs)
 
     def get_spike_times(self, **detector_kwargs):
-        spike_times, amps, refs = detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
-        self.spike_times = spike_times
-        self.spike_amps = amps
-        self.spike_refs = refs
+        d_output = detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
+        self.d_detector_output = d_output
+        self.spike_times = d_output['spike_times_final']
+        self.spike_amps = d_output['spike_amps_final']
+        self.spike_refs = d_output['refractory_violations']
 
     def __repr__(self):
         str_self = super().__repr__()
@@ -195,6 +196,7 @@ class MEAResponseBlock(ResponseBlock):
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None, 
                  h5_file: Optional[str]=None, include_ei: bool=True, 
                  b_load_fd: bool=False, b_LED: Optional[bool]=False,
+                 b_load_vcd: bool = True,
                  verbose: bool = True):
         # If pkl_file is provided, block_id can be None.
         block_id = None
@@ -215,33 +217,33 @@ class MEAResponseBlock(ResponseBlock):
 
         self.amp_sample_rate = SAMPLE_RATE # MEA DAQ sample rate in Hz, analogous variable in SCResponseBlock
 
-        self.vcd = get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei, verbose = self.verbose)
+        if b_load_vcd:
+            self.vcd = get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei, verbose = self.verbose)
+            self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
+
+            if include_ei:
+                self.d_EIs = dict()
+                self.d_EI_error = dict()
+                bad_ids = []
+                for id in self.cell_ids:
+                    try:
+                        self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
+                        self.d_EI_error[id] = self.vcd.get_ei_for_cell(id).ei_error
+                    except:
+                        print(f'WARNING: No ei for ref cell id {id}, removing from {self.datafile_name} ResponseBlock')
+                        bad_ids.append(id)
+
+                mask = ~np.isin(self.cell_ids, bad_ids)
+                self.cell_ids = self.cell_ids[mask]
+            
+            self.get_spike_times()
 
         # If pkl_file is provided, everything else is already loaded in parent init.
         if pkl_file is not None:
             return
 
-        
         self.protocol_name = self.d_block_summary['protocol_name']
-        self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
-
-        if include_ei:
-            self.d_EIs = dict()
-            self.d_EI_error = dict()
-            bad_ids = []
-            for id in self.cell_ids:
-                try:
-                    self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
-                    self.d_EI_error[id] = self.vcd.get_ei_for_cell(id).ei_error
-                except:
-                    print(f'WARNING: No ei for ref cell id {id}, removing from {self.datafile_name} ResponseBlock')
-                    bad_ids.append(id)
-
-            mask = ~np.isin(self.cell_ids, bad_ids)
-            self.cell_ids = self.cell_ids[mask]
         
-        self.get_spike_times()
-
     def get_spike_times(self):
         d_spike_times = {'cell_id': [], 'spike_times': []}
 
@@ -739,13 +741,15 @@ class MEAResponseGroup:
 def create_mea_response_group(
         exp_name: str, ls_datafile_names: List[str], 
         ss_version: str=None, b_load_fd: bool = False, 
-        b_LED: bool=False, verbose: bool = False
+        b_LED: bool=False, b_load_vcd: bool = True,
+        verbose: bool = False,
+        
     ):
 
     response_blocks = [
         MEAResponseBlock(
             exp_name, datafile_name, ss_version = ss_version, b_LED = b_LED, 
-            b_load_fd = b_load_fd, verbose = verbose
+            b_load_fd = b_load_fd, verbose = verbose, b_load_vcd = b_load_vcd
             ) for datafile_name in ls_datafile_names
             ]
 
