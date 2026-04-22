@@ -46,7 +46,12 @@ dependencies = [
   "xarray",
   "dask",
   "netCDF4",
-  "bottleneck"]
+  "bottleneck",
+  "umap-learn",
+  "PyQt5>=5.15.0",
+  "pyqtgraph>=0.13.0",
+  "QtPy>=2.4.0",
+  "hdbscan"]
 
 [project.urls]
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
