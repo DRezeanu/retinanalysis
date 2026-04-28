@@ -78,13 +78,13 @@ Retinanalysis uses a custom datajoint mysql database to store all experiment met
 
 We've included a modified docker-compose.yaml file for easy installation using the steps below:
 
-1. Install docker desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>
+6. Install docker desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>
 
-2. Copy the docker-compose.yaml file from the repository's root into an empty directory where you
+7. Copy the docker-compose.yaml file from the repository's root into an empty directory where you
 will store your database. You can create this folder in the repository root if you'd like,
 but you must add it to your .gitignore if you do this.
 
-7. cd into the new directory and run:
+8. cd into the new directory and run:
 ```
 docker-compose up -d
 ```
@@ -99,7 +99,7 @@ see a stop icon, otherwise, click the play button.
 
 <img width="1382" height="832" alt="Screenshot 2025-10-24 at 3 00 20 PM" src="https://github.com/user-attachments/assets/45ee0d03-6dd7-48c4-ad38-c75e558259ed" />
 
-8. Populate database. Before you can look up anything in the database you need to fill its entries. This can take a very long time for big databases, and even longer if connecting remotely over a VPN. To populate the database the first time you import retinanalysis, run:
+9. Populate database. Before you can look up anything in the database you need to fill its entries. This can take a very long time for big databases, and even longer if connecting remotely over a VPN. To populate the database the first time you import retinanalysis, run:
 ```
 import retinanalysis as ra
 ra.populate_database()
