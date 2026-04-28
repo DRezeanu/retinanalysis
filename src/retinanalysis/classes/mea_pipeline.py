@@ -560,7 +560,7 @@ class MEAPipeline:
         # For StimBlock, ResponseBlock, and AnalysisChunk, get only the __dict__ attribute
         d_out['stim_block'] = self.stim.__dict__
         d_out['response_block'] = self.resp.__dict__
-        d_out['analysis_chunk'] = self.resp.__dict__
+        d_out['analysis_chunk'] = self.analysis_chunk.__dict__
         # Pop out vcd from response_block and analysis_chunk
         d_out['response_block'].pop('vcd', None)
         d_out['analysis_chunk'].pop('vcd', None)
