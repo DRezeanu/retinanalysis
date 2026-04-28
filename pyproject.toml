@@ -26,8 +26,11 @@ classifiers = [
 ]
 dependencies = [
   "hdf5storage",
+  "h5py",
+  "statsmodels",
   "progressbar2",
-  "cython",
+  "Cython",
+  "setuptools",
   "opencv-python",
   "matplotlib",
   "scikit-learn",
