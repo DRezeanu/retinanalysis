@@ -21,7 +21,7 @@ pip install -e .
 4. Install additional requirements from artificial-retina-software-pipeline submodule:
 ```
 cd repositories_dir/retinanalysis/lib/artificial-retina-software-pipeline/utilities/ 
-pip install --no-build-isolation .
+pip install .
 ```
 
 5. Create a config.ini file using the sample version below as a guide and put this config file inside the retinanalysis/src/retinanalysis/config folder in the repo.
