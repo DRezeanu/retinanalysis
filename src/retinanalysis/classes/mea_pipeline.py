@@ -60,6 +60,8 @@ class MEAPipeline:
         
         self.verbose = verbose
 
+        # If loading from pickle file, load as dict and generate stim, resp, and analysis_chunk
+        # It not, throw value error if stim, resp, or analysis_chunk inputs are None
         if pkl_file is None:
             if stim is None or resp is None or analysis_chunk is None:
                 raise ValueError("Either stim_block, response_block, and analysis_chunk must be provided or pkl_file.")
@@ -74,15 +76,16 @@ class MEAPipeline:
                 print(f"MEAPipeline loaded from {pkl_file}")
             return
         
-        if isinstance(stim, MEAStimBlock) or isinstance(stim, MEAStimGroup):
-            self.stim = stim
-            self.resp = resp
-        else:
-            raise ValueError("Stimulus is neither a StimBlock or a StimGroup")
+        # Check that stimulus and response are either a StimBlock or StimGroup
+        assert (isinstance(stim, MEAStimBlock) | isinstance(stim, MEAStimGroup)), 'Stimulus is neither StimBlock nor a StimGroup'
+        assert (isinstance(resp, MEAResponseBlock) | isinstance(stim, MEAResponseGroup)), 'Response is neither ResponseBlock nor a ResponseGroup'
+        self.stim = stim
+        self.resp = resp
 
         self.analysis_chunk = analysis_chunk
         self.typing_file = typing_file
 
+        # If datafile/datafiles in resp are all part of the same chunk as analysis_chunk, skip cluster match
         if isinstance(self.resp, MEAResponseBlock):
             if self.resp.datafile_name in self.analysis_chunk.data_files:
                 print('Protocol is part of the sorting chunk, skipping cluster matching...')
@@ -98,10 +101,13 @@ class MEAPipeline:
             else:
                 self.match_dict, self.corr_dict = cluster_match(self.analysis_chunk, self.resp, verbose = self.verbose)
         
+        # Add noise_ids from match dict to response block df_spike_times dataframe
         self.add_matches_to_protocol()
+        # Add cell types for these cell ids to response block df_spike_times dataframe
         self.add_types_to_protocol(typing_file_name = self.typing_file)
 
-
+    # Warn user that pipeline.response_block and pipeline.stim_block have been replaced
+    # by pipeline.resp and pipeline.stim, respectively
     @property
     def response_block(self):
         print("WARNING: `pipeline.response_block` is deprecated, use `pipeline.resp` instead")
@@ -112,7 +118,6 @@ class MEAPipeline:
         print("WARNING: `pipeline.stim_block` is deprecated, use `pipeline.stim` instead")
         return self.stim
 
-    
 
     def add_matches_to_protocol(self) -> None:
         """
@@ -121,6 +126,13 @@ class MEAPipeline:
         utility function is called to create a noise_id : protocol_id match dictionary, and then this
         dictionary is used in reverse to assign a noise_id to every protocol_id in the 
         MEAResponseBlock.df_spike_times dataframe.
+
+        Parameters:
+        None
+
+        Returns:
+        None: This function does not return anything. It simply creates a 'noise_id' column
+        in the resp.df_spike_times dataframe using the values in self.match_dict.
         """
         inverse_match_dict = {val : key for key, val in self.match_dict.items()}
         for id in self.resp.df_spike_times['cell_id']:
@@ -276,12 +288,14 @@ class MEAPipeline:
         areas cover is one standard deviation.
         """
         
+        # Convert individual cell type string or cell ID integer (or float) into a list
         if isinstance(cell_types, str):
             cell_types = [cell_types]
             
         if isinstance(protocol_ids, int) or isinstance(protocol_ids, float):
             protocol_ids = [int(protocol_ids)]
 
+        # pull the noise_ids associated with the given protocol_ids and cell_types
         noise_ids = self.get_noise_ids(protocol_ids, cell_types)
 
         # Check if user provided a typing file. If not, use the typing file provided when pipeline
@@ -293,8 +307,7 @@ class MEAPipeline:
             ax = self.analysis_chunk.plot_timecourses(noise_ids, cell_types = cell_types, 
                                                  minimum_n = minimum_n, typing_file = self.typing_file,
                                                       **kwargs)
-            
-        
+
         return ax
 
     def get_noise_ids(self, protocol_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None) -> List[int]:
@@ -305,14 +318,15 @@ class MEAPipeline:
         before the full AnalysisChunk versions of those functions are called.
         """
 
-        # Pull analysis_block ids that match the input cell_ids and cell_types
-        # If neither is given, plot all matched ids
+        # Convert individual cell type string or cell id integer (or float) into a list
         if isinstance(cell_types, str):
             cell_types = [cell_types]
         
         if isinstance(protocol_ids, int) or isinstance(protocol_ids, float):
             protocol_ids = [int(protocol_ids)]
 
+        # Pull analysis_block ids that match the input cell_ids and cell_types
+        # If neither is given, plot all matched ids
         if protocol_ids is None and cell_types is None:
             protocol_ids = list(self.resp.df_spike_times['cell_id'].values)
             noise_ids = [key for key, val in self.match_dict.items() if val in protocol_ids]
@@ -331,11 +345,14 @@ class MEAPipeline:
             filtered_protocol_ids = self.resp.df_spike_times.query('cell_type in @cell_types and cell_id in @protocol_ids')['cell_id'].values
             noise_ids = [key for key, val in self.match_dict.items() if val in filtered_protocol_ids]
 
+        # Raise error if no cell IDs found after the above filtering
         if len(noise_ids) == 0:
             raise Exception("No cluster matched ids found for given list of cell ids and/or cell types") 
 
         return noise_ids
 
+    #TODO: Move to response block, make pipeline.get_psth_arr a stub method that calls
+    # the response block version with additional cell types and other details.
     def get_psth_arr(self, protocol_ids: Optional[List[int] | int] = None,
                      cell_types: Optional[List[str] | str] = None,
                      typing_file: Optional[str] = None, minimum_n: int = 1,
@@ -449,14 +466,44 @@ class MEAPipeline:
                   cell_types: Optional[List[str] | str] = None,
                   typing_file: Optional[str] = None, minimum_n: int = 1,
                   bins: Optional[np.ndarray | list | int] = None,
+                  bin_rate: Optional[float] = None,
                   time_step: int = 500) -> dict:
+        """
+        Method for plotting PSTHs for a list of cell ids, cell types, or both. The
+        method calls get_psth_arr() first, then plots the data in the resulting xarray
+        using one figure per cell type, and one axis per cell ID.
+
+        Parameters:
+        protocol_ids (List[int] | int): A single integer ID or list of cell IDs to plot
+
+        cell_types (List[str] | str): A single cell_type string or list of cell type strings
+        to plot
+
+        typing_file (str): Optional. The name of a typing file to use. If none is given, then 
+        the typing file used to intantiate the MEAPipeline object will be used.
+
+        bins (np.ndarray | list | int): Optional. If an integer is given, the spike times will
+        be binned in that many evenly spaced bins. If a list is given, the values in the list 
+        are used as bin edges.
+        
+        bin_rate (float): Optional. Default None. If a bin rate (in Hz) is given, the bins input
+        will be ignored and bin_edges will be created from the bin_rate value.
+
+        time_step (int): A time step (in milliseconds) to use for the x axis of the plot.
+
+        Returns:
+        all_ax (Dict[str:axes]): A dictionary organized by cell_type. Each key is a different cell type
+        and the values in that key is an ndarray of matplotlib axes, one for each cell of that type that
+        was plotted.
+        """
 
 
         psth_arr = self.get_psth_arr(protocol_ids = protocol_ids,
                                      cell_types = cell_types,
                                      typing_file = typing_file,
                                      minimum_n = minimum_n,
-                                     bins = bins)
+                                     bins = bins,
+                                     bin_rate = bin_rate)
 
 
         unique_types = np.unique(psth_arr.coords['cell_type'].to_numpy())
@@ -504,23 +551,6 @@ class MEAPipeline:
         return all_ax
 
 
-    def __repr__(self):
-        str_self = f"{self.__class__.__name__} with properties:\n"
-
-        if isinstance(self.stim, MEAStimBlock) and isinstance(self.resp, MEAResponseBlock):
-            str_self += f"  Stim Block and Response Block from: {os.path.splitext(self.resp.protocol_name)[1][1:]}\n"
-            str_self += f"  Stim Block from datafile {self.stim.datafile_name}.\n"
-            str_self += f"  Response Block from datafile {self.resp.datafile_name}.\n"
-        elif isinstance(self.stim, MEAStimGroup) and isinstance(self.resp, MEAResponseGroup):
-            str_self += f"  Stim Group and Response Group from: {os.path.splitext(self.resp.protocol_name)[1][1:]}\n"
-            str_self += f"  MEA Stim Group from datafiles {self.stim.datafile_names}.\n"
-            str_self += f"  MEA Response Group from datafiles {self.resp.datafile_names}.\n"
-
-        str_self += f"  analysis_chunk: {self.analysis_chunk.chunk_name}\n"  
-        str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.resp.protocol_name)[1][1:]}_id\n"
-        str_self += f"  corr_dict: with {self.analysis_chunk.chunk_name}_id : calculated ei correlations\n"
-        return str_self
-
     def export_to_pkl(self, file_path: str):
         """
         Export the MEAPipeline to a pickle file. The output of this method can be given to the 
@@ -538,6 +568,23 @@ class MEAPipeline:
             import pickle
             pickle.dump(d_out, f)
         print(f"MEAPipeline exported to {file_path}")
+
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+
+        if isinstance(self.stim, MEAStimBlock) and isinstance(self.resp, MEAResponseBlock):
+            str_self += f"  Stim Block and Response Block from: {os.path.splitext(self.resp.protocol_name)[1][1:]}\n"
+            str_self += f"  Stim Block from datafile {self.stim.datafile_name}.\n"
+            str_self += f"  Response Block from datafile {self.resp.datafile_name}.\n"
+        elif isinstance(self.stim, MEAStimGroup) and isinstance(self.resp, MEAResponseGroup):
+            str_self += f"  Stim Group and Response Group from: {os.path.splitext(self.resp.protocol_name)[1][1:]}\n"
+            str_self += f"  MEA Stim Group from datafiles {self.stim.datafile_names}.\n"
+            str_self += f"  MEA Response Group from datafiles {self.resp.datafile_names}.\n"
+
+        str_self += f"  analysis_chunk: {self.analysis_chunk.chunk_name}\n"  
+        str_self += f"  match_dict: with {self.analysis_chunk.chunk_name}_id : {os.path.splitext(self.resp.protocol_name)[1][1:]}_id\n"
+        str_self += f"  corr_dict: with {self.analysis_chunk.chunk_name}_id : calculated ei correlations\n"
+        return str_self
 
 def create_mea_pipeline(
         exp_name: str, datafile_name: str | List[str], analysis_chunk_name: Optional[str] = None,
