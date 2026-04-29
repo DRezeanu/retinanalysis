@@ -7,6 +7,7 @@ from retinanalysis import (RAW_DIR,
                            DATA_DIR)
 from subprocess import run as sp_run
 from multiprocessing import cpu_count
+import pandas as pd
 
 def load_raw_data(rawfile_location, chunk_samples = 100000):
     with b2p.PyBinFileReader(rawfile_location, chunk_samples = chunk_samples) as pbfr:
@@ -21,9 +22,11 @@ def load_raw_data(rawfile_location, chunk_samples = 100000):
 def load_ks_data(ks_location):
     spike_times = np.load(os.path.join(ks_location, 'spike_times.npy'))
     cluster_ids = np.load(os.path.join(ks_location, 'spike_clusters.npy'))
-    unique_ids = np.unique(cluster_ids)
+    cluster_group = pd.read_csv(os.path.join(ks_location, 'cluster_group.tsv'), delimiter ='\t')
 
-    spike_dict = {int(id+1) : spike_times[cluster_ids == id] for id in unique_ids}
+    good_ids = cluster_group.query('KSLabel == "good"')['cluster_id'].to_list()
+
+    spike_dict = {int(id+1) : spike_times[cluster_ids == id] for id in good_ids}
     
     return spike_dict
 
@@ -39,6 +42,7 @@ def generate_vision_files(exp_name: str, datafile_name: str, output_path: str,
     if verbose:
         print(f'\nRaw file location: {rawfile_location}')
         print(f'Kilosort file location: {ks_location}')
+        print(f'Path to Vision.jar: {vision_path}')
         print(f'Writing output to: {output_path}')
 
     # Load spike times and units from Kilosort output
@@ -98,8 +102,10 @@ if __name__=='__main__':
     ks_version = args.ks_version
     verbose = args.verbose
 
-    generate_vision_files(exp_name, datafile_name, output_path, raw_path, sorted_path,
-                          ks_version, vision_path, verbose = True)
+    generate_vision_files(exp_name = exp_name, datafile_name = datafile_name,
+                          output_path = output_path, raw_path = raw_path,
+                          sorted_path = sorted_path, ks_version = ks_version,
+                          vision_path = vision_path, verbose = True)
 
 
 
