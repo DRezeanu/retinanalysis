@@ -68,7 +68,7 @@ def generate_vision_files(exp_name: str, datafile_name: str, output_path: str,
     # Write ei
     n_cpus = cpu_count()
 
-    # User 60% of available CPUs
+    # Use 60% of available CPUs
     available_cpus = int(n_cpus*0.6)
 
     if verbose:
@@ -106,8 +106,3 @@ if __name__=='__main__':
                           output_path = output_path, raw_path = raw_path,
                           sorted_path = sorted_path, ks_version = ks_version,
                           vision_path = vision_path, verbose = True)
-
-
-
-
-
