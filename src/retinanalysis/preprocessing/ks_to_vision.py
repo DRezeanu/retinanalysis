@@ -140,7 +140,7 @@ if __name__=='__main__':
                                      description='Convert spike times and TTL data from Kilosort output to .neurons, .globals, and .ei Vision files')
 
     # Positional arguments
-    parser.add_argument('exp_name', help='experiment name, (e.g. 20260715)')
+    parser.add_argument('exp_name', help='experiment name, (e.g. 20260715C)')
     parser.add_argument('datafile_name', help='name of datafile to convert to vision (e.g. data000)')
     parser.add_argument('output_path', help='path for output files (e.g. /Volumes/SSD/vision_output)')
     parser.add_argument('vision_path', help='path to Vision.jar file (e.g. .../MEA/src/Vision7_for_2015DAQ/Vision.jar)')
