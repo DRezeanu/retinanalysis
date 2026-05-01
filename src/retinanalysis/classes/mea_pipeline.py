@@ -625,11 +625,11 @@ def create_mea_pipeline(
 
     if isinstance(datafile_name, list):
         s = create_mea_stim_group(exp_name, datafile_name, b_LED=b_LED, ls_params = ls_params, verbose = verbose)
-        r = create_mea_response_group(exp_name, datafile_name, ss_version = ss_version, b_LED=b_LED, b_load_fd = b_load_fd, verbose = verbose)
+        r = create_mea_response_group(exp_name, datafile_name, ss_version = ss_version, b_LED=b_LED, b_load_fd = b_load_fd, b_load_vcd = b_load_vcd, verbose = verbose)
 
     elif isinstance(datafile_name, str):
         s = MEAStimBlock(exp_name, datafile_name, b_LED=b_LED, ls_params = ls_params, verbose = verbose)
-        r = MEAResponseBlock(exp_name, datafile_name, ss_version, b_LED=b_LED, b_load_fd = b_load_fd, verbose = verbose)
+        r = MEAResponseBlock(exp_name, datafile_name, ss_version, b_LED=b_LED, b_load_fd = b_load_fd, b_load_vcd = b_load_vcd, verbose = verbose)
 
     assert s is not None, 'Unable to create stim block or stim group for given parameters'
     assert r is not None, 'Unable to create response block or response group for given parameters'
