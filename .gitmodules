@@ -1,0 +1,3 @@
+[submodule "lib/artificial-retina-software-pipeline"]
+	path = lib/artificial-retina-software-pipeline
+	url = https://github.com/DRezeanu/artificial-retina-software-pipeline.git

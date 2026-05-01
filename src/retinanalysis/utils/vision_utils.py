@@ -643,8 +643,12 @@ def ei_corr(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
 
         num_pts = ref_eis.shape[1]
 
+
         # Calculate covariance and correlation
-        c = test_eis @ ref_eis.T / num_pts
+        # TEMP FIX FOR NUMPY BUG that shows erroneous warnings Macs running
+        # M4 and M5 chips. See Numpy bug 29820:
+        with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
+            c = test_eis @ ref_eis.T / num_pts
         d = np.mean(test_eis, axis = 1)[:,None] * np.mean(ref_eis, axis = 1)[:,None].T
         covs = c - d
 

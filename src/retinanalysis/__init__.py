@@ -42,6 +42,11 @@ from .utils.vision_utils import *
 
 from .utils import parse_data
 
+# Import preprocessing
+from . import preprocessing
+from .preprocessing import sta
+
+
 # Import classes last
 from . import classes
 from .classes import analysis_chunk
