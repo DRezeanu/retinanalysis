@@ -20,65 +20,40 @@ import os
 
 SAMPLE_RATE = 20000 # MEA DAQ sample rate in Hz
 
-def check_frame_times(frame_times: np.ndarray | list, frame_rate: float=60.0): 
-    """
-    Check the frame times for dropped frames.
-
-    Parameters:
-        frame_times: 1D array of frame times.
-        frame_rate: frame rate of the stimulus.
-
-    Returns:
-        frame_times: 1D array of frame times with dropped frames fixed.
-    """
-    # check that frame_times is an array not a list. Conver to array if not.
-    if not isinstance(frame_times, np.ndarray):
-        frame_times = np.array(frame_times)
-
-    # Get the frame durations in milliseconds.
-    frame_interval = 1000/frame_rate
-    d_frames = np.diff(frame_times)
-    # Get the number of frames between transitions/check for drops.
-    transition_frames = np.round( d_frames / frame_interval ).astype(np.int32)   # this was backwards... frame_interval/d_frames
-                                                                                # prints 1 wherever there is a missing frame and
-                                                                                # a zero everywhere else...
-
-    # Check for frame drops.
-    if np.amax(transition_frames) > 1:
-        n_frames = np.sum(transition_frames)+1
-        # print(f'Number of frames: {n_frames}')
-        # print(list(transition_frames))
-
-        f_times = np.zeros((n_frames,), dtype=np.float64)
-        frame_count = 0
-        for idx in range(len(frame_times)-1):
-            if transition_frames[idx] > 1:
-                this_frame = frame_times[idx]
-                next_frame = frame_times[idx+1]
-                new_times = np.linspace(this_frame, next_frame, transition_frames[idx], endpoint=False)
-                for new_t in new_times:
-                    f_times[frame_count] = new_t
-                    frame_count += 1
-            else:
-                f_times[frame_count] = frame_times[idx]
-                frame_count += 1
-            # Add in the last frame time.
-            f_times[-1] = frame_times[-1]
-        return f_times, transition_frames
-    else: 
-        return frame_times, transition_frames
 
 class ResponseBlock:
     """
-    Generic class for single cell or MEA response blocks. 
+    Generic class for single cell or MEA response blocks. A response block contains spike time
+    data for an MEA datafile (e.g. data000 or data001) or a Single Cell epoch block.
+
+    Parameters:
+        exp_name (str) Optional: String giving the name of the experiment (e.g. '20250713C').
+        Optional and Default None, but None is only valid if pkl_file is provided.
+
+        block_id (int) Optional: Block_id for this particular epoch block in the database.
+        Optional and Default None, but None is only valid if pkl_file is provided.
+
+        h5_file (str) Optional: Path to an h5 file containing metadata for this experiment and
+        epoch block. Default None but required in order to get frame monitor data.
+
+        pkl_file (str | dict) Optional: Path to pkl_file or dict generated from pkl_file
+        containing a ResponseBlock object.
+
+        b_load_fd (bool): Boolean value, if True will load frame monitor data.
+
+        b_LED (bool): Boolean value, set to True if stimulus was delivered by an LED.
+        This automatically overwrites b_load_fd to False since LED stimuli have no frame data.
+
+        verbose (bool): Boolean value, if True will print status messages to console. Default True.
     """
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
                  h5_file: Optional[str]=None, pkl_file: Optional[str | dict]=None, 
-                 b_load_fd: bool=True, b_LED: Optional[bool]=False,
+                 b_load_fd: bool=True, b_LED: bool=False,
                  verbose: bool = True):
 
         self.verbose = verbose
         self.b_LED = b_LED
+
         if self.b_LED:
             # No frame data for LED blocks
             b_load_fd = False
@@ -111,7 +86,7 @@ class ResponseBlock:
         self.d_timing = get_epochblock_timing(self.exp_name, self.block_id, b_LED=self.b_LED)
 
         if b_load_fd:
-            frame_data, frame_sample_rate = get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file, verbose = self.verbose)    
+            frame_data, frame_sample_rate = get_epochblock_frame_data(self.exp_name, self.block_id, str_h5=self.h5_file, verbose = self.verbose)
         else:
             frame_data = np.array([])
             frame_sample_rate = None
@@ -119,8 +94,24 @@ class ResponseBlock:
         self.frame_data = frame_data
         self.frame_sample_rate = frame_sample_rate
         exp_summary = get_exp_summary(self.exp_name)
+
+        assert exp_summary is not None, f'Experiment summary for {self.exp_name} came back empty'
         self.d_block_summary = exp_summary.query('block_id == @block_id').iloc[0].to_dict()
 
+    def plot_frame_monitor(self, e_idx=0, xlim=(0,1)):
+        f, ax = plt.subplots(figsize=(10,4))
+        fd = self.frame_data[e_idx]
+        time = np.arange(fd.shape[0]) / self.frame_sample_rate
+        ax.plot(time, fd)
+        for ft in self.d_timing['frameTimesMs'][e_idx]:
+            ax.axvline(x=ft * 1e-3, color='r', linestyle='--')
+        ax.set_xlim(*xlim)
+
+    def export_to_pkl(self, file_path: str):
+        d_out = self.__dict__.copy()
+        with open(file_path, 'wb') as f:
+            pickle.dump(d_out, f)
+        print(f"ResponseBlock exported to {file_path}")
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
@@ -133,29 +124,46 @@ class ResponseBlock:
         str_self += f"  frame_data shape: {self.frame_data.shape}\n"
         if self.h5_file is not None:
             str_self += f"  h5_file: {self.h5_file}\n"
+
         return str_self
-
-    def export_to_pkl(self, file_path: str):
-        d_out = self.__dict__.copy()
-        with open(file_path, 'wb') as f:
-            pickle.dump(d_out, f)
-        print(f"ResponseBlock exported to {file_path}")
-
-    def plot_frame_monitor(self, e_idx=0, xlim=(0,1)):
-        f, ax = plt.subplots(figsize=(10,4))
-        fd = self.frame_data[e_idx]
-        time = np.arange(fd.shape[0]) / self.frame_sample_rate
-        ax.plot(time, fd)
-        for ft in self.d_timing['frameTimesMs'][e_idx]:
-            ax.axvline(x=ft * 1e-3, color='r', linestyle='--')
-        ax.set_xlim(*xlim)
 
 
 class SCResponseBlock(ResponseBlock):
+    """
+    Single Cell subclass of ResponseBlock. Can load spiking and non-spiking data
+    from amp output contained in h5 file. Automatically uses a spike detector to
+    get spikes if b_spiking is set to True.
+    
+    Parameters:
+        exp_name (str) Optional: String giving the name of the experiment (e.g. '20250713C').
+        Optional and Default None, but None is only valid if pkl_file is provided.
+
+        block_id (int) Optional: Block_id for this particular epoch block in the database.
+        Optional and Default None, but None is only valid if pkl_file is provided.
+
+        h5_file (str) Optional: Path to an h5 file containing metadata for this experiment and
+        epoch block. Optional and Default None, but None is only valid if pkl_file is provided.
+
+        pkl_file (str | dict) Optional: Path to pkl_file or dict generated from pkl_file
+        containing a ResponseBlock object.
+        
+        b_spiking (bool): Boolean value, if True this is a recording from a spiking cell and 
+        spike detection will be run. Default False.
+
+        b_load_fd (bool): Boolean value, if True will load frame monitor data.
+
+        b_LED (bool): Boolean value, set to True if stimulus was delivered by an LED.
+        This automatically overwrites b_load_fd to False since LED stimuli have no frame data.
+
+        verbose (bool): Boolean value, if True will print status messages to console. Default True.
+
+        **detector_kwargs: kwargs to be given to the detector method in get_spike_times()
+    """
+
     def __init__(self, exp_name: Optional[str]=None, block_id: Optional[int]=None,
-                 h5_file: Optional[str]=None, b_LED: Optional[bool]=False,
-                 pkl_file: Optional[str]=None, b_spiking: bool=False, 
-                 b_load_fd: bool=True, verbose: bool = True, **detector_kwargs):
+                 h5_file: Optional[str]=None, pkl_file: Optional[str]=None,
+                 b_spiking: bool=False, b_load_fd: bool=True, b_LED: bool=False,
+                 verbose: bool = True, **detector_kwargs):
 
         super().__init__(
             exp_name=exp_name, block_id=block_id, h5_file=h5_file, b_LED=b_LED,
@@ -191,6 +199,31 @@ class SCResponseBlock(ResponseBlock):
 
 
 class MEAResponseBlock(ResponseBlock):
+    """
+    Subclass of ResponseBlock, specifically for MEA spike time data. This pulls 
+    data from the vision files in a datafile folder (e.g. data000) specified by
+    datafile_name. The class also optionally loads frame monitor data and EI data.
+
+    Parameters:
+        exp_name (str) Optional: String specifying the name of the experiment (e.g. 20250715C).
+        Optional and default of None, but None is only valid if a pkl_file is provided.
+
+        datafile_name (str) Optional: String specifying the name of the datafile to query (e.g. dat000).
+        Optional and default of None, but None is only valid if a pkl_file is provided.
+
+        ss_version (str): String specifying the spike sorter used. Default 'kilosort2.5'.
+
+        pkl_file (str) Optional: Path to a pkl_file containing an MEAResponseBlock object. Default None.
+
+        b_load_fd (bool): Boolean value, if True will load frame monitor data. Default is False.
+
+        b_LED (bool): Boolean value, if True the stimulus used for this datafile was delivered using an
+        LED rather than a microdisplay or lightcrafter. This automatically overwrites b_load_fd to False
+        since LED stimuli have no frame monitor data.
+
+        verbose (bool): Boolean value, if True all status messages will be printed to the console as
+        the response block is created. Default is True.
+    """
 
     def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None, 
@@ -198,10 +231,9 @@ class MEAResponseBlock(ResponseBlock):
                  b_load_fd: bool=False, b_LED: Optional[bool]=False,
                  b_load_vcd: bool = True,
                  verbose: bool = True):
-        # If pkl_file is provided, block_id can be None.
-        block_id = None
+
         if pkl_file is None:
-            # Either pkl_file or exp_name and datafile_name must be provided
+            # If pkl_file is None, exp_name and datafile_name must be provided
             if exp_name is None or datafile_name is None:
                 raise ValueError("Either exp_name and datafile_name or pkl_file must be provided.")
             else:
@@ -210,7 +242,11 @@ class MEAResponseBlock(ResponseBlock):
                 # Set the ss_version and datafile_name for loading VCD.
                 self.ss_version = ss_version
                 self.datafile_name = datafile_name
+        else:
+            # If pkl_file is provided, block_id can be None.
+            block_id = None
 
+        # Initialize superclass
         super().__init__(
             exp_name=exp_name, block_id=block_id, pkl_file=pkl_file, 
             h5_file=h5_file, b_LED=b_LED, b_load_fd=b_load_fd, verbose = verbose)
@@ -355,6 +391,8 @@ class MEAResponseBlock(ResponseBlock):
         self.bin_rate = bin_rate
         self.time_bins_ms = time_bins[:-1]
 
+    # Add cell types column to df_spike_times dataframe, given a specific noise chunk and typing file.
+    # Cell types are added after cluster matching with the given noise_chunk.
     def add_cell_types(self, noise_chunk: Optional[str] = None, typing_file: Optional[str] = None):
 
         import retinanalysis
@@ -397,12 +435,10 @@ class MEAResponseBlock(ResponseBlock):
             else:
                 assert typing_file in analysis_chunk.typing_files, f"Typing file {typing_file} not found in noise chunk {noise_chunk}"
 
-                
-
-
 
         assert noise_chunk is not None and typing_file is not None
 
+        # TODO: Check if responseblock is part of analysis chunk, and if so skip cluster matching.
         # Cluster Match
         self.match_dict, _ = cluster_match(analysis_chunk, self, verbose = self.verbose) 
         inverse_match_dict = {value: key for key, value in self.match_dict.items()}
@@ -472,6 +508,19 @@ class MEAResponseBlock(ResponseBlock):
         print(f"MEAResponseBlock exported to {file_path}")
 
 class MEAResponseGroup:
+    """
+    A group of MEAResponseBlocks concatenated into a single object. This works as long as all the
+    included MEAResponseBlocks are (1) part of the same experiment, (2) used the same protocol (e.g. movingbar),
+    (3) part of the same sorting chunk, and (4) each come from a different datafile.
+
+    Parameters:
+        ls_blocks (List[MEAResponseBlock]): A list of MEAResponseBlock objects to concatenate into a ResponseGroup
+
+        b_load_fd (bool): Boolean value, if True will pull and include frame monitor data for all response blocks
+
+        verbose (bool): Boolean value, if True will print all status messages to the console. Because of the number
+        of response blocks created, default value is False.
+    """
 
     def __init__(self, ls_blocks: List[MEAResponseBlock], b_load_fd: bool = False, verbose: bool = False):
 
@@ -737,7 +786,6 @@ class MEAResponseGroup:
         return str_self
 
 
-
 def create_mea_response_group(
         exp_name: str, ls_datafile_names: List[str], 
         ss_version: str=None, b_load_fd: bool = False, 
@@ -745,6 +793,30 @@ def create_mea_response_group(
         verbose: bool = False,
         
     ):
+    """
+    Helper function for creating an MEA Response Group from a list of datafiles. The function creates all of the
+    MEAResponseBlock objects from the list of datafiles, and uses those MEAResponseBlock objects to create the
+    MEAResponseGroup.
+
+    Parameters:
+        exp_name (str): String of experiment to use (e.g. '20250713C')
+
+        ls_datafile_names (List[str]): List of datafiles names as strings (e.g. ['data000', 'data001'])
+
+        ss_version (str): Spike sorter used to sort those datafiles, default 'kilosort2.5'.
+
+        b_load_fd (bool): Boolean value, if True will load and included frame monitor data. Default False.
+
+        b_LED (bool): Boolean value, if True assume stimulus for tehse datafiles was deliverd by an LED.
+        This automatically sets b_load_fd to False since LED stimuli have no frame data. Default False.
+
+        verbose (bool): Boolean value, if True will print all outputs to the console. Since multiple
+        MEAResponseBlocks must be created, with many status messages, Default is False.
+
+    Returns:
+        response_group (MEAReponseGroup): A response group object made up of the MEAResponseBlocks
+        corresponding to all the datafiles in ls_datafile_names.
+    """
 
     response_blocks = [
         MEAResponseBlock(
@@ -754,3 +826,53 @@ def create_mea_response_group(
             ]
 
     return MEAResponseGroup(ls_blocks = response_blocks, b_load_fd = b_load_fd, verbose = verbose)
+
+
+def check_frame_times(frame_times: np.ndarray | list, frame_rate: float=60.0): 
+    """
+    Check the frame times for dropped frames.
+
+    Parameters:
+        frame_times (ndarray): 1D array of frame times.
+
+        frame_rate (float): frame rate of the stimulus in Hz. Default is 60.
+
+    Returns:
+        frame_times (ndarray): 1D array of frame times with dropped frames fixed.
+    """
+    # check that frame_times is an array not a list. Conver to array if not.
+    if not isinstance(frame_times, np.ndarray):
+        frame_times = np.array(frame_times)
+
+    # Get the frame durations in milliseconds.
+    frame_interval = 1000/frame_rate
+    d_frames = np.diff(frame_times)
+    # Get the number of frames between transitions/check for drops.
+    transition_frames = np.round( d_frames / frame_interval ).astype(np.int32)   # this was backwards... frame_interval/d_frames
+                                                                                # prints 1 wherever there is a missing frame and
+                                                                                # a zero everywhere else...
+
+    # Check for frame drops.
+    if np.amax(transition_frames) > 1:
+        n_frames = np.sum(transition_frames)+1
+        # print(f'Number of frames: {n_frames}')
+        # print(list(transition_frames))
+
+        f_times = np.zeros((n_frames,), dtype=np.float64)
+        frame_count = 0
+        for idx in range(len(frame_times)-1):
+            if transition_frames[idx] > 1:
+                this_frame = frame_times[idx]
+                next_frame = frame_times[idx+1]
+                new_times = np.linspace(this_frame, next_frame, transition_frames[idx], endpoint=False)
+                for new_t in new_times:
+                    f_times[frame_count] = new_t
+                    frame_count += 1
+            else:
+                f_times[frame_count] = frame_times[idx]
+                frame_count += 1
+            # Add in the last frame time.
+            f_times[-1] = frame_times[-1]
+        return f_times, transition_frames
+    else: 
+        return frame_times, transition_frames

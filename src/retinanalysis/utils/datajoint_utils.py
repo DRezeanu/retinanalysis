@@ -839,7 +839,28 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> di
                 d_timing['frameTimesMs'].pop()
             
         elif len(epoch_ends) != len(epoch_starts):
-            raise ValueError(f"Mismatch in number of epoch starts and ends: {len(epoch_starts)} starts and but {len(epoch_ends)} ends.")
+            if len(epoch_ends) > len(epoch_starts):
+                n_extra_ends = len(epoch_ends)-len(epoch_starts)
+                print(f"Epoch Starts: {[(i, epoch_starts[i]) for i in range(len(epoch_starts))]}")
+                print(f"Epoch Ends: {[(i, epoch_ends[i]) for i in range(len(epoch_ends))]}\n")
+                for _ in range(n_extra_ends):
+                    idx_to_remove = input('More ends than starts, select index (from 0) to remove:')
+                    print(f'Removing epoch end #{int(idx_to_remove)}\n')
+                    epoch_ends.pop(int(idx_to_remove))
+                    print(f"Epoch Starts: {[(i, epoch_starts[i]) for i in range(len(epoch_starts))]}")
+                    print(f"Epoch Ends: {[(i, epoch_ends[i]) for i in range(len(epoch_ends))]}\n")
+            elif len(epoch_starts) > len(epoch_ends):
+                n_extra_starts = len(epoch_starts)-len(epoch_ends)
+                print(f"Epoch Starts: {[(i, epoch_starts[i]) for i in range(len(epoch_starts))]}")
+                print(f"Epoch Ends: {[(i, epoch_ends[i]) for i in range(len(epoch_ends))]}\n")
+                for _ in range(n_extra_starts):
+                    idx_to_remove = input('More starts than ends, select index (from 0) to remove:')
+                    print(f'Removing epoch start #{int(idx_to_remove)}\n')
+                    epoch_starts.pop(int(idx_to_remove))
+                    print(f"Epoch Starts: {[(i, epoch_starts[i]) for i in range(len(epoch_starts))]}")
+                    print(f"Epoch Ends: {[(i, epoch_ends[i]) for i in range(len(epoch_ends))]}\n")
+            else:
+                raise ValueError(f"Mismatch in number of epoch starts and ends: {len(epoch_starts)} starts and but {len(epoch_ends)} ends.")
 
         d_timing['epochStarts'] = epoch_starts
         d_timing['epochEnds'] = epoch_ends
