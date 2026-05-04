@@ -163,15 +163,15 @@ def get_spatial_noise_frames(numXStixels: int,
     stepsPerStixel = int(stepsPerStixel)
     frameDwell = int(frameDwell)
     
-    print(f'numXStixels: {numXStixels}, numYStixels: {numYStixels}, numXChecks: {numXChecks}, numYChecks: {numYChecks}')
-    print(f'chromaticClass: {chromaticClass}, unique_frames: {unique_frames}, repeat_frames: {repeat_frames}')
-    print(f'stepsPerStixel: {stepsPerStixel}, seed: {seed}, frameDwell: {frameDwell}')
-    print(f'gaussianFilter: {gaussianFilter}, filterSdStixels: {filterSdStixels}')
+    # print(f'numXStixels: {numXStixels}, numYStixels: {numYStixels}, numXChecks: {numXChecks}, numYChecks: {numYChecks}')
+    # print(f'chromaticClass: {chromaticClass}, unique_frames: {unique_frames}, repeat_frames: {repeat_frames}')
+    # print(f'stepsPerStixel: {stepsPerStixel}, seed: {seed}, frameDwell: {frameDwell}')
+    # print(f'gaussianFilter: {gaussianFilter}, filterSdStixels: {filterSdStixels}')
     
     # Compute gridSizePix, stixelSizePix. 
     gridSizePix = lcr_video_device_um_to_pix(gridSizeUm, micronsPerPixel)
     stixelSizePix = gridSizePix * stepsPerStixel
-    print(f'Grid size: {gridSizePix} pix, Stixel size: {stixelSizePix} pix')
+    # print(f'Grid size: {gridSizePix} pix, Stixel size: {stixelSizePix} pix')
     
     # Seed the random number generator.
     np.random.seed( int(seed) )
@@ -217,7 +217,7 @@ def get_spatial_noise_frames(numXStixels: int,
     # Binarize to 0 and 1, then convert to contrast (-1 to 1)
     gridValues = np.round(gridValues)
     gridValues = (2*gridValues-1).astype(np.float32) 
-    print(f'gridValues: {gridValues.shape}')
+    # print(f'gridValues: {gridValues.shape}')
 
     # Filter the stixels if indicated.
     if gaussianFilter:
@@ -250,7 +250,7 @@ def get_spatial_noise_frames(numXStixels: int,
     #         rs_shape[::-1], 
     #         interpolation=cv2.INTER_NEAREST_EXACT)
 
-    print(f'fullGrid: {fullGrid.shape}')
+    # print(f'fullGrid: {fullGrid.shape}')
 
     ## Generate the motion trajectory of the larger stixels.
     # Re-seed the number generator.
@@ -265,15 +265,15 @@ def get_spatial_noise_frames(numXStixels: int,
     
     # For debugging: full pixel space
     # frameValues = np.zeros((tsize,canvasSize[0], canvasSize[1]),dtype=np.float32)
-    print(f'frameValues: {frameValues.shape}')
+    # print(f'frameValues: {frameValues.shape}')
 
     # Compute crop amounts so fullGrid is centered on frameValues canvas.
     crop_Y = (fullGrid.shape[1] - frameValues.shape[1]) / 2
     crop_X = (fullGrid.shape[2] - frameValues.shape[2]) / 2
-    print(f'Precise Crop X: {crop_X:.2f}, Crop Y: {crop_Y:.2f}')
+    # print(f'Precise Crop X: {crop_X:.2f}, Crop Y: {crop_Y:.2f}')
     crop_Y = np.round(crop_Y).astype(int)
     crop_X = np.round(crop_X).astype(int)
-    print(f'Rounded Crop X: {crop_X}, Crop Y: {crop_Y}')
+    # print(f'Rounded Crop X: {crop_X}, Crop Y: {crop_Y}')
 
     # Apply the jittered cropping to get frameValues from fullGrid.
     for k in range(tsize):
@@ -337,7 +337,7 @@ def get_spatial_noise_frames(numXStixels: int,
     
     # For debugging: full pixel space
     # stimulus = np.zeros((np.ceil(tsize/tfactor).astype(int), canvasSize[0], canvasSize[1], 3), dtype=np.float32)
-    print(f'stimulus: {stimulus.shape}')
+    # print(f'stimulus: {stimulus.shape}')
     # Get the pixel values into the proper color channels
     if (chromaticClass == 'BY'):
         stimulus[:,:,:,0] = frameValues[0::2,:,:]

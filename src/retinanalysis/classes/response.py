@@ -641,7 +641,8 @@ class MEAResponseGroup:
         all_ei_error = []
         for id in self.cell_ids:
             ls_eis = [block.vcd.get_ei_for_cell(id).ei for block in self.ls_blocks]
-            ls_spikes = [block.vcd.get_ei_for_cell(id).n_spikes for block in self.ls_blocks]
+            # ls_spikes = [block.vcd.get_ei_for_cell(id).n_spikes for block in self.ls_blocks]
+            ls_spikes = [len(block.vcd.get_spike_times_for_cell(id)) for block in self.ls_blocks]
             ls_error = [block.vcd.get_ei_for_cell(id).ei_error for block in self.ls_blocks]
 
             ls_eis = np.stack(ls_eis)
