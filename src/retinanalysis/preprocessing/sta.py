@@ -112,8 +112,8 @@ def compute_stas(
             s_end = (i+1) * n_split_sz
             if s_end > n_stim_dims:
                 s_end = n_stim_dims
+            
             for j, lag in tqdm.tqdm(list(enumerate(lags)), desc="STA depth"):
-            # for j, lag in enumerate(lags):
                 br = binned_responses[:, :, j:]
                 sd = stim_data[:, :, s_start:s_end]
                 if lag > 0:
@@ -135,6 +135,7 @@ def compute_stas(
                 elif device.type == 'mps':
                     torch.mps.empty_cache()
                 gc.collect()
+        
         # Reverse time dim for standard convention
         stas = stas[:, ::-1, :]
 

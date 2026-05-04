@@ -8,6 +8,7 @@ import cv2
 from typing import Optional
 from retinanalysis.classes.response import MEAResponseBlock, SCResponseBlock
 
+
 def get_df_dict_vals(df, key, col_name='epoch_parameters'):
     vals = np.array([d[key] for d in df[col_name].values])
     return vals
