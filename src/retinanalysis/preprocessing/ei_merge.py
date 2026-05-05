@@ -128,7 +128,6 @@ def merge_eis(exp_name: str, chunk_name: str, datafiles: List[str], sorted_dir: 
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(prog='ei_merge',
-                                     usage='',
                                      description='Script for merging EIs from several individual datafiles\
                                      into a single ei for the chunk.')
 
@@ -142,13 +141,15 @@ if __name__=='__main__':
 
     # Optional arguments
     parser.add_argument('--ss_version', help='version of kilosort used for spike sorting (e.g. kilosort2.5)',
-                        type=str, default='kilosort2.5', const='kilosort2.5')
-    parser.add_argument('--sorted_dir', help='path to directory containing datafile eis (e.g. .../Volumes/data/sorted/)',
-                        type=str, default=DATA_DIR, const=DATA_DIR)
-    parser.add_argument('--output_dir', help='path to directory containing datafile eis (e.g. .../Volumes/data/sorted/)',
-                        type=str, default=DATA_DIR, const=DATA_DIR)
-    parser.add_argument('-v', '--verbose', help='print status messages to console', action='store_true')
+                        type=str, nargs='?', default='kilosort2.5', const='kilosort2.5')
 
+    parser.add_argument('--sorted_dir', help='path to directory containing datafile eis (e.g. .../Volumes/data/sorted/)',
+                        type=str, nargs='?', default=DATA_DIR, const=DATA_DIR)
+
+    parser.add_argument('--output_dir', help='path to directory containing datafile eis (e.g. .../Volumes/data/sorted/)',
+                        type=str, nargs='?', default=DATA_DIR, const=DATA_DIR)
+
+    parser.add_argument('-v', '--verbose', help='print status messages to console', action='store_true')
 
     args = parser.parse_args()
 
@@ -161,4 +162,4 @@ if __name__=='__main__':
     verbose = args.verbose
 
     merge_eis(exp_name = exp_name, chunk_name = chunk_name, datafiles = datafiles, sorted_dir = sorted_dir,
-                output_dir = output_dir, ss_version = ss_version, verbose = verbose)
+              output_dir = output_dir, ss_version = ss_version, verbose = verbose)
