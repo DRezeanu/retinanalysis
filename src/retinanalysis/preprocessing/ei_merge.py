@@ -8,7 +8,7 @@ import numpy as np
 from typing import List
 
 
-def combine_error(mean_ei, total_spikes, n_spikes, ei_error, eis):
+def merge_error(mean_ei, total_spikes, n_spikes, ei_error, eis):
     """
     Calculate combined standard deviation of multiple electrical images to create one
     merged EI from several datafile EIs. This is a helper function, it is not meant
@@ -18,15 +18,16 @@ def combine_error(mean_ei, total_spikes, n_spikes, ei_error, eis):
     standard devs, we use the law of total variance.
     """
 
+    num_datasets = len(n_spikes)
     n_spikes = n_spikes[:, None, None]
     sos_within = np.sum((n_spikes - 1) * (ei_error ** 2), axis=0)
     sos_between = np.sum(n_spikes * ((eis - mean_ei) ** 2), axis=0)
-    combined_var = (sos_within + sos_between) / (total_spikes - 1)
+    combined_var = (sos_within + sos_between) / (total_spikes - num_datasets)
     avg_error = np.sqrt(combined_var)
 
     return avg_error
 
-def combine_eis(exp_name: str, chunk_name: str, datafiles: List[str], sorted_dir: str = DATA_DIR,
+def merge_eis(exp_name: str, chunk_name: str, datafiles: List[str], sorted_dir: str = DATA_DIR,
                 output_dir: str = DATA_DIR, ss_version: str = 'kilosort2.5', verbose: bool = True):
 
     """
@@ -105,7 +106,7 @@ def combine_eis(exp_name: str, chunk_name: str, datafiles: List[str], sorted_dir
         total_spikes = np.sum(n_spikes)
 
         # Calculate avg error
-        avg_error = combine_error(avg_ei, total_spikes, n_spikes,
+        avg_error = merge_error(avg_ei, total_spikes, n_spikes,
                                      ei_error, eis)
         
         combined_eis[int(id)] = WriteableEIData(ei_matrix = avg_ei,
@@ -159,5 +160,5 @@ if __name__=='__main__':
     exp_name = args.exp_name
     verbose = args.verbose
 
-    combine_eis(exp_name = exp_name, chunk_name = chunk_name, datafiles = datafiles, sorted_dir = sorted_dir,
+    merge_eis(exp_name = exp_name, chunk_name = chunk_name, datafiles = datafiles, sorted_dir = sorted_dir,
                 output_dir = output_dir, ss_version = ss_version, verbose = verbose)
