@@ -16,6 +16,7 @@ import gc
 def _get_n_splits_memory(
     sd: torch.Tensor, 
     br: torch.Tensor, 
+    stride: int,
     device: torch.device, 
     n_max_usage: float=0.8, 
     method: str="matmul",
@@ -26,6 +27,7 @@ def _get_n_splits_memory(
     Args:
         sd (torch.Tensor): _description_
         br (torch.Tensor): _description_
+        stride (int): Stride for upsampling stimulus data to match binned responses.
         device (torch.device): _description_
         n_max_usage (float, optional): _description_. Defaults to 0.8.
         verbose (bool, optional): _description_. Defaults to True.
@@ -47,7 +49,7 @@ def _get_n_splits_memory(
     max_memory_gb *= n_max_usage
 
     # Estimate total data size
-    total_data_gb = (sd.element_size() * sd.nelement() + br.element_size() * br.nelement()) / 1e9
+    total_data_gb = (sd.element_size() * sd.nelement() * stride + br.element_size() * br.nelement()) / 1e9
     n_splits = int(np.ceil(total_data_gb/max_memory_gb))
     if method == 'conv':
         # Conv uses more memory, so adding some buffer splits
@@ -59,9 +61,10 @@ def _get_n_splits_memory(
     return n_splits
 
 def compute_stas(
-    stim_data: torch.Tensor, 
-    binned_responses: torch.Tensor,
+    stim_data: np.ndarray, 
+    binned_responses: np.ndarray,
     depth: int=60,
+    stride: int=2,
     method: str="matmul",
     verbose: bool=True
     )->np.ndarray:
@@ -70,12 +73,13 @@ def compute_stas(
     Can use for EI as well, where instead of frames you have raw data samples
 
     Args:
-        stim_data (torch.Tensor):
+        stim_data (np.ndarray):
             Stimulus data of shape [N epochs, T frames, *]
             For noise stim, last dims are [H, W, C]
             For EI, last dims are [C] electrodes
-        binned_responses (torch.Tensor):
+        binned_responses (np.ndarray):
             Binned spikerate/spikecount of shape [N epochs, K cells, T frames]
+        stride (int): Stride for upsampling stimulus data to match binned responses. If stim_data is already upsampled, set to 1.
         method (str): "matmul" or "conv"
 
     Returns:
@@ -84,10 +88,16 @@ def compute_stas(
             For noise stim, [H, W, C]
             For EI, [C]
     """
+    # [N epochs, T frames, H, W, C]
+    stim_data = torch.tensor(stim_data, dtype=torch.float32)
+    # [N epochs, K cells, T frames]
+    binned_responses = torch.tensor(binned_responses, dtype=torch.float32)
+
     stim_dims = stim_data.shape[2:]
     n_stim_dims = np.prod(stim_dims)
-    n_epochs, n_cells, n_frames = binned_responses.shape
+    n_epochs, n_cells, n_bins = binned_responses.shape
 
+    n_frames = stim_data.shape[1]
     stim_data = stim_data.reshape(n_epochs, n_frames, -1)
 
     if torch.cuda.is_available():
@@ -98,7 +108,7 @@ def compute_stas(
         device = torch.device('cpu')
     
     n_splits = _get_n_splits_memory(
-        stim_data, binned_responses, 
+        stim_data, binned_responses, stride,
         device, method=method, verbose=verbose
     )
     n_split_sz = int(np.ceil(n_stim_dims/n_splits))
@@ -116,8 +126,13 @@ def compute_stas(
             for j, lag in tqdm.tqdm(list(enumerate(lags)), desc="STA depth"):
                 br = binned_responses[:, :, j:]
                 sd = stim_data[:, :, s_start:s_end]
+                
+                # Upsample sd by stride
+                sd = torch.repeat_interleave(sd, stride, dim=1)
+
                 if lag > 0:
-                    sd = stim_data[:, :-lag, s_start:s_end]
+                    sd = sd[:, :-lag, :]
+                
                 
                 br = br.to(device)
                 sd = sd.to(device)
@@ -137,7 +152,7 @@ def compute_stas(
                 gc.collect()
         
         # Reverse time dim for standard convention
-        stas = stas[:, ::-1, :]
+        stas = torch.flip(stas, dims=[1])
 
     elif method=="conv":
         # The shapes here can get confusing. Key to note is:
@@ -156,6 +171,8 @@ def compute_stas(
             br = binned_responses.unsqueeze(2).unsqueeze(2)
             # [N, T, S]
             sd = stim_data[:, :, s_start:s_end]
+            # Upsample sd by stride
+            sd = torch.repeat_interleave(sd, stride, dim=1)
             # permute to [N, S, T]
             sd = sd.permute(0, 2, 1)
 
@@ -208,7 +225,7 @@ def compute_stas(
     
 
 
-def compute_stas_for_chunk(
+def get_sta_inputs_for_chunk(
         sg = None,
         rg = None,
         exp_name: str=None, 
@@ -216,7 +233,6 @@ def compute_stas_for_chunk(
         ss_version: Optional[str] = 'kilosort2.5',
         datafile_name: Optional[list] = None,
         stride: Optional[int] = 2,
-        depth: int=60,
         verbose: bool=True 
     ):
     if sg is None or rg is None:
@@ -253,22 +269,23 @@ def compute_stas_for_chunk(
         sb = sg.ls_blocks[i]
         rb = rg.ls_blocks[i]
 
-        sb.regenerate_stimulus(n_jobs=10)
+        sb.regenerate_stimulus(ls_epochs=np.arange(4))
         
         # Regenerated frames just have stim time frames (no pre/post grey)
         stim_data.append(sb.stim_data['frames'])
         n_frames = sb.stim_data['frames'].shape[1]
 
         # Bin spike times
-        rb.bin_spike_times_by_frames()
+        rb.bin_spike_times_by_frames(stride=stride)
+        # [K, N, T]
         bs = rb.binned_spikes
 
         # Crop out pre frames
         pre_time_ms = rb.d_timing['pre_time_ms']
         stage_frame_rate = rb.d_timing['stage_frame_rate']
         pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
-        t_start = pre_frames
-        t_end = t_start + n_frames
+        t_start = pre_frames * stride
+        t_end = t_start + n_frames * stride
         if verbose:
             print(f"Block {i}: pre_frames={pre_frames}, binned_spikes shape={bs.shape}")
             print(f"Total frames: {n_frames}")
@@ -277,18 +294,12 @@ def compute_stas_for_chunk(
             print(f"Cropped binned spikes shape: {bs.shape}")
         resp_data.append(bs)
     
-    # Create tensors
+    ## Concatenate across blocks
+    # stim [N, T, H, W, C]
     stim_data = np.concatenate(stim_data, axis=0)
-    resp_data = np.concatenate(resp_data, axis=0)    
+    # Make resp [N, K, T]
+    resp_data = np.concatenate(resp_data, axis=1)    
+    resp_data = resp_data.transpose(1, 0, 2)
 
-    # [N epochs, T frames, H, W, C]
-    stim_data = torch.tensor(stim_data, dtype=torch.float32)
-    # [K cells, N epochs, T frames]
-    binned_responses = torch.tensor(resp_data, dtype=torch.float32)
-    # Permute to [N epochs, K cells, T frames]
-    binned_responses = binned_responses.permute(1, 0, 2)
-
-    stas = compute_stas(stim_data, binned_responses, depth=depth, method='conv', verbose=verbose)
-
-    return stas
+    return stim_data, resp_data
 

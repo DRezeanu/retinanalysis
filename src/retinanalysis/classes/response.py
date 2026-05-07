@@ -324,12 +324,10 @@ class MEAResponseBlock(ResponseBlock):
         n_max_bins = int(np.max(ls_bins))
         return n_max_bins
     
-    def bin_spike_times_by_frames(self): # , stride: int=1
+    def bin_spike_times_by_frames(self, stride: int=1):
         if self.b_LED:
             raise ValueError("Cannot bin spike times by frames for LED blocks, no frame data.")
 
-        stride = 1
-        # TODO implement stride > 1 with interpolating bw frame times.
         frame_times_ms = self.d_timing['frameTimesMs']
         if int(self.exp_name[:8]) < 20230926:
             marginal_frame_rate = 60.31807657 # Upper bound on the frame rate to make sure that we don't miss any frames.
@@ -351,7 +349,12 @@ class MEAResponseBlock(ResponseBlock):
                 fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
                 ls_diff_frames.append(np.diff(fts))
 
-                bs = np.histogram(e_sts, bins=fts)[0]
+                # Interpolate by stride
+                n_frames = len(fts)
+                stride_idxs = np.linspace(0, n_frames, n_frames*stride)
+                bin_edges = np.interp(stride_idxs, np.arange(n_frames), fts)
+
+                bs = np.histogram(e_sts, bins=bin_edges)[0]
                 if len(bs) > n_max_bins:
                     bs = bs[:n_max_bins]
                 binned_spikes[i_cell, j_epoch, :len(bs)] = bs
