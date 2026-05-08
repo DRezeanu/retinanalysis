@@ -78,7 +78,7 @@ class MEAPipeline:
         
         # Check that stimulus and response are either a StimBlock or StimGroup
         assert (isinstance(stim, MEAStimBlock) | isinstance(stim, MEAStimGroup)), 'Stimulus is neither StimBlock nor a StimGroup'
-        assert (isinstance(resp, MEAResponseBlock) | isinstance(stim, MEAResponseGroup)), 'Response is neither ResponseBlock nor a ResponseGroup'
+        assert (isinstance(resp, MEAResponseBlock) | isinstance(resp, MEAResponseGroup)), 'Response is neither ResponseBlock nor a ResponseGroup'
         self.stim = stim
         self.resp = resp
 
