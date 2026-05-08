@@ -117,6 +117,8 @@ def compute_stas(
     n_split_sz = int(np.ceil(n_stim_dims/n_splits))
     stas = torch.zeros(n_cells, depth, n_stim_dims, dtype=torch.float32)
 
+    binned_responses = binned_responses.to(device)
+
     if method=="matmul":
         batched_matmul = torch.vmap(torch.matmul)
         lags = range(depth)
@@ -126,32 +128,28 @@ def compute_stas(
             if s_end > n_stim_dims:
                 s_end = n_stim_dims
             
-            for j, lag in tqdm.tqdm(list(enumerate(lags)), desc="STA depth"):
-                br = binned_responses[:, :, j:]
-                sd = stim_data[:, :, s_start:s_end]
-                
-                # Upsample sd by stride
-                sd = torch.repeat_interleave(sd, stride, dim=1)
+            # Put stim data chunk on device
+            sd = stim_data[:, :, s_start:s_end].to(device)
+            # Upsample by stride
+            sd = torch.repeat_interleave(sd, stride, dim=1)
 
-                if lag > 0:
-                    sd = sd[:, :-lag, :]
-                
-                br = br.to(device)
-                sd = sd.to(device)
+            for j, lag in tqdm.tqdm(list(enumerate(lags)), desc="STA depth"):
+                br_lag = binned_responses[:, :, j:]
+                sd_lag = sd[:, :n_bins-lag, :]
 
                 # binned spikes [N, K, T] @ stim [N, T, S] = [N, K, S]
-                epoch_stas = batched_matmul(br, sd)
+                epoch_stas = batched_matmul(br_lag, sd_lag)
 
                 # Avg across epochs for [K, S]
                 stas[:, j, s_start:s_end] += epoch_stas.mean(axis=0).cpu()
 
-                # Clear memory
-                del br, sd, epoch_stas
-                if device.type == 'cuda':
-                    torch.cuda.empty_cache()
-                elif device.type == 'mps':
-                    torch.mps.empty_cache()
-                gc.collect()
+            # Clear memory
+            del sd, br_lag, sd_lag, epoch_stas
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
+            elif device.type == 'mps':
+                torch.mps.empty_cache()
+            gc.collect()
         
         # Reverse time dim for standard convention
         stas = torch.flip(stas, dims=[1])
@@ -252,6 +250,7 @@ def compute_stas_for_chunk(
         datafile_name: Optional[list] = None,
         stride: Optional[int] = 2,
         depth: Optional[int] = 60,
+        method: Optional[str] = "conv",
         verbose: bool=True 
     ):
     if sg is None or rg is None:
@@ -298,7 +297,7 @@ def compute_stas_for_chunk(
         # Count n frames where state.time (1/fr steps) is < pre_time_s
         pre_frames = len(np.arange(0, pre_time_s, 1/stage_frame_rate))
         # LCR CORRECTION
-        pre_frames -= 1
+        # pre_frames -= 1
         t_start = pre_frames * stride
         t_end = t_start + n_frames * stride
         if verbose:
@@ -328,13 +327,13 @@ def compute_stas_for_chunk(
             if stas is None:
                 stas = compute_stas(
                     stim_frames, resp_data,
-                    depth=depth, stride=stride, method="conv", verbose=verbose
+                    depth=depth, stride=stride, method=method, verbose=verbose
                 )
 
             else:
                 stas += compute_stas(
                     stim_frames, resp_data,
-                    depth=depth, stride=stride, method="conv", verbose=verbose
+                    depth=depth, stride=stride, method=method, verbose=verbose
                 )
             
             del stim_frames, resp_data, sb.stim_data
@@ -358,11 +357,12 @@ if __name__ == "__main__":
     parser.add_argument('--ss_version', default='kilosort2.5', help='Spike sorting version to load responses from (default: kilosort2.5)')
     parser.add_argument('--stride', type=int, default=2, help='Stride (bins/frame)')
     parser.add_argument('--depth', type=int, default=61, help='STA depth (bins)')
+    parser.add_argument('--method', type=str, default='matmul', help='Method for computing STAs (default: matmul)')
 
     args = parser.parse_args()
 
     SAVE_DIR = '/home/vyomr/Desktop/data/analysis'
-
+    
     stas, cell_ids, grid_size = compute_stas_for_chunk(
         exp_name=args.exp_name,
         chunk_name=args.chunk_name,
@@ -370,6 +370,7 @@ if __name__ == "__main__":
         ss_version=args.ss_version,
         stride=args.stride,
         depth=args.depth,
+        method=args.method,
         verbose=True
     )
     chunk_save_dir = os.path.join(SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version)
@@ -381,10 +382,10 @@ if __name__ == "__main__":
         os.mkdir(chunk_save_dir)
 
     save_prefix = os.path.join(chunk_save_dir, args.ss_version)
-    np.save(save_prefix + '_stas.npy', stas)
-    print(f"STAs saved to {save_prefix}_stas.npy")
+    np.save(save_prefix + f'_{args.method}_stas.npy', stas)
+    print(f"STAs saved to {save_prefix}_{args.method}_stas.npy")
 
-    print(f"Saving STAs in .sta format for {len(cell_ids)} cells...")
-    with STAWriter(filepath=save_prefix + '.sta') as wr:
-        wr.write(sta=stas, ste=None, cluster_id=cell_ids, stixel_size=grid_size)
-    print(f"STAs saved to {save_prefix}.sta")
+    # print(f"Saving STAs in .sta format for {len(cell_ids)} cells...")
+    # with STAWriter(filepath=save_prefix + '.sta') as wr:
+    #     wr.write(sta=stas, ste=None, cluster_id=cell_ids, stixel_size=grid_size)
+    # print(f"STAs saved to {save_prefix}.sta")
