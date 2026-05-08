@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import tqdm.auto as tqdm
 from typing import Optional, List
+from retinanalysis import regen
+import argparse
 import retinanalysis.config.schema as schema
 from retinanalysis.utils.datajoint_utils import get_noise_name_by_exp
 import os
@@ -53,7 +55,7 @@ def _get_n_splits_memory(
     n_splits = int(np.ceil(total_data_gb/max_memory_gb))
     if method == 'conv':
         # Conv uses more memory, so adding some buffer splits
-        n_splits += 2
+        n_splits *= 2
     
     if verbose:
         print(f"Total data size: {total_data_gb:.1f}GB, max available: {max_memory_gb:.1f}GB")
@@ -132,7 +134,6 @@ def compute_stas(
 
                 if lag > 0:
                     sd = sd[:, :-lag, :]
-                
                 
                 br = br.to(device)
                 sd = sd.to(device)
@@ -224,34 +225,38 @@ def compute_stas(
     return stas
     
 
+def get_noise_datafiles(exp_name, chunk_name):
+    exp_id = schema.Experiment() & {'exp_name': exp_name}
+    if len(exp_id) != 1:
+        raise ValueError(f"{len(exp_id)} exps found for given exp_name: {exp_name}")
+    exp_id = exp_id.fetch('id')[0]
+    chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name' : chunk_name}
+    chunk_id = chunk_id.fetch('id')[0]
+    noise_protocol = get_noise_name_by_exp(exp_name)
+    protocol_id = schema.Protocol() & {'name' : noise_protocol}
+    protocol_id = protocol_id.fetch('protocol_id')[0]
+    
+    epoch_blocks = schema.EpochBlock() & {'experiment_id' : exp_id, 'chunk_id' : chunk_id, 'protocol_id' : protocol_id}
 
-def get_sta_inputs_for_chunk(
-        sg = None,
-        rg = None,
+    noise_data_dirs = epoch_blocks.fetch('data_dir')
+    datafile_name = [os.path.basename(path) for path in noise_data_dirs]
+    return datafile_name
+
+def compute_stas_for_chunk(
+        sg: MEAStimGroup=None,
+        rg: MEAResponseGroup = None,
         exp_name: str=None, 
         chunk_name: str=None, 
         ss_version: Optional[str] = 'kilosort2.5',
         datafile_name: Optional[list] = None,
         stride: Optional[int] = 2,
+        depth: Optional[int] = 60,
         verbose: bool=True 
     ):
     if sg is None or rg is None:
         # If datafile name(s) not given, get noise datafiles
         if datafile_name is None:
-            exp_id = schema.Experiment() & {'exp_name': exp_name}
-            if len(exp_id) != 1:
-                raise ValueError(f"{len(exp_id)} exps found for given exp_name: {exp_name}")
-            exp_id = exp_id.fetch('id')[0]
-            chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name' : chunk_name}
-            chunk_id = chunk_id.fetch('id')[0]
-            noise_protocol = get_noise_name_by_exp(exp_name)
-            protocol_id = schema.Protocol() & {'name' : noise_protocol}
-            protocol_id = protocol_id.fetch('protocol_id')[0]
-            
-            epoch_blocks = schema.EpochBlock() & {'experiment_id' : exp_id, 'chunk_id' : chunk_id, 'protocol_id' : protocol_id}
-
-            noise_data_dirs = epoch_blocks.fetch('data_dir')
-            datafile_name = [os.path.basename(path) for path in noise_data_dirs]
+            datafile_name = get_noise_datafiles(exp_name, chunk_name)
             if verbose:
                 print(f'Found noise datafile(s): {datafile_name}')
 
@@ -262,23 +267,28 @@ def get_sta_inputs_for_chunk(
             b_load_fd = True, verbose=verbose
         )
 
-    # Collect stim and resp data
-    stim_data = []
-    resp_data = []
-    for i in range(len(sg.ls_blocks)):
+    # STA input gen and calc loop
+    stas = None
+    # Number of epochs to process in batch
+    n_epochs_batch = 4
+    n_blocks = len(sg.ls_blocks)
+    for i in range(n_blocks):
         sb = sg.ls_blocks[i]
         rb = rg.ls_blocks[i]
-
-        sb.regenerate_stimulus(ls_epochs=np.arange(4))
         
-        # Regenerated frames just have stim time frames (no pre/post grey)
-        stim_data.append(sb.stim_data['frames'])
-        n_frames = sb.stim_data['frames'].shape[1]
+        # Get number of frames (assuming same across epochs)
+        ls_unique_frames, ls_repeat_frames = regen.get_n_frames_spatial_noise(sb.df_epochs)
+        total_frames = np.array(ls_unique_frames) + np.array(ls_repeat_frames)
+        if len(np.unique(total_frames))!=1:
+            raise ValueError(f"Uneven number of frames across epochs! {total_frames}")
+        n_frames = total_frames[0]
 
         # Bin spike times
         rb.bin_spike_times_by_frames(stride=stride)
         # [K, N, T]
         bs = rb.binned_spikes
+        # Make [N, K, T]
+        bs = bs.transpose(1, 0, 2)
 
         # Crop out pre frames
         pre_time_ms = rb.d_timing['pre_time_ms']
@@ -292,14 +302,65 @@ def get_sta_inputs_for_chunk(
         bs = bs[:, :, t_start:t_end]
         if verbose:
             print(f"Cropped binned spikes shape: {bs.shape}")
-        resp_data.append(bs)
-    
-    ## Concatenate across blocks
-    # stim [N, T, H, W, C]
-    stim_data = np.concatenate(stim_data, axis=0)
-    # Make resp [N, K, T]
-    resp_data = np.concatenate(resp_data, axis=1)    
-    resp_data = resp_data.transpose(1, 0, 2)
+        
+        # Loop across epochs in batch
+        n_epochs = len(sb.df_epochs)
+        n_batches = int(np.ceil(n_epochs/n_epochs_batch))
+        for j in tqdm.tqdm(np.arange(n_batches), desc="Epoch batch"):
+            e_start = j * n_epochs_batch
+            e_end = (j+1) * n_epochs_batch
+            if e_end > n_epochs:
+                e_end = n_epochs
+            
+            # Regen stim
+            sb.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
+            # [N, T, H, W, C]
+            stim_frames = sb.stim_data['frames']
+            
+            # [N, K, T]
+            resp_data = bs[e_start:e_end]
 
-    return stim_data, resp_data
+            if stas is None:
+                stas = compute_stas(
+                    stim_frames, resp_data,
+                    depth=depth, stride=stride, method="conv", verbose=verbose
+                )
 
+            else:
+                stas += compute_stas(
+                    stim_frames, resp_data,
+                    depth=depth, stride=stride, method="conv", verbose=verbose
+                )
+            
+            del stim_frames, resp_data, sb.stim_data
+            gc.collect()
+
+    # Normalize by abs max for each cell
+    stas = stas / np.abs(stas).max(axis=(1,2,3), keepdims=True)
+
+
+    return stas
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        prog='sta.py',
+        description='Compute STAs for given experiment and chunk.'
+    )
+    parser.add_argument('exp_name', help='Experiment name (e.g. 20260715C)')
+    parser.add_argument('chunk_name', help='Chunk name (e.g. chunk1)')
+    parser.add_argument('datafile_name', nargs='*', help='Datafile name(s) to process (e.g. data000). If not given, will attempt to find noise datafiles for the given exp and chunk.')
+    parser.add_argument('--ss_version', default='kilosort2.5', help='Spike sorting version to load responses from (default: kilosort2.5)')
+    parser.add_argument('--stride', type=int, default=2, help='Stride (bins/frame)')
+    parser.add_argument('--depth', type=int, default=60, help='STA depth (bins)')
+
+    args = parser.parse_args()
+
+    stas = compute_stas_for_chunk(
+        exp_name=args.exp_name,
+        chunk_name=args.chunk_name,
+        datafile_name=args.datafile_name if len(args.datafile_name)>0 else None,
+        ss_version=args.ss_version,
+        stride=args.stride,
+        depth=args.depth,
+        verbose=True
+    )

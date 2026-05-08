@@ -27,6 +27,7 @@ from collections import Counter
 
 def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
                     include_ei: bool = True, include_neurons: bool = True,
+                    include_sta: bool=False,
                     verbose: bool = True) -> VisionCellDataTable:
 
         data_path = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version)
@@ -35,7 +36,7 @@ def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
             print(f'Loading VCD from {data_path} ...')
 
         vcd = load_vision_data(data_path, ss_version, include_ei = include_ei,
-                                  include_noise = False, include_sta = False,
+                                  include_noise = False, include_sta = include_sta,
                                   include_params = True, include_runtimemovie_params = True,
                                   include_neurons = include_neurons)
         

@@ -35,13 +35,10 @@ def load_mp4(str_mp4, b_crop_screencap=True, display_dims=(600,800)):
         print(f'Cropped frame shape: {rec_frames.shape}')
     return rec_frames
 
-def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
-                       center_col: Optional[int]=None, n_pad: Optional[int]=None,
-                       canvas_size: tuple=None):
-    # Create noise movies by epochs
-    ls_frames = []
-    ls_steps = []
-    for e_idx in tqdm.tqdm(df_epochs.index):
+def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
+    ls_unique_frames = []
+    ls_repeat_frames = []
+    for e_idx in df_epochs.index:
         fts = df_epochs.at[e_idx, 'frame_times_ms']
         pre_time = df_epochs.at[e_idx, 'preTime']
         unique_time = df_epochs.at[e_idx, 'epoch_parameters']['uniqueTime']
@@ -50,6 +47,19 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
         # TODO get saved out unique_frames, and compute total frames with state.time logic, which should be equivalent to below method.
         unique_frames = len(np.where(np.logical_and((fts > pre_time),(fts <= pre_time+unique_time)))[0])
         repeat_frames = len(np.where(np.logical_and((fts > pre_time+unique_time), (fts <= pre_time+unique_time+repeat_time)))[0])
+        ls_unique_frames.append(unique_frames)
+        ls_repeat_frames.append(repeat_frames)
+    
+    return ls_unique_frames, ls_repeat_frames
+
+def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
+                       center_col: Optional[int]=None, n_pad: Optional[int]=None,
+                       canvas_size: tuple=None):
+    # Create noise movies by epochs
+    ls_frames = []
+    ls_steps = []
+    ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs)
+    for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
         
         d_e_params = df_epochs.at[e_idx, 'epoch_parameters']
         d_meta = {
@@ -59,8 +69,8 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
             'numYChecks': d_e_params['numYChecks'],
             'gridSizeUm': d_e_params['gridSize'],
             'chromaticClass': d_e_params['chromaticClass'],
-            'unique_frames': unique_frames,
-            'repeat_frames': repeat_frames,
+            'unique_frames': ls_unique_frames[i],
+            'repeat_frames': ls_repeat_frames[i],
             'stepsPerStixel': d_e_params['stepsPerStixel'],
             'seed': d_e_params['seed'],
             'frameDwell': d_e_params['frameDwell']
