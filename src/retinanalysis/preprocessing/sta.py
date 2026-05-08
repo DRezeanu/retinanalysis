@@ -14,6 +14,7 @@ from retinanalysis.classes.stim import (MEAStimBlock,
                                         MEAStimGroup,
                                         create_mea_stim_group)
 import gc
+from vision_utils import STAWriter
 
 def _get_n_splits_memory(
     sd: torch.Tensor, 
@@ -291,9 +292,13 @@ def compute_stas_for_chunk(
         bs = bs.transpose(1, 0, 2)
 
         # Crop out pre frames
-        pre_time_ms = rb.d_timing['pre_time_ms']
+        pre_time_s = rb.d_timing['pre_time_ms'] / 1e3
+
         stage_frame_rate = rb.d_timing['stage_frame_rate']
-        pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
+        # Count n frames where state.time (1/fr steps) is < pre_time_s
+        pre_frames = len(np.arange(0, pre_time_s, 1/stage_frame_rate))
+        # LCR CORRECTION
+        pre_frames -= 1
         t_start = pre_frames * stride
         t_end = t_start + n_frames * stride
         if verbose:
@@ -338,8 +343,9 @@ def compute_stas_for_chunk(
     # Normalize by abs max for each cell
     stas = stas / np.abs(stas).max(axis=(1,2,3), keepdims=True)
 
+    grid_size = sb.df_epochs.at[0, 'epoch_parameters']['gridSize']
 
-    return stas
+    return stas, rg.cell_ids, grid_size
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -351,11 +357,13 @@ if __name__ == "__main__":
     parser.add_argument('datafile_name', nargs='*', help='Datafile name(s) to process (e.g. data000). If not given, will attempt to find noise datafiles for the given exp and chunk.')
     parser.add_argument('--ss_version', default='kilosort2.5', help='Spike sorting version to load responses from (default: kilosort2.5)')
     parser.add_argument('--stride', type=int, default=2, help='Stride (bins/frame)')
-    parser.add_argument('--depth', type=int, default=60, help='STA depth (bins)')
+    parser.add_argument('--depth', type=int, default=61, help='STA depth (bins)')
 
     args = parser.parse_args()
 
-    stas = compute_stas_for_chunk(
+    SAVE_DIR = '/home/vyomr/Desktop/data/analysis'
+
+    stas, cell_ids, grid_size = compute_stas_for_chunk(
         exp_name=args.exp_name,
         chunk_name=args.chunk_name,
         datafile_name=args.datafile_name if len(args.datafile_name)>0 else None,
@@ -364,3 +372,19 @@ if __name__ == "__main__":
         depth=args.depth,
         verbose=True
     )
+    chunk_save_dir = os.path.join(SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version)
+    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
+        os.mkdir(os.path.join(SAVE_DIR, args.exp_name))
+    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name)):
+        os.mkdir(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name))
+    if not os.path.exists(chunk_save_dir):
+        os.mkdir(chunk_save_dir)
+
+    save_prefix = os.path.join(chunk_save_dir, args.ss_version)
+    np.save(save_prefix + '_stas.npy', stas)
+    print(f"STAs saved to {save_prefix}_stas.npy")
+
+    print(f"Saving STAs in .sta format for {len(cell_ids)} cells...")
+    with STAWriter(filepath=save_prefix + '.sta') as wr:
+        wr.write(sta=stas, ste=None, cluster_id=cell_ids, stixel_size=grid_size)
+    print(f"STAs saved to {save_prefix}.sta")
