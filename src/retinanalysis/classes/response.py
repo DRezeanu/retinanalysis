@@ -256,6 +256,7 @@ class MEAResponseBlock(ResponseBlock):
         if b_load_vcd:
             self.vcd = get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei, verbose = self.verbose)
             self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
+            self.cell_ids = np.sort(self.cell_ids)
 
             if include_ei:
                 self.d_EIs = dict()
