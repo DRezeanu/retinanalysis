@@ -106,3 +106,30 @@ ra.populate_database()
 ```
 If you have properly set up your config.ini file, there should be no need to give this function any input arguments.
 
+## Hyak setup
+```
+apptainer pull docker://datajoint/mysql:8
+export APPTAINERENV_MYSQL_ROOT_PASSWORD=simple
+
+mkdir -p ./mysql/run ./mysql/tmp ./mysql/data
+
+screen -S n1
+apptainer run \
+  --bind ./mysql/data:/var/lib/mysql \
+  --bind ./mysql/run:/var/run/mysqld \
+  --bind ./mysql/tmp:/tmp \
+  mysql_8.sif \
+  --user=$(whoami) \
+  --datadir=/var/lib/mysql \
+  --socket=/var/run/mysqld/mysqld.sock
+```
+
+dj config needs to be:
+```
+dj.config['database.host'] = 'localhost'
+dj.config['database.user'] = 'root'
+dj.config['database.password'] = 'simple'
+
+# Force TLS off explicitly
+dj.config['database.use_tls'] = False 
+```
