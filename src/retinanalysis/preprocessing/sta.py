@@ -15,6 +15,8 @@ from retinanalysis.classes.stim import (MEAStimBlock,
                                         create_mea_stim_group)
 import gc
 from vision_utils import STAWriter
+import visionloader as vl
+from retinanalysis.utils import ANALYSIS_DIR
 
 def _get_n_splits_memory(
     sd: torch.Tensor, 
@@ -139,6 +141,11 @@ def compute_stas(
 
                 # binned spikes [N, K, T] @ stim [N, T, S] = [N, K, S]
                 epoch_stas = batched_matmul(br_lag, sd_lag)
+
+                # Normalize by spikecount
+                scs = br_lag.sum(dim=2, keepdims=True) # [N, K, 1]
+                scs[scs==0] = 1
+                epoch_stas = epoch_stas / scs
 
                 # Avg across epochs for [K, S]
                 stas[:, lag, s_start:s_end] += epoch_stas.mean(axis=0).cpu()
@@ -358,6 +365,59 @@ def compute_stas_for_chunk(
 
     return stas, rg.cell_ids, grid_size
 
+
+def load_stas_from_vl(
+        exp_name: str=None, chunk_name: str=None, ss_version: Optional[str] = 'kilosort2.5',
+        data_dir: str=None, data_name: str='kilosort2.5'
+    )->tuple[np.ndarray, np.ndarray]:
+    """_summary_
+
+    Args:
+        exp_name (str, optional): _description_. Defaults to None.
+        chunk_name (str, optional): _description_. Defaults to None.
+        ss_version (Optional[str], optional): _description_. Defaults to 'kilosort2.5'.
+        data_dir (str, optional): _description_. Defaults to None.
+        data_name (str, optional): _description_. Defaults to 'kilosort2.5'.
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: _description_
+    """
+    # Either exp_name and chunk_name, or data_dir must be provided
+    if (exp_name is not None and chunk_name is not None):
+        if data_dir is not None:
+            raise ValueError("Provide either exp_name and chunk_name, or data_dir!")
+        
+        data_dir = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version)
+        data_name = ss_version
+   
+    print(f"Loading STAs from VisionLoader with data_dir={data_dir} and data_name={data_name}...")
+    vcd = vl.load_vision_data(
+        data_dir, data_name, include_sta=True
+    )
+    print(f'Loaded, collecting into array.')
+    # Get sorted cell IDs
+    cell_ids = np.array(vcd.get_cell_ids())
+    cell_ids = np.sort(cell_ids)
+
+    # Collect STAs for each cell
+    stas = []
+    for cell_id in cell_ids:
+        # [H, W, D] for each channel
+        vcd_sta = vcd.get_sta_for_cell(cell_id)
+        vcd_sta = [vcd_sta.red, vcd_sta.green, vcd_sta.blue]
+        
+        # Make [D, H, W, C]
+        vcd_sta = np.stack(vcd_sta, axis=-1).transpose(2, 0, 1, 3)
+        stas.append(vcd_sta)
+    
+    # Final [K, D, H, W, C]
+    stas = np.stack(stas, axis=0)
+    return stas, cell_ids
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog='sta.py',
@@ -379,6 +439,21 @@ if __name__ == "__main__":
     else:
         SAVE_DIR = '/home/vyomr/Desktop/data/analysis'
     
+    chunk_save_dir = os.path.join(SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version)
+    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
+        os.mkdir(os.path.join(SAVE_DIR, args.exp_name))
+    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name)):
+        os.mkdir(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name))
+    if not os.path.exists(chunk_save_dir):
+        os.mkdir(chunk_save_dir)
+
+    save_prefix = os.path.join(chunk_save_dir, args.ss_version)
+    save_np = save_prefix + f'_{args.method}_stas.npy'
+    save_vl = save_prefix + '.sta'
+    if os.path.exists(save_np) or os.path.exists(save_vl):
+        raise ValueError(f"STA files already exist in {chunk_save_dir}!")
+    
+
     stas, cell_ids, grid_size = compute_stas_for_chunk(
         exp_name=args.exp_name,
         chunk_name=args.chunk_name,
@@ -389,19 +464,11 @@ if __name__ == "__main__":
         method=args.method,
         verbose=True
     )
-    chunk_save_dir = os.path.join(SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version)
-    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
-        os.mkdir(os.path.join(SAVE_DIR, args.exp_name))
-    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name)):
-        os.mkdir(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name))
-    if not os.path.exists(chunk_save_dir):
-        os.mkdir(chunk_save_dir)
+    
+    np.save(save_np, stas)
+    print(f"STAs saved to {save_np}")
 
-    save_prefix = os.path.join(chunk_save_dir, args.ss_version)
-    np.save(save_prefix + f'_{args.method}_stas.npy', stas)
-    print(f"STAs saved to {save_prefix}_{args.method}_stas.npy")
-
-    # print(f"Saving STAs in .sta format for {len(cell_ids)} cells...")
-    # with STAWriter(filepath=save_prefix + '.sta') as wr:
-    #     wr.write(sta=stas, ste=None, cluster_id=cell_ids, stixel_size=grid_size)
-    # print(f"STAs saved to {save_prefix}.sta")
+    print(f"Saving STAs in .sta format for {len(cell_ids)} cells...")
+    with STAWriter(filepath=save_vl) as wr:
+        wr.write(sta=stas, ste=None, cluster_id=cell_ids, stixel_size=grid_size)
+    print(f"STAs saved to {save_vl}")

@@ -7,6 +7,7 @@ from typing import Callable
 from tqdm import trange
 import matplotlib.pyplot as plt
 import os
+from skimage.segmentation import flood
 
 
 def matlab_style_gauss2D(sigma_r, sigma_c, c_row, c_col, theta=torch.tensor(0), shape=(5,5), device='cpu')->torch.Tensor:
@@ -40,12 +41,10 @@ def matlab_style_gauss2D(sigma_r, sigma_c, c_row, c_col, theta=torch.tensor(0), 
 
 class ParametrizedSpatialFilters(torch.nn.Module):
     def __init__(self, input_spatial_dims: np.ndarray,
-                 b_OFF: bool=True, device: str='cpu',
+                 b_ON: bool=True, device: str='cpu',
                  b_1d: bool=False,
                  d_grad_flags: dict={},
                  b_update_filter: bool=True,
-                 b_shared_params: bool=False,
-                 b_verbose: bool=True,
                  **d_filt_params):
         """
         """
@@ -53,9 +52,6 @@ class ParametrizedSpatialFilters(torch.nn.Module):
         self.device = device
         self.b_1d = b_1d
         self.d_grad_flags = d_grad_flags
-        self.b_shared_params = b_shared_params
-        if b_verbose:
-            print(f'Sharing filter params: {self.b_shared_params}')
         
         self.row_coords = self._to_param(d_filt_params['row_coords'], 'row_coords')
         self.col_coords = self._to_param(d_filt_params['col_coords'], 'col_coords')
@@ -66,12 +62,12 @@ class ParametrizedSpatialFilters(torch.nn.Module):
         self.s_amps = self._to_param(d_filt_params['s_amps'], 's_amps')
         self.thetas = self._to_param(d_filt_params['thetas'], 'thetas')
 
-        self.b_OFF = b_OFF
+        self.b_ON = b_ON
         self.polarity = 1.0
-        if self.b_OFF:
+        if not self.b_ON:
             self.polarity = -1.0
         
-        self.n_filters = len(self.row_coords)
+        self.n_cells = len(self.row_coords)
         self.input_spatial_dims = input_spatial_dims
         self.n_ht, self.n_wt = input_spatial_dims
         self.filter = self.compute_filter()
@@ -79,7 +75,7 @@ class ParametrizedSpatialFilters(torch.nn.Module):
 
     def get_ells(self, sd_mult=1.0, **kwargs):
         ells = []
-        for i in range(self.n_filters):
+        for i in range(self.n_cells):
             # Create ellipse for each filter
             ell = Ellipse(xy=(self.col_coords[i].item(), self.row_coords[i].item()),
                           width=2*self.c_col_sigmas[i].item()*sd_mult, height=2*self.c_row_sigmas[i].item()*sd_mult,
@@ -99,41 +95,25 @@ class ParametrizedSpatialFilters(torch.nn.Module):
         return param
 
     def compute_filter(self) -> torch.Tensor:
-        filter = torch.zeros((self.n_filters, self.n_ht, self.n_wt), 
+        filter = torch.zeros((self.n_cells, self.n_ht, self.n_wt), 
                              device=self.device, dtype=torch.float32)
         center = filter.clone()
         surround = filter.clone()
         
-        for i in range(self.n_filters):
-            if self.b_shared_params:
-                center_h = matlab_style_gauss2D(self.c_row_sigmas[0], self.c_col_sigmas[0], 
-                                                self.row_coords[i], self.col_coords[i], self.thetas[0],
-                                                self.input_spatial_dims, device=self.device)
-                surround_h = matlab_style_gauss2D(self.s_row_sigmas[0], self.s_col_sigmas[0],
-                                                    self.row_coords[i], self.col_coords[i], self.thetas[0],
-                                                    self.input_spatial_dims, device=self.device)
-                surround_h =  - self.s_amps[0] * surround_h
-                
-            else:
-                center_h = matlab_style_gauss2D(self.c_row_sigmas[i], self.c_col_sigmas[i], 
-                                                self.row_coords[i], self.col_coords[i], self.thetas[i],
-                                                self.input_spatial_dims, device=self.device)
-                surround_h = matlab_style_gauss2D(self.s_row_sigmas[i], self.s_col_sigmas[i],
-                                                    self.row_coords[i], self.col_coords[i], self.thetas[i],
-                                                    self.input_spatial_dims, device=self.device)
-            
-                surround_h = - self.s_amps[i] * surround_h
-                
-            
-            rf_filter = center_h + surround_h
-
-            # Normalize by peak
-            rf_filter = rf_filter / (torch.max(torch.abs(rf_filter)) + 1e-8)
-
-            center[i] = center_h
-            surround[i] = surround_h
-
-            filter[i] = rf_filter
+        vec_gauss_fn = torch.vmap(matlab_style_gauss2D, in_dims=(0, 0, 0, 0, 0, None, None))
+        centers = vec_gauss_fn(
+            self.c_row_sigmas, self.c_col_sigmas, self.row_coords, self.col_coords, self.thetas,
+            self.input_spatial_dims, self.device
+        )
+        surrounds = vec_gauss_fn(
+            self.s_row_sigmas, self.s_col_sigmas, self.row_coords, self.col_coords, self.thetas,
+            self.input_spatial_dims, self.device
+        )
+        surround = - self.s_amps.view(-1, 1, 1) * surrounds
+        filter = centers + surround
+        # Normalize by peak
+        peaks = torch.max(torch.abs(filter).reshape(self.n_cells, -1), dim=1)[0].view(-1, 1, 1)
+        filter = filter / (peaks + 1e-8)
 
         filter = filter * self.polarity
         self.center = center * self.polarity
@@ -155,10 +135,10 @@ class ParametrizedSpatialFilters(torch.nn.Module):
 
         # Make x [n_imgs, n_ht*n_wt]
         flat_x = torch.reshape(x, (n_imgs, -1)) 
-        # Make filter [n_ht*n_wt, n_filters]
-        flat_filter = torch.reshape(self.filter, (self.n_filters, -1)).T
+        # Make filter [n_ht*n_wt, n_cells]
+        flat_filter = torch.reshape(self.filter, (self.n_cells, -1)).T
 
-        # Output will be [n_imgs, n_filters]
+        # Output will be [n_imgs, n_cells]
         self.output = torch.matmul(flat_x, flat_filter)
 
         return self.output
@@ -180,28 +160,34 @@ class ParametrizedSpatialFilters(torch.nn.Module):
         return d_filt_params
 
 class Spatial_DoG(torch.nn.Module):
-    def __init__(self, input_spatial_dims, device, d_filt_params, b_OFF):
+    def __init__(self, input_spatial_dims, device, d_init_params):
         super().__init__()
-        self.filt1 = ParametrizedSpatialFilters(input_spatial_dims=input_spatial_dims,
-                                          device=device, b_OFF=b_OFF,
-                                          **d_filt_params)
-        self.n_cells = len(d_filt_params['row_coords'])
-        self.gain = torch.nn.Parameter(torch.ones(self.n_cells).to(torch.float32).to(device))
-        self.bias = torch.nn.Parameter(torch.zeros(self.n_cells).to(torch.float32).to(device))
+        self.filt1 = ParametrizedSpatialFilters(
+            input_spatial_dims=input_spatial_dims,
+            device=device,
+            **d_init_params
+        )
+        self.n_cells = len(d_init_params['row_coords'])
+        
+        # Make [K, 1, 1] gain and bias for per cell scaling and shifting.
+        gain = torch.ones(self.n_cells, device=device, dtype=torch.float32)
+        bias = torch.zeros(self.n_cells, device=device, dtype=torch.float32)
+        gain = gain.view(-1, 1, 1)
+        bias = bias.view(-1, 1, 1)
+
+        self.gain = torch.nn.Parameter(gain)
+        self.bias = torch.nn.Parameter(bias)
+
         self.device = device
     
     def forward(self, x):
+        """
+        Input is unused cell index.
+        Output is of shape [K cells]
+        """
         filter = self.filt1.compute_filter()
-
-        filter = torch.moveaxis(filter, 
-                                (0,1,2),
-                                (2,0,1))
         
         filter = filter * self.gain + self.bias
-
-        filter = torch.moveaxis(filter, 
-                                (2,0,1),
-                                (0,1,2))
         
         return filter
     
@@ -211,8 +197,7 @@ class Spatial_DoG(torch.nn.Module):
 
 
 def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
-                    test_loader: DataLoader = None, 
-                    str_loss: str='mse', n_total_epochs: int=1000, 
+                    n_total_epochs: int=1000, 
                     n_print_every: int=10, n_lr: float=0.01,
                     n_save_every: int=1,
                     weight_decay: float=0.0, n_patience: int=100) -> dict:
@@ -221,25 +206,16 @@ def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
 
     Args:
         model
-        train_x (torch.Tensor): Training data (n_samples, ... input shape ...)
-        train_y (torch.Tensor): Training targets (n_samples, n_cells)
-        test_x (torch.Tensor, optional): Test data (n_samples, ... input shape ...)
-        test_y (torch.Tensor, optional): Test targets (n_samples, n_cells)
-        str_loss (str, optional): Loss function. Defaults to 'mse'.
-        n_total_epochs (int, optional): Total epochs. Defaults to 30.
+        train_loader (DataLoader): DataLoader for training data. Should yield batches of (inputs, targets)
+        n_total_epochs (int, optional): Total epochs. Defaults to 1000.
         n_print_every (int, optional): Print loss every. Defaults to 10.
-        n_lr (float, optional): _description_. Defaults to 0.1.
+        n_lr (float, optional): _description_. Defaults to 0.01.
 
     Returns:
         dict: Dictionary tracking optimization:
             train_loss: training loss
             fit_params: fitted parameters
-            test_loss: test loss
     """
-
-    b_test = True
-    if test_loader is None:
-        b_test = False
 
     # Only update params that require grad.
     optimizer = torch.optim.AdamW(
@@ -247,15 +223,9 @@ def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
         lr=n_lr, weight_decay=weight_decay
     )
         
-    if str_loss == 'mse':
-        f_loss = torch.nn.functional.mse_loss
-    elif str_loss == 'l1':
-        f_loss = torch.nn.functional.l1_loss
-    elif isinstance(str_loss, Callable):
-        f_loss = str_loss
+    f_loss = torch.nn.functional.mse_loss
 
     ls_train_loss = []
-    ls_test_loss = []
     ls_state_dicts = []
     ls_grad_norms = []
     best_loss = np.inf
@@ -274,15 +244,7 @@ def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
             targets = targets.to(model.device)
             outputs = model(inputs)
             
-            if len(batch) == 3:
-                weights = batch[2]
-                weights = weights.to(model.device)
-                loss = f_loss(outputs, targets, weight=weights)
-            else:
-                loss = f_loss(outputs, targets)
-            # If model has regularize(), add to loss
-            if hasattr(model, 'regularize'):
-                loss += model.regularize(inputs)
+            loss = f_loss(outputs, targets)
 
             e_loss += loss.item()
 
@@ -302,43 +264,15 @@ def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
         ls_train_loss.append(e_loss / len(train_loader))
         train_r = np.corrcoef(outputs.detach().cpu().numpy().flatten(), targets.detach().cpu().numpy().flatten())[0,1]
 
-        if b_test:
-            with torch.no_grad():
-                # Test set loss
-                model.eval()
-                e_test_loss = 0.0
-                for batch in test_loader:
-                    inputs = batch[0]
-                    targets = batch[1]
-
-                    inputs = inputs.to(model.device)
-                    targets = targets.to(model.device)
-                    if len(batch) == 3:
-                        weights = batch[2]
-                        weights = weights.to(model.device)
-
-                    outputs = model(inputs)
-                    if len(batch) == 3:
-                        test_loss = f_loss(outputs, targets, weight=weights)
-                    else:
-                        test_loss = f_loss(outputs, targets)
-                    e_test_loss += test_loss.item()
-                ls_test_loss.append(e_test_loss / len(test_loader))
-                test_r = np.corrcoef(outputs.detach().cpu().numpy().flatten(), targets.detach().cpu().numpy().flatten())[0,1]
-
         # Constrain parameters if model has constrain method
         if hasattr(model, 'constrain'):
             model.constrain()
         
         if (epoch+1) % n_print_every == 0:
             str_print = f"Epoch {epoch+1}/{n_total_epochs}, Train Loss: {ls_train_loss[-1]:.4f}"
-            if b_test:
-                str_print += f", Test Loss: {ls_test_loss[-1]:.4f}"    
             str_print += f", Grad Norm: {ls_grad_norms[-1]:.4f}"
             # Also print correlation between predictions and targets
             str_print += f"\nTrain R: {train_r:.4f}"
-            if b_test:
-                str_print += f", Test R: {test_r:.4f}"
             
             print(str_print)
         
@@ -351,24 +285,18 @@ def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
                 # 'optimizer_state_dict': optimizer.state_dict(),
                 'train_loss': ls_train_loss[-1]
             }
-            if b_test:
-                state_dict['test_loss'] = ls_test_loss[-1]
             ls_state_dicts.append(state_dict)
 
         # Check if loss is NaN
         if np.isnan(ls_train_loss[-1]):
             print('Training Loss is NaN. Stopping training.')
             break
-        if b_test:
-            if np.isnan(ls_test_loss[-1]):
-                print('Test loss is NaN. Stopping training.')
-                break
 
         # Determine current loss to monitor
-        current_loss = ls_test_loss[-1] if b_test else ls_train_loss[-1]
+        current_loss = ls_train_loss[-1]
 
-        # Early stopping logic
-        if current_loss < best_loss - 1e-6:  # small epsilon to avoid float issues
+        # Early stopping logic: if loss doesn't improve for n_patience epochs, stop training
+        if current_loss < best_loss:  
             best_loss = current_loss
             epochs_no_improve = 0
         else:
@@ -376,17 +304,13 @@ def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
 
         if epochs_no_improve >= n_patience:
             print(f"Early stopping at epoch {epoch+1} due to no improvement for {n_patience} epochs.")
-            early_stop = True
             break
 
     d_track = {'train_loss': np.array(ls_train_loss), 'ls_state_dicts': ls_state_dicts, 'grad_norms': np.array(ls_grad_norms)}
-    if b_test:
-        d_track['test_loss'] = np.array(ls_test_loss)
-        i_best = np.argmin(d_track['test_loss'])
-        print(f'Best Test Loss: {d_track["test_loss"][i_best]:.4f} at Epoch {i_best+1}')
-    else:
-        i_best = np.argmin(d_track['train_loss'])
-        print(f'Best Train Loss: {d_track["train_loss"][i_best]:.4f} at Epoch {i_best+1}')
+
+    i_best = np.argmin(d_track['train_loss'])
+    d_track['i_best'] = i_best
+    print(f'Best Train Loss: {d_track["train_loss"][i_best]:.4f} at Epoch {i_best+1}')
 
     # Load best state dict
     best_state_dict = ls_state_dicts[i_best]['model_state_dict']
@@ -474,56 +398,127 @@ def plot_model_param_dists(model, str_type, str_save_dir=None):
         plt.close()
 
 
-def fit_spatial_dog(str_type: str,
-                    str_save_dir: str=None, d_filt_params: dict=None,
-                    stas: np.ndarray=None, n_total_epochs = 500, n_lr = 0.05):
+def fit_spatial_dog(
+        spatial_stas: np.ndarray, 
+        d_init_params: dict,
+        str_save_dir: str=None,
+        n_total_epochs = 500, n_lr = 0.05
+    ):
     # Fit a Difference of Gaussian (DoG) filter to the data
     # data: input data object
     # str_type: type of the filter (e.g., 'DoG')
     
-    n_cells, n_height, n_width = stas.shape
+    n_cells, n_height, n_width = spatial_stas.shape
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    stas = torch.tensor(stas, device=device, dtype=torch.float32)
-    print(f'Stas shape: {stas.shape}')
+    spatial_stas = torch.tensor(spatial_stas, device=device, dtype=torch.float32)
+    print(f'Stas shape: {spatial_stas.shape}')
     
     # Initialize filter parameters
     input_spatial_dims = np.array([n_height, n_width])
     
     # Initialize DoG model
-    b_OFF = True if 'off' in str_type.lower() else False
-    model = Spatial_DoG(input_spatial_dims=input_spatial_dims, device=device, d_filt_params=d_filt_params, b_OFF=b_OFF)
-    loss_fn = 'mse'
+    model = Spatial_DoG(
+        input_spatial_dims=input_spatial_dims, device=device, 
+        d_init_params=d_init_params
+    )
     
-    # n_total_epochs = 20
-    print(f'Fitting {str_type} model with {n_cells} cells')
+    print(f'Fitting DoG model with {n_cells} cells')
 
-    dataset = TensorDataset(torch.zeros(n_cells), stas)
+    dataset = TensorDataset(torch.zeros(n_cells), spatial_stas)
     loader = DataLoader(dataset, batch_size=n_cells, shuffle=False)
     
     d_track = fit_model_params(
         model=model,
         train_loader=loader,
-        str_loss=loss_fn,
         n_total_epochs=n_total_epochs,
         n_print_every=n_total_epochs//5,
         n_lr=n_lr, n_patience=n_total_epochs//10
     )
-    i_best = np.argmin(d_track['train_loss'])
-    print(f'Best iteration: {i_best}')
-    
-    # Load the best model
-    model.load_state_dict(d_track['ls_state_dicts'][i_best]['model_state_dict'])
-    
+
     # Plot loss
     f, ax = plt.subplots()
     ax.plot(d_track['train_loss'], label='Train Loss')
-    ax.axvline(i_best, color='r', linestyle='--', label='Best Iteration')
+    ax.axvline(d_track['i_best'], color='r', linestyle='--', label='Best Iteration')
 
-    plot_spatial_dog_performance(model, stas, str_type, str_save_dir=str_save_dir)
-    plot_model_param_dists(model, str_type, str_save_dir=str_save_dir)
+    plot_spatial_dog_performance(model, spatial_stas, 'DoG', str_save_dir=str_save_dir)
+    plot_model_param_dists(model, 'DoG', str_save_dir=str_save_dir)
+
+    return model, d_track
+
+def estimate_initial_rf_params(
+        stas: np.ndarray, n_baseline_frames: int=0
+    )->dict:
+    """
+    Algorithm for estimating initial RF params from STAs.
+
+    Args:
+        stas (np.ndarray): [K cells, D depth, H height, W width, C channels]
+        n_baseline_frames (int, optional): Number of baseline frames to subtract mean from.
+
+    Returns:
+        dict: _description_
+    """
+
+    if n_baseline_frames > 0:
+        # Subtract baseline mean from STA.
+        stas = stas - np.mean(stas[:, :n_baseline_frames], axis=1, keepdims=True)
+
+    # Get peak index of each cell's STA
+    n_cells, n_depth, n_height, n_width, n_channels = stas.shape
+    peak_idxs = np.argmax(np.abs(stas).reshape(n_cells, -1), axis=1)
+    peak_ts, peak_hs, peak_ws, peak_cs = np.unravel_index(peak_idxs, (n_depth, n_height, n_width, n_channels))
+
+    # Get peak spatial frame [K, H, W].
+    spatial_stas = stas[np.arange(n_cells), peak_ts, :, :, peak_cs]
+    # Make them all "ON" i.e. positive peaks
+    signs = np.sign(stas[np.arange(n_cells), peak_ts, peak_hs, peak_ws, peak_cs])
+    spatial_stas = spatial_stas * signs[:, np.newaxis, np.newaxis]
+
+    ## Estimate initial sigmas from mask.
+    # Make high SNR mask, with threshold of top 10% of abs values in the peak frame
+    thresholds = np.percentile(spatial_stas.reshape(n_cells, -1), 90, axis=1)
+    thresholds = thresholds.reshape(-1, 1, 1)
+    masks = np.where(spatial_stas > thresholds, 1, 0)
     
-    if str_save_dir is not None:
-        str_save = os.path.join(str_save_dir, f'{str_type}_spatial_dog.pkl')
-        save_filt_params(model, str_save)
+    # Compute contiguous region around peak, and estimate row and col sigmas.
+    ls_row_sigmas = []
+    ls_col_sigmas = []
+    for i in range(n_cells):
+        mask = masks[i]
+        peak_h, peak_w = peak_hs[i], peak_ws[i]
+        if mask[peak_h, peak_w] == 0:
+            print(f'Warning: Peak pixel for cell {i} is not in high SNR mask. Consider adjusting threshold or checking data quality.')
+            cnt_mask = mask
+            continue
+        
+        # Use flood fill to find contiguous region around the peak
+        cnt_mask = flood(mask, (peak_h, peak_w), connectivity=1)
+        
+        # Get bounding box of contiguous region
+        h_inds, w_inds = np.where(cnt_mask)
+        n_cnt_rows = w_inds.max() - w_inds.min()
+        n_cnt_cols = h_inds.max() - h_inds.min()
+        ls_row_sigmas.append(n_cnt_cols / 2.0)
+        ls_col_sigmas.append(n_cnt_rows / 2.0)
+    
+    # Construct d_init_params for DoG model
+    ls_row_sigmas = np.array(ls_row_sigmas)
+    ls_col_sigmas = np.array(ls_col_sigmas)
+    d_init_params = {
+        'row_coords': peak_hs,
+        'col_coords': peak_ws,
+        'c_row_sigmas': ls_row_sigmas,
+        'c_col_sigmas': ls_col_sigmas,
+        's_row_sigmas': ls_row_sigmas * 1.5,
+        's_col_sigmas': ls_col_sigmas * 1.5,
+        's_amps': np.ones(n_cells) * 0.5,
+        'thetas': np.zeros(n_cells)
+    }
+    
+    model, d_track = fit_spatial_dog(
+        spatial_stas=spatial_stas,
+        d_init_params=d_init_params,
+        n_total_epochs=500, n_lr=0.05
+    )
 
-    return model, d_track, stas.detach().cpu().numpy()
+    return model, d_track
