@@ -5,6 +5,7 @@ from typing import Optional, List
 from retinanalysis import regen
 import argparse
 import retinanalysis.config.schema as schema
+from retinanalysis.classes import qc
 from retinanalysis.utils.datajoint_utils import get_noise_name_by_exp
 import os
 from retinanalysis.classes.response import (MEAResponseBlock,
@@ -14,9 +15,10 @@ from retinanalysis.classes.stim import (MEAStimBlock,
                                         MEAStimGroup,
                                         create_mea_stim_group)
 import gc
-from vision_utils import STAWriter
+from vision_utils import STAWriter, ParamsWriter
 import visionloader as vl
 from retinanalysis.utils import ANALYSIS_DIR
+from retinanalysis.preprocessing import rfs
 
 def _get_n_splits_memory(
     sd: torch.Tensor, 
@@ -246,6 +248,58 @@ def get_noise_datafiles(exp_name, chunk_name):
     datafile_name = [os.path.basename(path) for path in noise_data_dirs]
     return datafile_name
 
+def get_data_for_chunk(
+        sg: MEAStimGroup=None,
+        rg: MEAResponseGroup = None,
+        exp_name: str=None, 
+        chunk_name: str=None, 
+        ss_version: Optional[str] = 'kilosort2.5',
+        datafile_name: Optional[list] = None,
+        verbose: bool=True 
+    )->dict:
+    if sg is None or rg is None:
+        # If datafile name(s) not given, get noise datafiles
+        if datafile_name is None:
+            datafile_name = get_noise_datafiles(exp_name, chunk_name)
+            if verbose:
+                print(f'Found noise datafile(s): {datafile_name}')
+
+        # Create stim and response groups
+        sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
+        rg = create_mea_response_group(
+            exp_name, datafile_name, ss_version, 
+            b_load_fd = True, verbose=verbose
+        )
+
+
+    # Collect spike counts
+    spike_counts = qc.get_nsps(rg, rg.cell_ids)
+    spike_counts = np.array(spike_counts)
+
+    # Collect ISIs for saving in .params file
+    isi_dt = 0.5 # ms
+    isi_bin_edges = np.arange(0, 300, isi_dt)
+    d_isi = qc.get_isi(rg, rg.cell_ids, isi_bin_edges)
+    # Convert to array
+    isi_array = np.zeros((len(rg.cell_ids), len(isi_bin_edges)-1))
+    for i, cell_id in enumerate(rg.cell_ids):
+        isi_array[i, :] = d_isi[cell_id]
+    
+
+
+    d_output = {
+        'sg': sg,
+        'rg': rg,
+        'cell_ids': rg.cell_ids,
+        'spike_counts': spike_counts,
+        'isi': isi_array,
+        'isi_bin_edges': isi_bin_edges,
+        'isi_dt': isi_dt
+    }
+    
+    return d_output
+
+
 def compute_stas_for_chunk(
         sg: MEAStimGroup=None,
         rg: MEAResponseGroup = None,
@@ -257,7 +311,7 @@ def compute_stas_for_chunk(
         depth: Optional[int] = 60,
         method: Optional[str] = "conv",
         verbose: bool=True 
-    ):
+    )->dict:
     if sg is None or rg is None:
         # If datafile name(s) not given, get noise datafiles
         if datafile_name is None:
@@ -363,12 +417,22 @@ def compute_stas_for_chunk(
 
     grid_size = sb.df_epochs.at[0, 'epoch_parameters']['gridSize']
 
-    return stas, rg.cell_ids, grid_size
+
+    d_output = {
+        'stas': stas,
+        'cell_ids': rg.cell_ids,
+        'grid_size': grid_size,
+        # Total spikes that went into STA calc. Should be <= overall spike counts bc of grey periods.
+        'sta_n_sps': np.squeeze(total_sps)
+    }
+    
+    return d_output
 
 
 def load_stas_from_vl(
         exp_name: str=None, chunk_name: str=None, ss_version: Optional[str] = 'kilosort2.5',
-        data_dir: str=None, data_name: str='kilosort2.5'
+        data_dir: str=None, data_name: str='kilosort2.5',
+        analysis_dir: str=ANALYSIS_DIR
     )->tuple[np.ndarray, np.ndarray]:
     """_summary_
 
@@ -390,7 +454,7 @@ def load_stas_from_vl(
         if data_dir is not None:
             raise ValueError("Provide either exp_name and chunk_name, or data_dir!")
         
-        data_dir = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version)
+        data_dir = os.path.join(analysis_dir, exp_name, chunk_name, ss_version)
         data_name = ss_version
    
     print(f"Loading STAs from VisionLoader with data_dir={data_dir} and data_name={data_name}...")
@@ -415,8 +479,26 @@ def load_stas_from_vl(
     
     # Final [K, D, H, W, C]
     stas = np.stack(stas, axis=0)
+    print(f"Collected STAs into array of shape {stas.shape} for {len(cell_ids)} cells.")
     return stas, cell_ids
 
+
+def write_params_file(d_data, d_rf_params, save_dir, ss_version):
+    out_file = os.path.join(save_dir, f'{ss_version}.params')
+    print(f'Saving RF params and ISI data to {out_file}...')
+    with ParamsWriter(filepath=out_file, cluster_id=d_data['cell_ids']) as wr:
+        wr.write(
+            timecourse_matrix=d_rf_params['timecourses'],
+            isi=d_data['isi'],
+            spike_count=d_data['spike_counts'],
+            x0=d_rf_params['row_coords'],
+            y0=d_rf_params['col_coords'],
+            sigma_x=d_rf_params['c_row_sigmas'],
+            sigma_y=d_rf_params['c_col_sigmas'],
+            theta=d_rf_params['thetas'],
+            isi_binning=d_data['isi_dt']
+        )
+    print(f'Saved to {out_file}')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -449,26 +531,60 @@ if __name__ == "__main__":
 
     save_prefix = os.path.join(chunk_save_dir, args.ss_version)
     save_np = save_prefix + f'_{args.method}_stas.npy'
-    save_vl = save_prefix + '.sta'
-    if os.path.exists(save_np) or os.path.exists(save_vl):
-        raise ValueError(f"STA files already exist in {chunk_save_dir}!")
-    
+    save_vcd_sta = save_prefix + '.sta'
 
-    stas, cell_ids, grid_size = compute_stas_for_chunk(
+    nas_vcd_sta = os.path.join(ANALYSIS_DIR, args.exp_name, args.chunk_name, args.ss_version, args.ss_version + '.sta')
+    print(nas_vcd_sta)
+
+    d_data = get_data_for_chunk(
         exp_name=args.exp_name,
         chunk_name=args.chunk_name,
-        datafile_name=args.datafile_name if len(args.datafile_name)>0 else None,
         ss_version=args.ss_version,
-        stride=args.stride,
-        depth=args.depth,
-        method=args.method,
+        datafile_name=args.datafile_name if len(args.datafile_name)>0 else None,
         verbose=True
     )
-    
-    np.save(save_np, stas)
-    print(f"STAs saved to {save_np}")
 
-    print(f"Saving STAs in .sta format for {len(cell_ids)} cells...")
-    with STAWriter(filepath=save_vl) as wr:
-        wr.write(sta=stas, ste=None, cluster_id=cell_ids, stixel_size=grid_size)
-    print(f"STAs saved to {save_vl}")
+    # If stas already exist, load and move to RF fitting.
+    if os.path.exists(save_np) or os.path.exists(save_vcd_sta) or os.path.exists(nas_vcd_sta):
+        print(f"STA files already exist!")
+        print('Will load saved STAs and re-run RF param fitting.')
+        if os.path.exists(save_vcd_sta) or os.path.exists(nas_vcd_sta):
+            if os.path.exists(save_vcd_sta):
+                load_dir = SAVE_DIR
+            elif os.path.exists(nas_vcd_sta):
+                load_dir = ANALYSIS_DIR
+            stas, cell_ids = load_stas_from_vl(
+                exp_name=args.exp_name, chunk_name=args.chunk_name, ss_version=args.ss_version,
+                analysis_dir=load_dir
+            )
+            # Check that cell ids match those in d_data
+            if not np.array_equal(cell_ids, d_data['cell_ids']):
+                raise ValueError("Cell IDs from VisionLoader do not match those in response group!")
+        else:
+            print(f"Loading STAs from {save_np}...")
+            stas = np.load(save_np)
+            print(f"STAs loaded from {save_np}!")
+
+    else:
+        d_stas = compute_stas_for_chunk(
+            sg=d_data['sg'],
+            rg=d_data['rg'],
+            stride=args.stride,
+            depth=args.depth,
+            method=args.method,
+            verbose=True
+        )
+        
+        np.save(save_np, d_stas['stas'])
+        print(f"STAs saved to {save_np}")
+
+        print(f"Saving STAs in .sta format for {len(d_stas['cell_ids'])} cells...")
+        with STAWriter(filepath=save_vcd_sta) as wr:
+            wr.write(sta=d_stas['stas'], ste=None, cluster_id=d_stas['cell_ids'], stixel_size=d_stas['grid_size'])
+        print(f"STAs saved to {save_vcd_sta}")
+
+    d_rf_params = rfs.rf_fitting_pipeline(
+        stas=stas, str_output_dir=chunk_save_dir
+    )
+    # Save RF params with ISIs in .params file
+    write_params_file(d_data, d_rf_params, chunk_save_dir, args.ss_version)

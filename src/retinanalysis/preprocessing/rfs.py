@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import os
 from skimage.segmentation import flood
 
-
 def matlab_style_gauss2D(sigma_r, sigma_c, c_row, c_col, theta=torch.tensor(0), shape=(5,5), device='cpu')->torch.Tensor:
     """
     2D gaussian mask - should give the same result as MATLAB's
@@ -41,7 +40,7 @@ def matlab_style_gauss2D(sigma_r, sigma_c, c_row, c_col, theta=torch.tensor(0), 
 
 class ParametrizedSpatialFilters(torch.nn.Module):
     def __init__(self, input_spatial_dims: np.ndarray,
-                 b_ON: bool=True, device: str='cpu',
+                 device: str='cpu',
                  b_1d: bool=False,
                  d_grad_flags: dict={},
                  b_update_filter: bool=True,
@@ -61,11 +60,6 @@ class ParametrizedSpatialFilters(torch.nn.Module):
         self.s_col_sigmas = self._to_param(d_filt_params['s_col_sigmas'], 's_col_sigmas')
         self.s_amps = self._to_param(d_filt_params['s_amps'], 's_amps')
         self.thetas = self._to_param(d_filt_params['thetas'], 'thetas')
-
-        self.b_ON = b_ON
-        self.polarity = 1.0
-        if not self.b_ON:
-            self.polarity = -1.0
         
         self.n_cells = len(self.row_coords)
         self.input_spatial_dims = input_spatial_dims
@@ -97,8 +91,6 @@ class ParametrizedSpatialFilters(torch.nn.Module):
     def compute_filter(self) -> torch.Tensor:
         filter = torch.zeros((self.n_cells, self.n_ht, self.n_wt), 
                              device=self.device, dtype=torch.float32)
-        center = filter.clone()
-        surround = filter.clone()
         
         vec_gauss_fn = torch.vmap(matlab_style_gauss2D, in_dims=(0, 0, 0, 0, 0, None, None))
         centers = vec_gauss_fn(
@@ -111,13 +103,11 @@ class ParametrizedSpatialFilters(torch.nn.Module):
         )
         surround = - self.s_amps.view(-1, 1, 1) * surrounds
         filter = centers + surround
+        
         # Normalize by peak
         peaks = torch.max(torch.abs(filter).reshape(self.n_cells, -1), dim=1)[0].view(-1, 1, 1)
-        filter = filter / (peaks + 1e-8)
-
-        filter = filter * self.polarity
-        self.center = center * self.polarity
-        self.surround = surround * self.polarity
+        peaks[peaks == 0] = 1
+        filter = filter / peaks
 
         return filter
 
@@ -146,7 +136,7 @@ class ParametrizedSpatialFilters(torch.nn.Module):
     def string(self):
         return f"ParametrizedSpatialFilters(filter: {self.filter.shape})"
 
-    def get_params_np(self):
+    def get_params_np(self)-> dict:
         d_filt_params = {
         'row_coords': self.row_coords.detach().cpu().numpy(),
         'col_coords': self.col_coords.detach().cpu().numpy(),
@@ -162,7 +152,8 @@ class ParametrizedSpatialFilters(torch.nn.Module):
 class Spatial_DoG(torch.nn.Module):
     def __init__(self, input_spatial_dims, device, d_init_params):
         super().__init__()
-        self.filt1 = ParametrizedSpatialFilters(
+
+        self.parametrized_filter = ParametrizedSpatialFilters(
             input_spatial_dims=input_spatial_dims,
             device=device,
             **d_init_params
@@ -185,7 +176,7 @@ class Spatial_DoG(torch.nn.Module):
         Input is unused cell index.
         Output is of shape [K cells]
         """
-        filter = self.filt1.compute_filter()
+        filter = self.parametrized_filter.compute_filter()
         
         filter = filter * self.gain + self.bias
         
@@ -193,7 +184,7 @@ class Spatial_DoG(torch.nn.Module):
     
     def constrain(self):
         with torch.no_grad():
-            self.filt1.s_amps.data = torch.clamp(self.filt1.s_amps, min=0.0)
+            self.parametrized_filter.s_amps.data = torch.clamp(self.parametrized_filter.s_amps, min=0.0)
 
 
 def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
@@ -334,8 +325,8 @@ def plot_spatial_dog_performance(model: Spatial_DoG, stas, str_type, cmap='jet',
     print(model_stas.shape)
     for i_cell in range(n_rows):
         # Crop around center pixel
-        row = int(model.filt1.row_coords[i_cell].detach().cpu().numpy())
-        col = int(model.filt1.col_coords[i_cell].detach().cpu().numpy())
+        row = int(model.parametrized_filter.row_coords[i_cell].detach().cpu().numpy())
+        col = int(model.parametrized_filter.col_coords[i_cell].detach().cpu().numpy())
         if row >= stas.shape[1] or col >= stas.shape[2]:
             print(f'Cell {i_cell}: Center ({row}, {col}) out of bounds for STA shape {stas.shape[1:3]}')
             continue
@@ -346,6 +337,7 @@ def plot_spatial_dog_performance(model: Spatial_DoG, stas, str_type, cmap='jet',
         plt.colorbar(im, ax=ax)
         ax.set_xlim(col-n_pad, col+n_pad)
         ax.set_ylim(row-n_pad, row+n_pad)
+        ax.set_ylabel(f'Cell idx {i_cell}')
 
         ax = axs[i_cell, 1]
         im = ax.imshow(model_stas[i_cell], cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
@@ -359,6 +351,8 @@ def plot_spatial_dog_performance(model: Spatial_DoG, stas, str_type, cmap='jet',
         ax.plot(model_stas[i_cell, row, :], label='Model', alpha=0.7)
         ax.set_xlim(col-n_pad, col+n_pad)
         ax.legend(loc='lower left')
+        r = np.corrcoef(stas[i_cell].flatten(), model_stas[i_cell].flatten())[0,1]
+        ax.set_title(f'r = {r:.2f}')
     
     axs[0, 0].set_title(f'{str_type} Spatial STA')
     axs[0, 1].set_title('DoG model fit')
@@ -371,7 +365,7 @@ def plot_spatial_dog_performance(model: Spatial_DoG, stas, str_type, cmap='jet',
         plt.savefig(str_save)
         plt.close()
 
-def plot_model_param_dists(model, str_type, str_save_dir=None):
+def plot_model_param_dists(model: Spatial_DoG, str_type, str_save_dir=None):
     ls_params = ['c_row_sigmas', 'c_col_sigmas', 's_row_sigmas', 's_col_sigmas',
                  's_amps', 'thetas']
     ls_labels = ['Center SigmaY', 'Center SigmaX', 'Surround SigmaY', 'Surround SigmaX',
@@ -383,8 +377,8 @@ def plot_model_param_dists(model, str_type, str_save_dir=None):
             ax.grid()
             param = ls_params[i]
             label = ls_labels[i]
-            vals = getattr(model.filt1, param).detach().cpu().numpy()
-            ax.hist(vals)
+            vals = getattr(model.parametrized_filter, param).detach().cpu().numpy()
+            ax.hist(vals, bins=100)
             ax.set_title(label)
             ax.set_xlabel('Value')
             ax.set_ylabel('Count')
@@ -402,8 +396,8 @@ def fit_spatial_dog(
         spatial_stas: np.ndarray, 
         d_init_params: dict,
         str_save_dir: str=None,
-        n_total_epochs = 500, n_lr = 0.05
-    ):
+        n_total_epochs = 500, n_lr = 0.05, n_patience=500
+    )-> tuple[Spatial_DoG, dict]:
     # Fit a Difference of Gaussian (DoG) filter to the data
     # data: input data object
     # str_type: type of the filter (e.g., 'DoG')
@@ -432,31 +426,52 @@ def fit_spatial_dog(
         train_loader=loader,
         n_total_epochs=n_total_epochs,
         n_print_every=n_total_epochs//5,
-        n_lr=n_lr, n_patience=n_total_epochs//10
+        n_lr=n_lr, n_patience=n_patience
     )
 
     # Plot loss
-    f, ax = plt.subplots()
+    f, axs = plt.subplots(ncols=2, figsize=(12, 5))
+    ax = axs[0]
     ax.plot(d_track['train_loss'], label='Train Loss')
     ax.axvline(d_track['i_best'], color='r', linestyle='--', label='Best Iteration')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('MSE Loss')
+    ax.set_title('Training Loss')
+    # Histogram of correlations
+    ax = axs[1]
+    ls_r = []
+    model_stas = model(None).detach().cpu().numpy()
+    for i_cell in range(n_cells):
+        r = np.corrcoef(spatial_stas[i_cell].cpu().numpy().flatten(), model_stas[i_cell].flatten())[0,1]
+        ls_r.append(r)
+    ax.hist(ls_r, bins=50)
+    ax.set_title('Performance distribution')
+    ax.set_xlabel('Correlation')
+    ax.set_ylabel('Count')
+    if str_save_dir is not None:
+        str_save = os.path.join(str_save_dir, f'dog_training_loss.png')
+        plt.savefig(str_save)
+        plt.close()
 
-    plot_spatial_dog_performance(model, spatial_stas, 'DoG', str_save_dir=str_save_dir)
-    plot_model_param_dists(model, 'DoG', str_save_dir=str_save_dir)
+
+    plot_spatial_dog_performance(model, spatial_stas, 'All', str_save_dir=str_save_dir)
+    plot_model_param_dists(model, 'All', str_save_dir=str_save_dir)
 
     return model, d_track
 
-def estimate_initial_rf_params(
-        stas: np.ndarray, n_baseline_frames: int=0
+def rf_fitting_pipeline(
+        stas: np.ndarray, str_output_dir: str,
+        n_baseline_frames: int=0
     )->dict:
     """
-    Algorithm for estimating initial RF params from STAs.
+    Main function for estimating RF params from STAs.
+    Step 1: estimates initial params by peak pixel and contiguous region.
+    Step 2: fits DoG model to peak spatial frame.
 
     Args:
         stas (np.ndarray): [K cells, D depth, H height, W width, C channels]
+        str_output_dir (str, optional): Directory to save outputs and plots.
         n_baseline_frames (int, optional): Number of baseline frames to subtract mean from.
-
-    Returns:
-        dict: _description_
     """
 
     if n_baseline_frames > 0:
@@ -468,6 +483,9 @@ def estimate_initial_rf_params(
     peak_idxs = np.argmax(np.abs(stas).reshape(n_cells, -1), axis=1)
     peak_ts, peak_hs, peak_ws, peak_cs = np.unravel_index(peak_idxs, (n_depth, n_height, n_width, n_channels))
 
+    # Collect center pixel timecourse for every channel for final output.
+    timecourses = stas[np.arange(n_cells), :, peak_hs, peak_ws, :]
+    
     # Get peak spatial frame [K, H, W].
     spatial_stas = stas[np.arange(n_cells), peak_ts, :, :, peak_cs]
     # Make them all "ON" i.e. positive peaks
@@ -515,10 +533,25 @@ def estimate_initial_rf_params(
         'thetas': np.zeros(n_cells)
     }
     
+    str_plot_dir = None
+    if os.path.isdir(str_output_dir):
+        str_plot_dir = os.path.join(str_output_dir, 'plots')
+        os.makedirs(str_plot_dir, exist_ok=True)
+    else:
+        raise ValueError(f'str_output_dir {str_output_dir} is not a valid directory.')
+    
     model, d_track = fit_spatial_dog(
         spatial_stas=spatial_stas,
+        str_save_dir=str_plot_dir,
         d_init_params=d_init_params,
-        n_total_epochs=500, n_lr=0.05
+        n_total_epochs=1000, n_lr=0.05,
+        n_patience=500
     )
 
-    return model, d_track
+    # Get model params
+    d_fit_params = model.parametrized_filter.get_params_np()
+    
+    # Add timecourses
+    d_fit_params['timecourses'] = timecourses
+
+    return d_fit_params

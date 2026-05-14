@@ -45,6 +45,7 @@ from .utils import parse_data
 # Import preprocessing
 from . import preprocessing
 from .preprocessing import sta
+from .preprocessing import rfs
 
 
 # Import classes last
