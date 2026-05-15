@@ -550,6 +550,7 @@ class MEAResponseGroup:
         # Pull only cell ids that are common to all blocks in this group
         all_ids = [set(block.cell_ids) for block in ls_blocks]
         self.cell_ids = list(set.intersection(*all_ids))
+        self.cell_ids = np.sort(self.cell_ids)
         n_cells_lost = len(set.union(*all_ids)) - len(self.cell_ids)
         if self.verbose:
             print(f'\nLost {n_cells_lost} cells when concatenating response blocks')
@@ -668,8 +669,12 @@ class MEAResponseGroup:
             )
 
             total_spikes = np.sum(ls_spikes)
-
-            pooled_var = (within_var + between_var) / (total_spikes - 1)
+            # Avoid div by 0
+            if total_spikes <= 1:
+                pooled_var = np.zeros_like(average_ei)
+            else:
+                pooled_var = (within_var + between_var) / (total_spikes - 1)
+            
             average_error = np.sqrt(pooled_var)
 
             all_eis.append(average_ei)

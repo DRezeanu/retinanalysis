@@ -357,7 +357,8 @@ def plot_spatial_dog_performance(model: Spatial_DoG, stas, str_type, cmap='jet',
     axs[0, 0].set_title(f'{str_type} Spatial STA')
     axs[0, 1].set_title('DoG model fit')
     for ax in axs[:,:2].flatten():
-        ax.axis('off')
+        ax.set_xticks([])
+        ax.set_yticks([])
     
     plt.tight_layout()
     if str_save_dir is not None:
@@ -425,7 +426,7 @@ def fit_spatial_dog(
         model=model,
         train_loader=loader,
         n_total_epochs=n_total_epochs,
-        n_print_every=n_total_epochs//5,
+        n_print_every=n_total_epochs//20,
         n_lr=n_lr, n_patience=n_patience
     )
 
@@ -506,8 +507,6 @@ def rf_fitting_pipeline(
         peak_h, peak_w = peak_hs[i], peak_ws[i]
         if mask[peak_h, peak_w] == 0:
             print(f'Warning: Peak pixel for cell {i} is not in high SNR mask. Consider adjusting threshold or checking data quality.')
-            cnt_mask = mask
-            continue
         
         # Use flood fill to find contiguous region around the peak
         cnt_mask = flood(mask, (peak_h, peak_w), connectivity=1)
@@ -516,6 +515,11 @@ def rf_fitting_pipeline(
         h_inds, w_inds = np.where(cnt_mask)
         n_cnt_rows = w_inds.max() - w_inds.min()
         n_cnt_cols = h_inds.max() - h_inds.min()
+        # If too small, set to default value
+        if n_cnt_rows < 2:
+            n_cnt_rows = 4
+        if n_cnt_cols < 2:
+            n_cnt_cols = 4
         ls_row_sigmas.append(n_cnt_cols / 2.0)
         ls_col_sigmas.append(n_cnt_rows / 2.0)
     
@@ -544,7 +548,7 @@ def rf_fitting_pipeline(
         spatial_stas=spatial_stas,
         str_save_dir=str_plot_dir,
         d_init_params=d_init_params,
-        n_total_epochs=1000, n_lr=0.05,
+        n_total_epochs=1000, n_lr=0.1,
         n_patience=500
     )
 
