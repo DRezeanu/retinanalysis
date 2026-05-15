@@ -10,8 +10,7 @@ def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids
 
     if isinstance(resp, AnalysisChunk):
         if len(resp.data_files) > 1:
-            # resp = create_mea_response_group(resp.exp_name, resp.data_files, verbose = False)
-            resp= MEAResponseBlock(resp.exp_name, resp.data_files[0], include_ei = False, b_load_fd = False, verbose = False)
+            resp = create_mea_response_group(resp.exp_name, resp.data_files, verbose = False)
         else:
             resp = MEAResponseBlock(resp.exp_name, resp.data_files[0], include_ei = False, b_load_fd = False, verbose = False)
 
