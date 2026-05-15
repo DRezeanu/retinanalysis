@@ -288,6 +288,7 @@ class AnalysisChunk:
         cell_types_list_path = str(ir.files(retinanalysis) / "assets/cell_types.csv")
         cell_types_list = pd.read_csv(cell_types_list_path)
         cell_types = cell_types_list['cell_types'].values
+        print(cell_types)
 
         for idx, typing_file in enumerate(self.typing_files):
             file_path = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)

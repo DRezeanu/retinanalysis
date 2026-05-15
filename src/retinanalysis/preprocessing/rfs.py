@@ -454,8 +454,14 @@ def fit_spatial_dog(
         plt.savefig(str_save)
         plt.close()
 
-
-    plot_spatial_dog_performance(model, spatial_stas, 'All', str_save_dir=str_save_dir)
+    n_max_rows = 50
+    # Call plot for all cells in batches
+    n_imgs = np.ceil(n_cells / n_max_rows).astype(int)
+    for i in range(n_imgs):
+        plot_spatial_dog_performance(
+            model, spatial_stas[i*n_max_rows:(i+1)*n_max_rows], f'All_{i}', str_save_dir=str_save_dir,
+            n_max_rows=n_max_rows
+        )
     plot_model_param_dists(model, 'All', str_save_dir=str_save_dir)
 
     return model, d_track

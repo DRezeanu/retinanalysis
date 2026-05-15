@@ -483,16 +483,18 @@ def load_stas_from_vl(
     return stas, cell_ids
 
 
-def write_params_file(d_data, d_rf_params, save_dir, ss_version):
+def write_params_file(sta_height, d_data, d_rf_params, save_dir, ss_version):
     out_file = os.path.join(save_dir, f'{ss_version}.params')
+    
     print(f'Saving RF params and ISI data to {out_file}...')
     with ParamsWriter(filepath=out_file, cluster_id=d_data['cell_ids']) as wr:
         wr.write(
             timecourse_matrix=d_rf_params['timecourses'],
             isi=d_data['isi'],
             spike_count=d_data['spike_counts'],
-            x0=d_rf_params['row_coords'],
-            y0=d_rf_params['col_coords'],
+            x0=d_rf_params['col_coords'],
+            # Flip y0 to match vision convention of top left origin
+            y0=sta_height - d_rf_params['row_coords'],
             sigma_x=d_rf_params['c_row_sigmas'],
             sigma_y=d_rf_params['c_col_sigmas'],
             theta=d_rf_params['thetas'],
@@ -586,5 +588,8 @@ if __name__ == "__main__":
     d_rf_params = rfs.rf_fitting_pipeline(
         stas=stas, str_output_dir=chunk_save_dir
     )
+    
+    sta_height = stas.shape[2]
+    
     # Save RF params with ISIs in .params file
-    write_params_file(d_data, d_rf_params, chunk_save_dir, args.ss_version)
+    write_params_file(sta_height, d_data, d_rf_params, chunk_save_dir, args.ss_version)
