@@ -7,7 +7,7 @@ dj.config['database.password'] = 'simple'
 try:
     dj.conn().connect()
     B_CONNECTED = True
-    schema = dj.schema('schema')
+    schema = dj.Schema('schema')
 except Exception as e:
     print(f"Could not connect to DataJoint database: {e}")
     B_CONNECTED = False

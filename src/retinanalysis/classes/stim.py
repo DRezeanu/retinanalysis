@@ -63,7 +63,10 @@ class StimBlock:
         self.exp_name = exp_name
         self.block_id = block_id
 
+
         df = get_exp_summary(exp_name)
+        assert df is not None, 'Failed to load experiment summary'
+
         self.d_block_summary = df.query('block_id == @block_id').iloc[0].to_dict()
         self.protocol_name = self.d_block_summary['protocol_name']
         self.prep_label = self.d_block_summary['prep_label']
@@ -75,7 +78,7 @@ class StimBlock:
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
-        self.d_display = get_display_params_by_exp(self.exp_name)
+        self.d_display = get_display_params_by_exp(self.exp_name, verbose = self.verbose)
 
     def regenerate_stimulus(self, ls_epochs: Optional[int | list]=None, **kwargs):
         """
@@ -253,7 +256,6 @@ class MEAStimBlock(StimBlock):
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"
         str_self += f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
-        str_self += f"  d_display with keys: {self.d_display.keys()}\n"
         return str_self
 
 class MEAStimGroup:
@@ -295,6 +297,9 @@ class MEAStimGroup:
         self.df_epochs.insert(0, 'epoch_index', self.df_epochs.index.values)
         self.parameter_names = list(self.df_epochs.at[0,'epoch_parameters'].keys())
         self.noise_protocol_name = get_noise_name_by_exp(self.exp_name)
+        self.protocol_name = self.ls_blocks[0].protocol_name
+        self.chunk_name = self.ls_blocks[0].d_block_summary['chunk_name']
+        self.prep_label = self.ls_blocks[0].prep_label
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
@@ -304,8 +309,8 @@ class MEAStimGroup:
         str_self += f"  b_LED: {self.ls_blocks[0].b_LED} (whether LED stimulus)\n"
         str_self += f"  prep_label: {self.ls_blocks[0].prep_label}\n"
         str_self += f"  datafile_names: {self.datafile_names}\n"
-        str_self += f"  chunk_name: {self.ls_blocks[0].d_block_summary['chunk_name']}\n"
-        str_self += f"  protocol_name: {self.ls_blocks[0].d_block_summary['protocol_name']}\n"
+        str_self += f"  chunk_name: {self.chunk_name}\n"
+        str_self += f"  protocol_name: {self.protocol_name}\n"
         str_self += f"  noise_protocol_name: {self.noise_protocol_name}\n"
         str_self += f"  nearest_noise_chunk: {self.nearest_noise_chunk}\n"
         str_self += f"  parameter_names of length: {len(self.parameter_names)}\n"

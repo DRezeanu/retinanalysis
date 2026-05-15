@@ -35,27 +35,27 @@ class AnalysisChunk:
     This is unique to spatial noise chunks because these chunks contain '.sta'. and '.params'
     files while regular sorting chunks and data files do not.
 
-    Init Parameters:
-    exp_name (str): The name of the experiment as seen in the 'exp_name' entry of the datajoint database
+    Parameters:
+        exp_name (str): The name of the experiment as seen in the 'exp_name' entry of the datajoint database
 
-    chunk_name (str): The name of the sorting chunk (e.g. 'chunk2'). This chunk must be findable in the
-    analysis directory defined by the config.ini file in the retinanalysis_root/config folder.
+        chunk_name (str): The name of the sorting chunk (e.g. 'chunk2'). This chunk must be findable in the
+        analysis directory defined by the config.ini file in the retinanalysis_root/config folder.
 
-    ss_version (str): spike sorting version, default is 'kilosort2.5'. This is mostly used to find the
-    right folder. Relevant files should be located at: 'analysis_directory/chunk_name/ss_version/'
+        ss_version (str): spike sorting version, default is 'kilosort2.5'. This is mostly used to find the
+        right folder. Relevant files should be located at: 'analysis_directory/chunk_name/ss_version/'
 
-    b_load_spatial_maps (bool): Whether or not to load the spatial maps for the cells in this chunk,
-    default value is True.
+        b_load_spatial_maps (bool): Whether or not to load the spatial maps for the cells in this chunk,
+        default value is True.
 
-    pkl_file (dict | str): Optional. If you have exported an analysis chunk to a pickle file using
-    the export_to_pkl() method, you can give only this input to reload the object from the pickle file.
+        pkl_file (dict | str): Optional. If you have exported an analysis chunk to a pickle file using
+        the export_to_pkl() method, you can give only this input to reload the object from the pickle file.
 
-    Init Returns:
-    AnalysisChunk object for experiment name, chunk, and ss_version given in the initializer.
+    Returns:
+        AnalysisChunk object for experiment name, chunk, and ss_version given in the initializer.
 
     Properties:
-    Use the print command on a AnalysisChunk instance to get a list of all properties contained in
-    the object
+        Use the print command on a AnalysisChunk instance to get a list of all properties contained in
+        the object
     """
     def __init__(self, exp_name: Optional[str]=None, chunk_name: Optional[str]=None, 
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[dict | str]=None, 
@@ -146,6 +146,8 @@ class AnalysisChunk:
             isi = self.vcd.get_acf_numpairs_for_cell(id)
             np.nan_to_num(isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
             self.d_ISIs[id] = isi
+        self.isi_bin_edges = np.linspace(0,300,601)
+
 
         self.get_noise_params()
         self.get_rf_params()
@@ -235,17 +237,14 @@ class AnalysisChunk:
         Method for pulling cell_ids by region of interest.
         
         Parameters:
-        roi (dict):                     roi definition as a dictionary with 4 values. 'x_min',
-                                        'x_max', 'y_min', 'y_max'. These define the vertical and
-                                        horizontal lines that define the region of interest. Units
-                                        of ROI definition must match the units parameter!
+            roi (dict): roi definition as a dictionary with 4 values. 'x_min','x_max', 'y_min', 'y_max'.
+            These define the vertical and horizontal lines that define the region of interest. Units of ROI
+            definition must match the units parameter!
                                         
-        units (str):                    units to use when defining the roi. Must be either 'pixels',
-                                        'microns', or 'stixels'. Default 'pixels'.
+        units (str): units to use when defining the roi. Must be either 'pixels', 'microns', or 'stixels'. Default 'pixels'.
 
         Returns:
-        arr_ids (ndarray):              returns a 1D array of cell ids whose center_x and center_y fall within the
-                                        defined roi.                                
+            arr_ids (ndarray): returns a 1D array of cell ids whose center_x and center_y fall within the defined roi.                                
         """
 
         if 'pixels' in units.lower():
@@ -273,8 +272,7 @@ class AnalysisChunk:
               
     def get_df(self):
         """
-        Internal method for generating the cell params dataframe accessible
-        as self.df_cell_params
+        Internal method for generating the cell params dataframe accessible as self.df_cell_params
         """
         center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
         center_y = [self.rf_params[id]['center_y'] for id in self.cell_ids]
@@ -326,8 +324,14 @@ class AnalysisChunk:
     def get_spatial_maps(self, ls_channels=[0,2]):
         # By default load red and blue channel spatial maps. 
         mat_file = os.path.join(DATA_DIR, self.exp_name, self.chunk_name, self.ss_version, f'{self.ss_version}_params.mat')
+
+        # If _params.mat file doesn't exist in data dir, look in analysis dir instead
         if not os.path.exists(mat_file):
-            print(f'_params.mat file not found: {mat_file}')
+            mat_file = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version,f'{self.ss_version}_params.mat')
+        
+        # if no _params.mat file found at all, print a warning and return
+        if not os.path.exists(mat_file):
+            print(f'WARNING: _params.mat file not found in: {mat_file}\nSpatial maps were not loaded')
             return
         
         d_params = loadmat(mat_file)
@@ -360,37 +364,45 @@ class AnalysisChunk:
         analysis chunk are plotted by type.
         
         Parameters:
-        noise_ids (List[int]):  A list of cell_ids to plot. Default None.
-        cell_types (List[str]): A list of cell_type strings, (e.g. ['OnP', 'OffP']). Default None.
-        typing_fyle (str):      A typing file name which is used to determine the cell types for any
-                                given cell_ids. If none is given, the 0th typing file associated
-                                with the analysis chunk is used. Default None.
-        units (str):            Units to use when plotting the receptive fields. Must be either
-                                'pixels', 'microns', or 'stixels'. Default 'pixels'.
-        std_scaling (float):    Factor used to scale the standard deviation of the plotted
-                                receptive fields. Default 1.6
-        b_zoom (bool):          Boolean value indicating whether or not to zoom the plots in on 
-                                the cell mosaic. Default False
-        n_pad (int):            Padding value (in stixels) used with b_zoom. B_zoom will zoom
-                                into the min and max center_x and center_y values in the mosaic,
-                                and n_pad will zoom back out by the given number of stixels. Default 6
-        minimum_n (int):        min number of cells required to actually plot the output
-        roi (dict):            roi definition as a dictionary with 4 values. 'x_min',
-                                'x_max', 'y_min', 'y_max'. These define the vertical and
-                                horizontal lines that define the region of interest
+            noise_ids (List[int]): A list of cell_ids to plot. Default None.
+
+            cell_types (List[str]): A list of cell_type strings, (e.g. ['OnP', 'OffP']). Default None.
+
+            typing_fyle (str): A typing file name which is used to determine the cell types for any given cell_ids.
+            If None is given, the 0th typing file associated with the analysis chunk is used. Default None.
+
+            units (str): Units to use when plotting the receptive fields. Must be either 'pixels', 'microns',
+            or 'stixels'. Default 'pixels'.
+
+            std_scaling (float): Factor used to scale the standard deviation of the plotted receptive fields. Default 1.6
+
+            b_zoom (bool): Boolean value indicating whether or not to zoom the plots in on  the cell mosaic. Default False
+
+            n_pad (int): Padding value (in stixels) used with b_zoom. B_zoom will zoom into the min and max center_x and
+            center_y values in the mosaic, and n_pad will zoom back out by the given number of stixels. Default 6
+
+            minimum_n (int): min number of cells required to actually plot the output
+            
+            roi (dict): roi definition as a dictionary with 4 values. 'x_min', 'x_max', 'y_min', 'y_max'. These
+            define the vertical and horizontal lines that define the region of interest
+
+            label_cells (bool): If True, put text label with cell id on each ellipse. Default False.
         
         Returns:
-        axs (axes):             Axes object that contains all of the axes used in the receptive field
-                                figure. There will be as many axes as there are cell_types represented
-                                in the plot.
+            axs (axes): Axes object that contains all of the axes used in the receptive field figure.
+            There will be as many axes as there are cell_types represented in the plot.
 
+            The function will also plot the results automatically if you're in a jupyter notebook, but it does not call
+            plt.show() on the figure. You need to call plt.show() manually if running as part of a REPL or script.
         """
+        # Convert individual cell type or cell id into list
         if isinstance(cell_types, str):
             cell_types = [cell_types]
         
         if isinstance(noise_ids, int) or isinstance(noise_ids, float):
             noise_ids = [int(noise_ids)]
 
+        # Parse typing file, use typing file 0 if none given
         if typing_file is None:
             try:
                 typing_file = self.typing_files[0]
@@ -404,6 +416,7 @@ class AnalysisChunk:
 
         typing_file_idx = self.typing_files.index(typing_file)
         
+        # Pull appropriate union of noise cell ids and cell types using given params.
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
             noise_ids = list(filtered_df['cell_id'].values)
@@ -419,34 +432,37 @@ class AnalysisChunk:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
             cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
 
+        # Pull only those cells inside the given region of interest (roi) if one was specified.
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
             filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
             cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
 
+        # If no cells found after all the above filtering, return
         if len(filtered_df) == 0:
             print("No data found for the given noise_ids and cell_types.")
             return
-        
 
-        # Remove cells velow minimum threshold
+        # Remove cells below minimum threshold set in params (minimum_n param)
         too_few_cells = [ct for ct in cell_types if len(filtered_df.query(f"typing_file_{typing_file_idx} == @ct")['cell_id'].values) < minimum_n]
         
         for ct in too_few_cells:
             cell_types.remove(ct) 
 
+        # Sort cell types alphabetically for plotting
         cell_types = sorted(cell_types)
 
-                
+        # Organize IDs and types into dictionary and pass to get_ells() function to pull ellipses
         d_noise_ids_by_type = {ct : list(filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values) for ct in cell_types}
         d_ells_by_type, scale_factor = get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)
 
 
+        # Plot ellipses, one axis per cell type
         rows = int(np.ceil(len(cell_types)/4))
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
         size = (4*cols, int(3*rows))
 
-        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
+        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size, layout = 'constrained')
 
         if cols != 1:
             axs = np.array(axs).flatten()
@@ -470,13 +486,14 @@ class AnalysisChunk:
             n_cells = len(d_ells_by_type[ct])
             ax.set_title(f"{ct}, (n = {n_cells})")
 
-        # Remove extra empty axes 
+        # Remove any empty axes 
         num_axes = rows * cols
         empty_axes = num_axes - len(cell_types)
 
         for i in range(empty_axes):
             fig.delaxes(cast(Axes, axs[num_axes - 1 - i]))
 
+        # If b_zoom is true, crop each axis to zoom in on the array
         if b_zoom:
             x_min, x_max = filtered_df['center_x'].min(), filtered_df['center_x'].max()
             y_min, y_max = filtered_df['center_y'].min(), filtered_df['center_y'].max()
@@ -486,7 +503,6 @@ class AnalysisChunk:
                 ax.set_ylim((y_min - n_pad)*scale_factor, (y_max + n_pad)*scale_factor)
         
         fig.suptitle("RFs by Cell Type", fontsize = 15)
-        fig.tight_layout()
 
         return axs
         
@@ -494,34 +510,46 @@ class AnalysisChunk:
                          typing_file: Optional[str] = None, units: str = 'ms', std_scaling: float = 2, minimum_n: int = 1,
                          roi: Optional[Dict[str, float]] = None, roi_units: str = 'pixels') -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         """
-        Method for plotting the timecourses for a given list of cell ids, cell types, 
-        or a union of both. If no cell_ids or cell types are given, the timecourses for
-        all cells in the analysis chunk are plotted by type. The mean is plotted as a line
-        with a shaded region defined by the standard deviation * std_scaling.
+        Method for plotting the timecourses for a given list of cell ids, cell types, or a union of both. If no cell_ids
+        or cell types are given, the timecourses for all cells in the analysis chunk are plotted by type. The mean is 
+        plotted as a line with a shaded region defined by the standard deviation * std_scaling.
         
         Parameters:
-        noise_ids (List[int]):  A list of cell_ids to plot. Default None.
-        cell_types (List[str]): A list of cell_type strings, (e.g. ['OnP', 'OffP']). Default None.
-        typing_fyle (str):      A typing file name which is used to determine the cell types for any
-                                given cell_ids. If none is given, the 0th typing file associated
-                                with the analysis chunk is used. Default None.
-        units (str):            Units to use when plotting the timecourse. Must be either
-                                'ms', 'milliseconds', 's', or 'seconds'. Default 'mss'.
-        std_scaling (float):    Factor used to scale the standard deviation used for plotting the
-                                shaded region around each timecourse. Default 2
-        roi (dict):             roi definition as a dictionary with 4 values. 'x_min',
-                                'x_max', 'y_min', 'y_max'. These define the vertical and
-                                horizontal lines that define the region of interest
-        roi_units (str):        Units to use when defining the region of interest. Must be 'pixels',
-                                'microns', or 'stixels'. Default 'pixels'.
+            noise_ids (List[int]): A list of cell_ids to plot. Default None.
+
+            cell_types (List[str]): A list of cell_type strings, (e.g. ['OnP', 'OffP']). Default None.
+
+            typing_fyle (str): A typing file name which is used to determine the cell types for any given cell_ids.
+            If none is given, the 0th typing file associated with the analysis chunk is used. Default None.
+
+            units (str): Units to use when plotting the timecourse. Must be either 'ms', 'milliseconds', 's',
+            or 'seconds'. Default 'mss'.
+
+            std_scaling (float): Factor used to scale the standard deviation used for plotting the shaded
+            region around each timecourse. Default 2
+
+            roi (dict): roi definition as a dictionary with 4 values. 'x_min', 'x_max', 'y_min', 'y_max'.
+            These define the vertical and horizontal lines that define the region of interest
+
+            roi_units (str): Units to use when defining the region of interest. Must be 'pixels', 'microns',
+            or 'stixels'. Default 'pixels'.
         
         Returns:
-        axs (axes):             Axes object that contains all of the axes used in the timecourses
-                                figure. There will be as many axes as there are cell_types represented
-                                in the plot.
+            axs (axes): Axes object that contains all of the axes used in the timecourses figure. There
+            will be as many axes as there are cell_types represented in the plot.
+
+            The function will also plot the results automatically if you're in a jupyter notebook, but it does not call
+            plt.show() on the figure. You need to call plt.show() manually if running as part of a REPL or script.
 
         """
+        # Convert individual cell type or cell id into list
+        if isinstance(cell_types, str):
+            cell_types = [cell_types]
         
+        if isinstance(noise_ids, int) or isinstance(noise_ids, float):
+            noise_ids = [int(noise_ids)]
+
+        # Parse units input
         if 'ms' in units.lower() or 'milliseconds' in units.lower():
             scale_factor = 1
         elif 's' in units.lower() or 'seconds' in units.lower():
@@ -529,14 +557,21 @@ class AnalysisChunk:
         else:
             raise NameError("Units string must be 'ms', 'milliseconds', 's' or 'seconds'")
 
+        # Parse typing file, use typing file 0 if none given
         if typing_file is None:
-            typing_file = self.typing_files[0]
-        
-        typing_file_idx = self.typing_files.index(typing_file)
+            try:
+                typing_file = self.typing_files[0]
+            except:
+                print(f'No typing files for {self.exp_name} {self.chunk_name}')
+                return
 
         if typing_file not in self.typing_files:
-            raise FileNotFoundError("Given Typing File Doesn't Exist in Analysis Chunk")
+            print(f"{typing_file} Doesn't Exist in {self.exp_name} {self.chunk_name}")
+            return
 
+        typing_file_idx = self.typing_files.index(typing_file)
+
+        # Filter for union of cell ids and cell types provided by user
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
             noise_ids = list(filtered_df['cell_id'].values)
@@ -551,6 +586,8 @@ class AnalysisChunk:
         else:
             filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
             cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+
+        # Filter for cells inside region of interest (roi) if one was provided
         if roi is not None:
             roi_cell_ids = self.get_cells_by_region(roi = roi, units = roi_units)
             filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
@@ -561,22 +598,24 @@ class AnalysisChunk:
             print("No data found for the given noise_ids and cell_types.")
             return
 
-        # Remove cells velow minimum threshold
+        # Remove cells below minimum threshold
         too_few_cells = [ct for ct in cell_types if len(filtered_df.query(f"typing_file_{typing_file_idx} == @ct")['cell_id'].values) < minimum_n]
         
         for ct in too_few_cells:
             cell_types.remove(ct) 
 
 
+        # Organize cells into dictionary and pass that dictionary to get_timecourses() function
         d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
         d_timecourses_by_type = get_timecourses(self, d_noise_ids_by_type)
 
 
+        # Plot timecourses, one axis per cell type
         rows = np.ceil(len(cell_types)/4).astype(int)
         cols = np.min([(len(cell_types)-1 % 4)+1, 4])
         size = (4*cols, int(3*rows))
 
-        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size)
+        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size, layout = 'constrained')
 
         if cols != 1:
             axs = np.array(axs).flatten()
@@ -617,7 +656,7 @@ class AnalysisChunk:
             
             ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['r_timecourses'].shape[0]})")
 
-        # Remove extra empty axes 
+        # Remove any empty axes 
         num_axes = rows*cols
         empty_axes = num_axes - len(cell_types)
 
@@ -625,36 +664,9 @@ class AnalysisChunk:
             fig.delaxes(cast(Axes, axs[num_axes - 1 - i]))
 
         fig.suptitle("Timecourse by Cell Type", fontsize = 15)
-        fig.tight_layout()
 
         return axs
 
-    def __repr__(self):
-        str_self = f"{self.__class__.__name__} with properties:\n"
-        str_self += f"  exp_name: {self.exp_name}\n"
-        str_self += f"  chunk_name: {self.chunk_name}\n"
-        str_self += f"  ss_version: {self.ss_version}\n"
-        str_self += f"  noise_protocol: {self.noise_protocol}\n"
-        str_self += f"  data_files: {self.data_files}\n"
-        str_self += f"  typing_files: {self.typing_files}\n"
-        str_self += f"  vcd: {self.vcd}\n"
-        str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
-        str_self += f"  d_ISIs dictionary containing ISIs for {len(self.cell_ids)} cell IDs\n"
-        str_self += f"  d_timecourses dictionary containing dictionary with 'red' 'green' and 'blue' timecourses for {len(self.cell_ids)} cell IDs\n"
-        str_self += f"  numXChecks: {self.numXChecks}\n"
-        str_self += f"  numYChecks: {self.numYChecks}\n"
-        str_self += f"  staXChecks: {self.staXChecks}\n"
-        str_self += f"  staYChecks: {self.staYChecks}\n"
-        str_self += f"  canvas_size: {self.canvas_size}\n"
-        str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
-        str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
-        str_self += f"  rf_params with fiels: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
-        str_self += f"  df_cell_params of shape: {self.df_cell_params.shape}\n"
-        if hasattr(self, 'd_spatial_maps'):
-            str_self += f"  d_spatial_maps with {len(self.d_spatial_maps)} cells\n"
-        else:
-            str_self += "  d_spatial_maps not loaded\n"
-        return str_self
     
     def get_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
                   typing_file: Optional[str] = None, padded: bool = True, units: str = 'stixels') -> dict:
@@ -663,31 +675,33 @@ class AnalysisChunk:
         pull the union of the two.
         
         Parameters:
-        noise_ids (int or List[int]): list of cell ids, optional, default is None
+            noise_ids (int or List[int]): list of cell ids, optional, default is None
 
-        cell_types (str or List[str]): list of cell types, optional, default is None
-        
-        typing_file (str): name of a typing file to use for cell type classification
+            cell_types (str or List[str]): list of cell types, optional, default is None
+            
+            typing_file (str): name of a typing file to use for cell type classification
 
-        padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
-        noise frame. Most STAs are cropped for the sake of memory, but it makes them inaccurate relative to the
-        stimulus. Default is True.
+            padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
+            noise frame. Most STAs are cropped for the sake of memory, but it makes them inaccurate relative to the
+            stimulus. Default is True.
 
-        units (str): Either 'stixels', 'pixels', or 'microns'. This will scale the STAs to the appropriate units
-        using nearest neighbor scaling.
-        
+            units (str): Either 'stixels', 'pixels', or 'microns'. This will scale the STAs to the appropriate units
+            using nearest neighbor scaling.
+            
         Returns:
-        all_stas (numpy array or dict of numpy arrays): numpy array that contains all STAs. If a typing file is given and/or 
-        cell type info is available, the output will have cell type information. Otherwise it 
-        will not. 
+            all_stas (numpy array or dict of numpy arrays): numpy array that contains all STAs. If a typing file is given and/or 
+            cell type info is available, the output will have cell type information. Otherwise it 
+            will not. 
         """
 
+        # Convert individual Cell ID or Cell Type into a list
         if isinstance(noise_ids, int):
             noise_ids = [noise_ids]
 
         if isinstance(cell_types, str):
             cell_types = [cell_types]
 
+        # Parse units to make sure they're valid
         if 'pixels' in units.lower():
             unit_scaling = self.pixels_per_stixel
         elif 'microns' in units.lower():
@@ -698,7 +712,10 @@ class AnalysisChunk:
             raise Exception("Units must be 'pixels', 'microns' or 'stixels'")
 
         
+        # Combined parsing of noise_ids, cell_types, and typing_file... a bit hard to follow
+        # may split this up like it is in plot_rfs() and plot_timecourses()
         if noise_ids is None:
+            # Neither noise IDs nor cell types provided
             if cell_types is None:
                 if not self.typing_files:
                     print('WARNING: No typing files exist for this chunk, will not organize cells by type')
@@ -716,6 +733,8 @@ class AnalysisChunk:
                     filtered_df = self.df_cell_params
                     cell_ids = filtered_df['cell_id'].to_numpy()
                     available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+
+            # Cell types provided, no IDs provided
             else:
                 if not self.typing_files:
                     raise ValueError('No typing files exist for this chunk, try again without cell type argument')
@@ -730,6 +749,7 @@ class AnalysisChunk:
                     available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
         
         else:
+            # Noise IDs provided but no cell types provided
             if cell_types is None:
                 if not self.typing_files:
                     print('WARNING: No typing files exist for this chunk, will not organize cells by type')
@@ -748,6 +768,7 @@ class AnalysisChunk:
                     cell_ids = filtered_df['cell_id'].to_numpy()
                     available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
             else:
+                # Noise IDs and Cell Types provided
                 if not self.typing_files:
                     raise ValueError('No typing files exist for this chunk, try again without the cell type')
                 else:
@@ -815,35 +836,37 @@ class AnalysisChunk:
         cell type, one STA per axis, number of axes = number of cells of that cell type.
 
         Parameters:
-        noise_ids (int or List[int]) a single cell id or list of cell ids to be plotted. Optional, default None.
+            noise_ids (int or List[int]) a single cell id or list of cell ids to be plotted. Optional, default None.
 
-        cell_types (str or List[str]) a single cell type or list of cell types to be plotted. Optional, default None. 
+            cell_types (str or List[str]) a single cell type or list of cell types to be plotted. Optional, default None. 
 
-        typing_file (str): The name of a typing file to use for linking cell types to cell ids. If no typing file is given
-        typing file [0] from the analysis chunk is used. If there are no typing files, only one figure is plotted, with no
-        cell type information.
+            typing_file (str): The name of a typing file to use for linking cell types to cell ids. If no typing file is given
+            typing file [0] from the analysis chunk is used. If there are no typing files, only one figure is plotted, with no
+            cell type information.
 
-        cols (int): number of columns to use in the resulting figure(s).
+            cols (int): number of columns to use in the resulting figure(s).
 
-        padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
-        noise frame. Most STAs are cropped for the sake of memory, but it makes them inaccurate relative to the
-        stimulus. Default value for plotting purposes is False.
+            padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
+            noise frame. Most STAs are cropped for the sake of memory, but it makes them inaccurate relative to the
+            stimulus. Default value for plotting purposes is False.
 
-        units (str): units to plot the STAs in. Must be stixels, pixels, or microns. Default is stixels. If other units
-        are used, the STA is scaled using nearest neighbor interpolation. 
+            units (str): units to plot the STAs in. Must be stixels, pixels, or microns. Default is stixels. If other units
+            are used, the STA is scaled using nearest neighbor interpolation. 
 
         Returns:
-        sta_axes: will return a list of Axes objects (multiple single cells of different types) or a list of numpy arrays
-        of axes (multiple cells of multiple types). 
+            sta_axes: will return a list of Axes objects (multiple single cells of different types) or a list of numpy arrays
+            of axes (multiple cells of multiple types). 
 
-        The function will also plot the results automatically if you're in a jupyter notebook, but it does not call
-        plt.show() on the figure.
+            The function will also plot the results automatically if you're in a jupyter notebook, but it does not call
+            plt.show() on the figure. You need to call plt.show() manually if running as part of a REPL or script.
         """
 
+        # All unit parsing and checking of data types done in get_stas()
         d_stas = self.get_stas(noise_ids = noise_ids, cell_types = cell_types,
                                 typing_file = typing_file, padded = padded, units = units)
 
         all_axes = []
+        # Plot STAs organized by one figure per cell type
         if isinstance(list(d_stas.keys())[0], str):
             # This indicates that the dictionary is organized by cell type
             available_types: List[str] = sorted(list(d_stas.keys()))
@@ -892,6 +915,7 @@ class AnalysisChunk:
 
                 all_axes.append(ax)
 
+        # No cell types, plot all STAs in a single figure
         else:
             assert (isinstance(list(d_stas.keys())[0], int)),\
             (f'The keys in the sta dict should either be ints or strs, yours is a {type(list(d_stas.keys())[0])}')
@@ -951,3 +975,30 @@ class AnalysisChunk:
         if self.verbose:
             print(f"AnalysisChunk exported to {file_path}")
 
+    def __repr__(self):
+        str_self = f"{self.__class__.__name__} with properties:\n"
+        str_self += f"  exp_name: {self.exp_name}\n"
+        str_self += f"  chunk_name: {self.chunk_name}\n"
+        str_self += f"  ss_version: {self.ss_version}\n"
+        str_self += f"  noise_protocol: {self.noise_protocol}\n"
+        str_self += f"  data_files: {self.data_files}\n"
+        str_self += f"  typing_files: {self.typing_files}\n"
+        str_self += f"  vcd: {self.vcd}\n"
+        str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  d_ISIs dictionary containing ISIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  d_timecourses dictionary containing dictionary with 'red' 'green' and 'blue' timecourses for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  numXChecks: {self.numXChecks}\n"
+        str_self += f"  numYChecks: {self.numYChecks}\n"
+        str_self += f"  staXChecks: {self.staXChecks}\n"
+        str_self += f"  staYChecks: {self.staYChecks}\n"
+        str_self += f"  canvas_size: {self.canvas_size}\n"
+        str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
+        str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
+        str_self += f"  rf_params with fiels: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
+        str_self += f"  df_cell_params of shape: {self.df_cell_params.shape}\n"
+
+        if hasattr(self, 'd_spatial_maps'):
+            str_self += f"  d_spatial_maps with {len(self.d_spatial_maps)} cells\n"
+        else:
+            str_self += "  d_spatial_maps not loaded\n"
+        return str_self
