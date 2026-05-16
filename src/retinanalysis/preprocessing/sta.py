@@ -588,6 +588,19 @@ if __name__ == "__main__":
     d_rf_params = rfs.rf_fitting_pipeline(
         stas=stas, str_output_dir=chunk_save_dir
     )
+
+    # Mark bottom 10% of spike count cells as lowSNR
+    spike_counts = d_data['spike_counts']
+    threshold = np.percentile(spike_counts, 10)
+    low_idxs = spike_counts <= threshold
+    auto_types = d_rf_params['auto_types']
+    auto_types[low_idxs] = 'lowSNR'
+    
+    # Save auto_types to .txt file. rows of {cell ID}  {type}
+    auto_types_file = os.path.join(chunk_save_dir, f'{args.ss_version}_auto_types.txt')
+    type_data = np.array(list(zip(d_data['cell_ids'], auto_types)), dtype=object)
+    np.savetxt(auto_types_file, type_data, fmt='%s', delimiter='\t')
+    print(f"Auto types saved to {auto_types_file}")
     
     sta_height = stas.shape[2]
     
