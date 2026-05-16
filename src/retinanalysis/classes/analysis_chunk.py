@@ -100,6 +100,7 @@ class AnalysisChunk:
 
         self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
         self.cell_ids = np.array(self.vcd.get_cell_ids())
+        self.cell_ids = np.sort(self.cell_ids)
 
         # Pull EIs into an EI dictionary (if include_ei param is true)
         if 'include_ei' in vu_kwargs:
@@ -994,7 +995,7 @@ class AnalysisChunk:
         str_self += f"  canvas_size: {self.canvas_size}\n"
         str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
-        str_self += f"  rf_params with fiels: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
+        str_self += f"  rf_params with fields: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
         str_self += f"  df_cell_params of shape: {self.df_cell_params.shape}\n"
 
         if hasattr(self, 'd_spatial_maps'):
