@@ -32,6 +32,8 @@ from .utils.datajoint_utils import *
 from .utils import ei_utils
 from .utils.ei_utils import *
 
+from .utils import spike_detector
+
 from .utils import regen
 from .utils.regen import *
 
@@ -39,6 +41,12 @@ from .utils import vision_utils
 from .utils.vision_utils import *
 
 from .utils import parse_data
+
+# Import preprocessing
+from . import preprocessing
+from .preprocessing import sta
+from .preprocessing import rfs
+
 
 # Import classes last
 from . import classes
@@ -63,6 +71,8 @@ from .classes.response import (ResponseBlock,
 from .classes import qc
 from .classes.qc import MEAQC
 
+from .classes import raw
+from .classes.raw import RawTraces
 
 # Pipeline must be imported last as it references the above pieces.
 from .classes import mea_pipeline
@@ -71,8 +81,3 @@ from .classes.mea_pipeline import (MEAPipeline,
 from .classes import sc_pipeline
 from .classes import dedup
 from .classes.dedup import DedupBlock
-
-
-
-
-
