@@ -481,11 +481,16 @@ def get_stage_frame_rate_by_exp(exp_name: str):
     stage_frame_rates = stage_frame_rates.astype(float)
     # Remove NaN values if any
     stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
+    
     if len(np.unique(stage_frame_rates))!=1:
         print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}')
-        print(f'd_display will keep the first one: {stage_frame_rates[0]}')
+        print(f'This could be due to PatternMode usage.')
+        keep_rate = min(stage_frame_rates)
+        print(f'd_display will keep the min: {keep_rate}')
+    else:
+        keep_rate = stage_frame_rates[0]
 
-    return stage_frame_rates[0]
+    return keep_rate
 
 
 def get_display_params_by_exp(exp_name: str, verbose: bool = True):
