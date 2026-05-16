@@ -597,7 +597,7 @@ if __name__ == "__main__":
     auto_types[low_idxs] = 'lowSNR'
     
     # Save auto_types to .txt file. rows of {cell ID}  {type}
-    auto_types_file = os.path.join(chunk_save_dir, f'{args.ss_version}_auto_types.txt')
+    auto_types_file = os.path.join(chunk_save_dir, f'auto_types.txt')
     type_data = np.array(list(zip(d_data['cell_ids'], auto_types)), dtype=object)
     np.savetxt(auto_types_file, type_data, fmt='%s', delimiter='\t')
     print(f"Auto types saved to {auto_types_file}")
