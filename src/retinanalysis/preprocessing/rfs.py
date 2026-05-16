@@ -178,7 +178,7 @@ class Spatial_DoG(torch.nn.Module):
         """
         filter = self.parametrized_filter.compute_filter()
         
-        filter = filter * self.gain + self.bias
+        # filter = filter * self.gain + self.bias
         
         return filter
     
@@ -312,59 +312,79 @@ def fit_model_params(model: torch.nn.Module, train_loader: DataLoader,
     return d_track
 
 
-def plot_spatial_dog_performance(model: Spatial_DoG, stas, str_type, cmap='jet', n_pad=15, str_save_dir=None, n_max_rows=50):
-    # Plot spatial receptive fields
-    n_rows = np.min([model.n_cells, n_max_rows])
-    f, axs = plt.subplots(ncols=3, nrows=n_rows, figsize=(9, 3*n_rows))
-    if n_rows == 1:
-        axs = np.array([axs])
-    # If stas is tensor, convert to numpy
-    if torch.is_tensor(stas):
-        stas = stas.detach().cpu().numpy()
+def plot_spatial_dog_performance(
+        model: Spatial_DoG, spatial_stas, str_type, cmap='jet', n_pad=15, 
+        str_save_dir=None, n_max_rows=50
+    ):
+    # Loop over cells and save fig in batches
+    n_cells = model.n_cells
+    n_plots = np.ceil(n_cells / n_max_rows).astype(int)
     model_stas = model(None).detach().cpu().numpy()
-    print(model_stas.shape)
-    for i_cell in range(n_rows):
-        # Crop around center pixel
-        row = int(model.parametrized_filter.row_coords[i_cell].detach().cpu().numpy())
-        col = int(model.parametrized_filter.col_coords[i_cell].detach().cpu().numpy())
-        if row >= stas.shape[1] or col >= stas.shape[2]:
-            print(f'Cell {i_cell}: Center ({row}, {col}) out of bounds for STA shape {stas.shape[1:3]}')
-            continue
+    for i_batch in range(n_plots):
+        i_start = i_batch * n_max_rows
+        i_end = (i_batch + 1) * n_max_rows
+        i_end = np.min([i_end, model.n_cells])
 
-        ax = axs[i_cell, 0]
-        vmin, vmax = stas[i_cell].min(), stas[i_cell].max()
-        im=ax.imshow(stas[i_cell], cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
-        plt.colorbar(im, ax=ax)
-        ax.set_xlim(col-n_pad, col+n_pad)
-        ax.set_ylim(row-n_pad, row+n_pad)
-        ax.set_ylabel(f'Cell idx {i_cell}')
+        n_rows = i_end - i_start
+        f, axs = plt.subplots(ncols=3, nrows=n_rows, figsize=(9, 3*n_rows))
+        if n_rows == 1:
+            axs = np.array([axs])
+        
+        # If stas is tensor, convert to numpy
+        if torch.is_tensor(spatial_stas):
+            spatial_stas = spatial_stas.detach().cpu().numpy()
+        
+        # Get batch data
+        true = spatial_stas[i_start:i_end]
+        mdl = model_stas[i_start:i_end]
+        row_coords = model.parametrized_filter.row_coords[i_start:i_end].detach().cpu().numpy()
+        col_coords = model.parametrized_filter.col_coords[i_start:i_end].detach().cpu().numpy()
+        row_coords = row_coords.astype(int)
+        col_coords = col_coords.astype(int)
 
-        ax = axs[i_cell, 1]
-        im = ax.imshow(model_stas[i_cell], cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
-        plt.colorbar(im, ax=ax)
-        ax.set_xlim(col-n_pad, col+n_pad)
-        ax.set_ylim(row-n_pad, row+n_pad)
+        # Plot each cell
+        for i_cell in range(n_rows):
+            # Crop around center pixel
+            row = row_coords[i_cell]
+            col = col_coords[i_cell]
+            if row >= true.shape[1] or col >= true.shape[2]:
+                print(f'Cell {i_cell}: Center ({row}, {col}) out of bounds for STA shape {true.shape[1:3]}')
+                continue
 
-        # Plot slice through center pixel
-        ax = axs[i_cell, 2]
-        ax.plot(stas[i_cell, row, :], label='STA', alpha=0.7)
-        ax.plot(model_stas[i_cell, row, :], label='Model', alpha=0.7)
-        ax.set_xlim(col-n_pad, col+n_pad)
-        ax.legend(loc='lower left')
-        r = np.corrcoef(stas[i_cell].flatten(), model_stas[i_cell].flatten())[0,1]
-        ax.set_title(f'r = {r:.2f}')
-    
-    axs[0, 0].set_title(f'{str_type} Spatial STA')
-    axs[0, 1].set_title('DoG model fit')
-    for ax in axs[:,:2].flatten():
-        ax.set_xticks([])
-        ax.set_yticks([])
-    
-    plt.tight_layout()
-    if str_save_dir is not None:
-        str_save = os.path.join(str_save_dir, f'{str_type}_spatial_dog_fits.png')
-        plt.savefig(str_save)
-        plt.close()
+            ax = axs[i_cell, 0]
+            vmin, vmax = true[i_cell].min(), true[i_cell].max()
+            im=ax.imshow(true[i_cell], cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
+            plt.colorbar(im, ax=ax)
+            ax.set_xlim(col-n_pad, col+n_pad)
+            ax.set_ylim(row-n_pad, row+n_pad)
+            ax.set_ylabel(f'Cell idx {i_cell}')
+
+            ax = axs[i_cell, 1]
+            im = ax.imshow(mdl[i_cell], cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
+            plt.colorbar(im, ax=ax)
+            ax.set_xlim(col-n_pad, col+n_pad)
+            ax.set_ylim(row-n_pad, row+n_pad)
+
+            # Plot slice through center pixel
+            ax = axs[i_cell, 2]
+            ax.plot(true[i_cell, row, :], label='STA', alpha=0.7)
+            ax.plot(mdl[i_cell, row, :], label='Model', alpha=0.7)
+            ax.set_xlim(col-n_pad, col+n_pad)
+            ax.legend(loc='lower left')
+            r = np.corrcoef(true[i_cell].flatten(), mdl[i_cell].flatten())[0,1]
+            ax.set_title(f'r = {r:.2f}')
+        
+        axs[0, 0].set_title(f'{str_type} Spatial STA')
+        axs[0, 1].set_title('DoG model fit')
+        for ax in axs[:,:2].flatten():
+            ax.set_xticks([])
+            ax.set_yticks([])
+        
+        plt.tight_layout()
+        if str_save_dir is not None:
+            str_save = os.path.join(str_save_dir, f'{str_type}_{i_batch}_spatial_dog_fits.png')
+            plt.savefig(str_save)
+            plt.close()
 
 def plot_model_param_dists(model: Spatial_DoG, str_type, str_save_dir=None):
     ls_params = ['c_row_sigmas', 'c_col_sigmas', 's_row_sigmas', 's_col_sigmas',
@@ -392,6 +412,29 @@ def plot_model_param_dists(model: Spatial_DoG, str_type, str_save_dir=None):
         plt.savefig(str_save)
         plt.close()
 
+def plot_performance(d_track, model: Spatial_DoG, spatial_stas, str_save_dir=None):
+    f, axs = plt.subplots(ncols=2, figsize=(12, 5))
+    ax = axs[0]
+    ax.plot(d_track['train_loss'], label='Train Loss')
+    ax.axvline(d_track['i_best'], color='r', linestyle='--', label='Best Iteration')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('MSE Loss')
+    ax.set_title('Training Loss')
+    # Histogram of correlations
+    ax = axs[1]
+    ls_r = []
+    model_stas = model(None).detach().cpu().numpy()
+    for i_cell in range(model.n_cells):
+        r = np.corrcoef(spatial_stas[i_cell].cpu().numpy().flatten(), model_stas[i_cell].flatten())[0,1]
+        ls_r.append(r)
+    ax.hist(ls_r, bins=50)
+    ax.set_title('Performance distribution')
+    ax.set_xlabel('Correlation')
+    ax.set_ylabel('Count')
+    if str_save_dir is not None:
+        str_save = os.path.join(str_save_dir, f'dog_training_loss.png')
+        plt.savefig(str_save)
+        plt.close()
 
 def fit_spatial_dog(
         spatial_stas: np.ndarray, 
@@ -415,8 +458,8 @@ def fit_spatial_dog(
     model = Spatial_DoG(
         input_spatial_dims=input_spatial_dims, device=device, 
         d_init_params=d_init_params
-    )
-    
+        )
+        
     print(f'Fitting DoG model with {n_cells} cells')
 
     dataset = TensorDataset(torch.zeros(n_cells), spatial_stas)
@@ -430,38 +473,13 @@ def fit_spatial_dog(
         n_lr=n_lr, n_patience=n_patience
     )
 
-    # Plot loss
-    f, axs = plt.subplots(ncols=2, figsize=(12, 5))
-    ax = axs[0]
-    ax.plot(d_track['train_loss'], label='Train Loss')
-    ax.axvline(d_track['i_best'], color='r', linestyle='--', label='Best Iteration')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('MSE Loss')
-    ax.set_title('Training Loss')
-    # Histogram of correlations
-    ax = axs[1]
-    ls_r = []
-    model_stas = model(None).detach().cpu().numpy()
-    for i_cell in range(n_cells):
-        r = np.corrcoef(spatial_stas[i_cell].cpu().numpy().flatten(), model_stas[i_cell].flatten())[0,1]
-        ls_r.append(r)
-    ax.hist(ls_r, bins=50)
-    ax.set_title('Performance distribution')
-    ax.set_xlabel('Correlation')
-    ax.set_ylabel('Count')
-    if str_save_dir is not None:
-        str_save = os.path.join(str_save_dir, f'dog_training_loss.png')
-        plt.savefig(str_save)
-        plt.close()
+    # Plot performance
+    plot_performance(d_track, model, spatial_stas, str_save_dir=str_save_dir)
 
-    n_max_rows = 50
-    # Call plot for all cells in batches
-    n_imgs = np.ceil(n_cells / n_max_rows).astype(int)
-    for i in range(n_imgs):
-        plot_spatial_dog_performance(
-            model, spatial_stas[i*n_max_rows:(i+1)*n_max_rows], f'All_{i}', str_save_dir=str_save_dir,
-            n_max_rows=n_max_rows
-        )
+    plot_spatial_dog_performance(
+        model, spatial_stas, f'All', str_save_dir=str_save_dir,
+        n_max_rows=50
+    )
     plot_model_param_dists(model, 'All', str_save_dir=str_save_dir)
 
     return model, d_track
@@ -491,41 +509,51 @@ def rf_fitting_pipeline(
     peak_ts, peak_hs, peak_ws, peak_cs = np.unravel_index(peak_idxs, (n_depth, n_height, n_width, n_channels))
 
     # Collect center pixel timecourse for every channel for final output.
-    timecourses = stas[np.arange(n_cells), :, peak_hs, peak_ws, :]
+    # timecourses = stas[np.arange(n_cells), :, peak_hs, peak_ws, :]
     
     # Get peak spatial frame [K, H, W].
     spatial_stas = stas[np.arange(n_cells), peak_ts, :, :, peak_cs]
-    # Make them all "ON" i.e. positive peaks
+    
+    # Collect signs, will save later for On/Off auto classification.
     signs = np.sign(stas[np.arange(n_cells), peak_ts, peak_hs, peak_ws, peak_cs])
+    
+    # Make them all "ON" i.e. positive peaks
     spatial_stas = spatial_stas * signs[:, np.newaxis, np.newaxis]
 
     ## Estimate initial sigmas from mask.
-    # Make high SNR mask, with threshold of top 10% of abs values in the peak frame
+    # Make high SNR mask, with threshold of top 10% of values in the peak frame
     thresholds = np.percentile(spatial_stas.reshape(n_cells, -1), 90, axis=1)
+    # [K, H, W] >= [K, 1, 1]
     thresholds = thresholds.reshape(-1, 1, 1)
-    masks = np.where(spatial_stas > thresholds, 1, 0)
+    # [K, H, W] masks
+    masks = np.where(spatial_stas >= thresholds, 1, 0)
     
     # Compute contiguous region around peak, and estimate row and col sigmas.
     ls_row_sigmas = []
     ls_col_sigmas = []
+    ls_tcs = []
+    lowsnr_idxs = []
     for i in range(n_cells):
         mask = masks[i]
         peak_h, peak_w = peak_hs[i], peak_ws[i]
-        if mask[peak_h, peak_w] == 0:
-            print(f'Warning: Peak pixel for cell {i} is not in high SNR mask. Consider adjusting threshold or checking data quality.')
-        
+
         # Use flood fill to find contiguous region around the peak
         cnt_mask = flood(mask, (peak_h, peak_w), connectivity=1)
         
-        # Get bounding box of contiguous region
+        # Get timecourses from avg of contiguous region
         h_inds, w_inds = np.where(cnt_mask)
+        # [D, C]
+        tc = np.mean(stas[i, :, h_inds, w_inds, :], axis=0)
+        ls_tcs.append(tc)
+
+        # Get bounding box of contiguous region
         n_cnt_rows = w_inds.max() - w_inds.min()
         n_cnt_cols = h_inds.max() - h_inds.min()
         # If too small, set to default value
-        if n_cnt_rows < 2:
+        if n_cnt_rows < 2 or n_cnt_cols < 2:
             n_cnt_rows = 4
-        if n_cnt_cols < 2:
             n_cnt_cols = 4
+            lowsnr_idxs.append(i)
         ls_row_sigmas.append(n_cnt_cols / 2.0)
         ls_col_sigmas.append(n_cnt_rows / 2.0)
     
@@ -562,6 +590,24 @@ def rf_fitting_pipeline(
     d_fit_params = model.parametrized_filter.get_params_np()
     
     # Add timecourses
-    d_fit_params['timecourses'] = timecourses
+    d_fit_params['timecourses'] = np.array(ls_tcs)
+
+    # Add model and data for debugging
+    d_fit_params['model'] = model
+    d_fit_params['spatial_stas'] = spatial_stas
+
+    # Create auto classification labels [LowSNR, Blue, On, Off]
+    auto_types = np.array(['Unknown'] * n_cells)
+    blue_idxs = np.where(peak_cs == 2)[0]
+    auto_types[blue_idxs] = 'Blue'
+    on_idxs = np.where((signs >= 0))[0]
+    off_idxs = np.where((signs < 0))[0]
+    on_idxs = np.setdiff1d(on_idxs, blue_idxs)
+    off_idxs = np.setdiff1d(off_idxs, blue_idxs)
+    auto_types[on_idxs] = 'On'
+    auto_types[off_idxs] = 'Off'
+    auto_types[lowsnr_idxs] = 'LowSNR'
+    
+    d_fit_params['auto_types'] = auto_types
 
     return d_fit_params
