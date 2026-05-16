@@ -510,7 +510,7 @@ if __name__ == "__main__":
     parser.add_argument('exp_name', help='Experiment name (e.g. 20260715C)')
     parser.add_argument('chunk_name', help='Chunk name (e.g. chunk1)')
     parser.add_argument('datafile_name', nargs='*', help='Datafile name(s) to process (e.g. data000). If not given, will attempt to find noise datafiles for the given exp and chunk.')
-    parser.add_argument('save_dir', help='Directory to save computed STAs')
+    parser.add_argument('save_dir', help='Parent directory to save computed STAs and RF params. Typically your SSD analysis dir.')
     parser.add_argument('--ss_version', default='kilosort2.5', help='Spike sorting version to load responses from (default: kilosort2.5)')
     parser.add_argument('--stride', type=int, default=2, help='Stride (bins/frame)')
     parser.add_argument('--depth', type=int, default=61, help='STA depth (bins)')
@@ -518,10 +518,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.save_dir is not None:
-        SAVE_DIR = args.save_dir
-    else:
-        SAVE_DIR = '/home/vyomr/Desktop/data/analysis'
+    SAVE_DIR = args.save_dir
     
     chunk_save_dir = os.path.join(SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version)
     if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
