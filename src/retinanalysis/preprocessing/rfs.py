@@ -326,7 +326,8 @@ def plot_spatial_dog_performance(
         i_end = np.min([i_end, model.n_cells])
 
         n_rows = i_end - i_start
-        f, axs = plt.subplots(ncols=3, nrows=n_rows, figsize=(9, 3*n_rows))
+        fig, axs = plt.subplots(ncols=3, nrows=n_rows, figsize=(9, 3*n_rows))
+        fig.suptitle(f'{str_type} Spatial DoG Fits - Cells {i_start} to {i_end-1}')
         if n_rows == 1:
             axs = np.array([axs])
         
@@ -392,7 +393,8 @@ def plot_model_param_dists(model: Spatial_DoG, str_type, str_save_dir=None):
     ls_labels = ['Center SigmaY', 'Center SigmaX', 'Surround SigmaY', 'Surround SigmaX',
                  'Surround Amplitude', 'Theta']
     ncols, nrows = 3, 2
-    f, axs = plt.subplots(ncols=ncols, nrows=nrows, figsize=(5*ncols, 4*nrows))
+    fig, axs = plt.subplots(ncols=ncols, nrows=nrows, figsize=(5*ncols, 4*nrows))
+    fig.suptitle(f'{str_type} DoG Model Parameter Distributions')
     for i, ax in enumerate(axs.flatten()):
         if i < len(ls_params):
             ax.grid()
@@ -413,7 +415,8 @@ def plot_model_param_dists(model: Spatial_DoG, str_type, str_save_dir=None):
         plt.close()
 
 def plot_performance(d_track, model: Spatial_DoG, spatial_stas, str_save_dir=None):
-    f, axs = plt.subplots(ncols=2, figsize=(12, 5))
+    fig, axs = plt.subplots(ncols=2, figsize=(12, 5))
+    fig.suptitle('Spatial DoG Fit Performance')
     ax = axs[0]
     ax.plot(d_track['train_loss'], label='Train Loss')
     ax.axvline(d_track['i_best'], color='r', linestyle='--', label='Best Iteration')
