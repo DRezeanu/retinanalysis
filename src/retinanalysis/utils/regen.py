@@ -72,7 +72,7 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
             'unique_frames': ls_unique_frames[i],
             'repeat_frames': ls_repeat_frames[i],
             'stepsPerStixel': d_e_params['stepsPerStixel'],
-            'seed': d_e_params['seed'],
+            'seed': int(d_e_params['seed']),
             'frameDwell': d_e_params['frameDwell']
         }
         if 'canvasSize' in d_e_params:
@@ -93,7 +93,7 @@ def make_spatial_noise(df_epochs: pd.DataFrame, center_row: Optional[int]=None,
         if 'micronsPerPixel' in d_e_params:
             d_meta['micronsPerPixel'] = d_e_params['micronsPerPixel']
         if 'repeating_seed' in d_e_params:
-            d_meta['repeating_seed'] = d_e_params['repeating_seed']
+            d_meta['repeating_seed'] = int(d_e_params['repeating_seed'])
         e_frames, e_steps = get_spatial_noise_frames(**d_meta)
         ls_frames.append(e_frames)
         ls_steps.append(e_steps)
