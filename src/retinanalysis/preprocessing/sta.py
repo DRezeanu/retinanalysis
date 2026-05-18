@@ -583,6 +583,8 @@ if __name__ == "__main__":
             wr.write(sta=d_stas['stas'], ste=None, cluster_id=d_stas['cell_ids'], stixel_size=d_stas['grid_size'])
         print(f"STAs saved to {save_vcd_sta}")
 
+        stas = d_stas['stas']
+
     d_rf_params = rfs.rf_fitting_pipeline(
         stas=stas, str_output_dir=chunk_save_dir
     )
