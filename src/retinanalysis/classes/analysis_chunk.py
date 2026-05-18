@@ -99,8 +99,7 @@ class AnalysisChunk:
         self.protocol_id = protocol_id.fetch('protocol_id')[0]
 
         self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
-        self.cell_ids = np.array(self.vcd.get_cell_ids())
-        self.cell_ids = np.sort(self.cell_ids)
+        self.cell_ids = np.sort(self.vcd.get_cell_ids())
 
         # Pull EIs into an EI dictionary (if include_ei param is true)
         if 'include_ei' in vu_kwargs:
