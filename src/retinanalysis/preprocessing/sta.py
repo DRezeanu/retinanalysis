@@ -430,7 +430,8 @@ def compute_stas_for_chunk(
 
 
 def load_stas_from_vl(
-        exp_name: str=None, chunk_name: str=None, ss_version: Optional[str] = 'kilosort2.5',
+        exp_name: str=None, chunk_name: str=None, 
+        ss_version: str='kilosort2.5',
         data_dir: str=None, data_name: str='kilosort2.5',
         analysis_dir: str=ANALYSIS_DIR
     )->tuple[np.ndarray, np.ndarray]:
@@ -439,7 +440,7 @@ def load_stas_from_vl(
     Args:
         exp_name (str, optional): _description_. Defaults to None.
         chunk_name (str, optional): _description_. Defaults to None.
-        ss_version (Optional[str], optional): _description_. Defaults to 'kilosort2.5'.
+        ss_version (str, optional): _description_. Defaults to 'kilosort2.5'.
         data_dir (str, optional): _description_. Defaults to None.
         data_name (str, optional): _description_. Defaults to 'kilosort2.5'.
 
