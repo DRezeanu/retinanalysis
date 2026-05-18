@@ -68,8 +68,8 @@ def _get_n_splits_memory(
     return n_splits
 
 def compute_stas(
-    stim_data: np.ndarray, 
-    binned_responses: np.ndarray,
+    stim_data_np: np.ndarray, 
+    binned_responses_np: np.ndarray,
     depth: int=60,
     stride: int=2,
     method: str="matmul",
@@ -80,11 +80,11 @@ def compute_stas(
     Can use for EI as well, where instead of frames you have raw data samples
 
     Args:
-        stim_data (np.ndarray):
+        stim_data_np (np.ndarray):
             Stimulus data of shape [N epochs, T frames, *]
             For noise stim, last dims are [H, W, C]
             For EI, last dims are [C] electrodes
-        binned_responses (np.ndarray):
+        binned_responses_np (np.ndarray):
             Binned spikerate/spikecount of shape [N epochs, K cells, T frames]
         stride (int): Stride for upsampling stimulus data to match binned responses. If stim_data is already upsampled, set to 1.
         method (str): "matmul" or "conv"
@@ -96,9 +96,9 @@ def compute_stas(
             For EI, [C]
     """
     # [N epochs, T frames, H, W, C]
-    stim_data = torch.tensor(stim_data, dtype=torch.float32)
+    stim_data = torch.tensor(stim_data_np, dtype=torch.float32)
     # [N epochs, K cells, T frames]
-    binned_responses = torch.tensor(binned_responses, dtype=torch.float32)
+    binned_responses = torch.tensor(binned_responses_np, dtype=torch.float32)
 
     stim_dims = stim_data.shape[2:]
     n_stim_dims = np.prod(stim_dims)

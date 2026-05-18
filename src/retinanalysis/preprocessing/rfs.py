@@ -437,7 +437,7 @@ def plot_performance(d_track, model: Spatial_DoG, spatial_stas, str_save_dir=Non
         plt.close()
 
 def fit_spatial_dog(
-        spatial_stas: np.ndarray, 
+        spatial_stas_np: np.ndarray, 
         d_init_params: dict,
         str_save_dir: Optional[str]=None,
         n_total_epochs = 500, n_lr = 0.05, n_patience=500
@@ -446,9 +446,9 @@ def fit_spatial_dog(
     # data: input data object
     # str_type: type of the filter (e.g., 'DoG')
     
-    n_cells, n_height, n_width = spatial_stas.shape
+    n_cells, n_height, n_width = spatial_stas_np.shape
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    spatial_stas = torch.tensor(spatial_stas, device=device, dtype=torch.float32)
+    spatial_stas = torch.tensor(spatial_stas_np, device=device, dtype=torch.float32)
     print(f'Stas shape: {spatial_stas.shape}')
     
     # Initialize filter parameters
@@ -579,7 +579,7 @@ def rf_fitting_pipeline(
         raise ValueError(f'str_output_dir {str_output_dir} is not a valid directory.')
     
     model, _ = fit_spatial_dog(
-        spatial_stas=spatial_stas,
+        spatial_stas_np=spatial_stas,
         str_save_dir=str_plot_dir,
         d_init_params=d_init_params,
         n_total_epochs=1000, n_lr=0.1,
