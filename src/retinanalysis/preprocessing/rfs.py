@@ -439,7 +439,7 @@ def plot_performance(d_track, model: Spatial_DoG, spatial_stas, str_save_dir=Non
 def fit_spatial_dog(
         spatial_stas: np.ndarray, 
         d_init_params: dict,
-        str_save_dir: str=None,
+        str_save_dir: Optional[str]=None,
         n_total_epochs = 500, n_lr = 0.05, n_patience=500
     )-> tuple[Spatial_DoG, dict]:
     # Fit a Difference of Gaussian (DoG) filter to the data
