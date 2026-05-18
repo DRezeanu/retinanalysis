@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 from matplotlib.patches import Ellipse
-from typing import Callable
+from typing import Optional
 from tqdm import trange
 import matplotlib.pyplot as plt
 import os
