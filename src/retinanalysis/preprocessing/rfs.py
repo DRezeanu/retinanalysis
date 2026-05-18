@@ -578,7 +578,7 @@ def rf_fitting_pipeline(
     else:
         raise ValueError(f'str_output_dir {str_output_dir} is not a valid directory.')
     
-    model, d_track = fit_spatial_dog(
+    model, _ = fit_spatial_dog(
         spatial_stas=spatial_stas,
         str_save_dir=str_plot_dir,
         d_init_params=d_init_params,
