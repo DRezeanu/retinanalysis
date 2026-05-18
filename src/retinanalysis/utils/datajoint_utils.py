@@ -496,7 +496,17 @@ def get_stage_frame_rate_by_exp(exp_name: str):
 def get_display_params_by_exp(exp_name: str, verbose: bool = True):
     # Rig H
     if 'H' in exp_name:
-        raise NotImplementedError('LCR display params not defined for Rig H yet.')
+        # raise NotImplementedError('LCR display params not defined for Rig H yet.')
+        print(f'For Rig H {exp_name}:')
+        if int(exp_name[:8]) > 20230926:
+            disp_type = 'LCR'
+            mu_per_pixel = 3.24
+            n_ht = 1140
+            n_wt = 1824
+            mean_frame_rate = 59.941548817817917
+        else:
+            raise NotImplementedError('OLED display params not defined for Rig H yet.')
+        
     # Rig C
     elif 'C' in exp_name:
         if verbose:
