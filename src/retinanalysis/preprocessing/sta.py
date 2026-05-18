@@ -253,7 +253,7 @@ def get_data_for_chunk(
         rg: MEAResponseGroup = None,
         exp_name: str=None, 
         chunk_name: str=None, 
-        ss_version: Optional[str] = 'kilosort2.5',
+        ss_version: str='kilosort2.5',
         datafile_name: Optional[list] = None,
         verbose: bool=True 
     )->dict:
@@ -305,11 +305,11 @@ def compute_stas_for_chunk(
         rg: MEAResponseGroup = None,
         exp_name: str=None, 
         chunk_name: str=None, 
-        ss_version: Optional[str] = 'kilosort2.5',
-        datafile_name: Optional[list] = None,
-        stride: Optional[int] = 2,
-        depth: Optional[int] = 60,
-        method: Optional[str] = "conv",
+        ss_version: str ='kilosort2.5',
+        datafile_name: Optional[list]=None,
+        stride: int=2,
+        depth: int=60,
+        method: str="conv",
         verbose: bool=True 
     )->dict:
     if sg is None or rg is None:
