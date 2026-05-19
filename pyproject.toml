@@ -50,7 +50,8 @@ dependencies = [
   "xarray",
   "dask",
   "netCDF4",
-  "bottleneck"]
+  "bottleneck",
+  "scikit-image"]
 
 [project.urls]
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
