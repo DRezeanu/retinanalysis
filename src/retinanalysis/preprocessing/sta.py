@@ -15,7 +15,7 @@ from retinanalysis.classes.stim import (MEAStimBlock,
                                         MEAStimGroup,
                                         create_mea_stim_group)
 import gc
-from retinanalysis.utils.vision_utils import (STAWriter,  ParamsWriter)
+from visionwriter import STAWriterNP, ParamsWriter
 import visionloader as vl
 from retinanalysis.utils import ANALYSIS_DIR
 from retinanalysis.preprocessing import rfs
@@ -578,7 +578,7 @@ if __name__ == "__main__":
         print(f"STAs saved to {save_np}")
 
         print(f"Saving STAs in .sta format for {len(d_stas['cell_ids'])} cells...")
-        with STAWriter(filepath=save_vcd_sta) as wr:
+        with STAWriterNP(filepath=save_vcd_sta) as wr:
             wr.write(sta=d_stas['stas'], ste=None, cluster_id=d_stas['cell_ids'], stixel_size=d_stas['grid_size'])
         print(f"STAs saved to {save_vcd_sta}")
 
