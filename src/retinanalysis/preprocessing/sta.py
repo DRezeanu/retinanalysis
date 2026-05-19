@@ -231,7 +231,7 @@ def compute_stas(
     return stas
     
 
-def get_noise_datafiles(exp_name, chunk_name):
+def get_noise_datafiles(exp_name: str, chunk_name: str)->list:
     exp_id = schema.Experiment() & {'exp_name': exp_name}
     if len(exp_id) != 1:
         raise ValueError(f"{len(exp_id)} exps found for given exp_name: {exp_name}")
@@ -248,27 +248,35 @@ def get_noise_datafiles(exp_name, chunk_name):
     datafile_name = [os.path.basename(path) for path in noise_data_dirs]
     return datafile_name
 
+def get_stim_response_groups(
+        exp_name: str, chunk_name: str, ss_version: str='kilosort2.5', 
+        datafile_name: Optional[list]=None, verbose: bool=True
+    )->tuple[MEAStimGroup, MEAResponseGroup]:
+    # If datafile name(s) not given, get noise datafiles
+    if datafile_name is None:
+        datafile_name = get_noise_datafiles(exp_name, chunk_name)
+        if verbose:
+            print(f'Found noise datafile(s): {datafile_name}')
+    
+    sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
+    rg = create_mea_response_group(
+        exp_name, datafile_name, ss_version, 
+        b_load_fd = True, verbose=verbose
+    )
+    return sg, rg
+
 def get_data_for_chunk(
-        sg: MEAStimGroup=None,
-        rg: MEAResponseGroup = None,
-        exp_name: str=None, 
-        chunk_name: str=None, 
+        sg: Optional[MEAStimGroup]=None,
+        rg: Optional[MEAResponseGroup] = None,
+        exp_name: Optional[str]=None, 
+        chunk_name: Optional[str]=None, 
         ss_version: str='kilosort2.5',
         datafile_name: Optional[list] = None,
         verbose: bool=True 
     )->dict:
     if sg is None or rg is None:
-        # If datafile name(s) not given, get noise datafiles
-        if datafile_name is None:
-            datafile_name = get_noise_datafiles(exp_name, chunk_name)
-            if verbose:
-                print(f'Found noise datafile(s): {datafile_name}')
-
-        # Create stim and response groups
-        sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
-        rg = create_mea_response_group(
-            exp_name, datafile_name, ss_version, 
-            b_load_fd = True, verbose=verbose
+        sg, rg = get_stim_response_groups(
+            exp_name, chunk_name, ss_version, datafile_name, verbose
         )
 
 
@@ -301,10 +309,10 @@ def get_data_for_chunk(
 
 
 def compute_stas_for_chunk(
-        sg: MEAStimGroup=None,
-        rg: MEAResponseGroup = None,
-        exp_name: str=None, 
-        chunk_name: str=None, 
+        sg: Optional[MEAStimGroup]=None,
+        rg: Optional[MEAResponseGroup] = None,
+        exp_name: Optional[str]=None, 
+        chunk_name: Optional[str]=None, 
         ss_version: str ='kilosort2.5',
         datafile_name: Optional[list]=None,
         stride: int=2,
@@ -313,17 +321,8 @@ def compute_stas_for_chunk(
         verbose: bool=True 
     )->dict:
     if sg is None or rg is None:
-        # If datafile name(s) not given, get noise datafiles
-        if datafile_name is None:
-            datafile_name = get_noise_datafiles(exp_name, chunk_name)
-            if verbose:
-                print(f'Found noise datafile(s): {datafile_name}')
-
-        # Create stim and response groups
-        sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
-        rg = create_mea_response_group(
-            exp_name, datafile_name, ss_version, 
-            b_load_fd = True, verbose=verbose
+        sg, rg = get_stim_response_groups(
+            exp_name, chunk_name, ss_version, datafile_name, verbose
         )
 
     # STA input gen and calc loop
@@ -430,9 +429,9 @@ def compute_stas_for_chunk(
 
 
 def load_stas_from_vl(
-        exp_name: str=None, chunk_name: str=None, 
+        exp_name: Optional[str]=None, chunk_name: Optional[str]=None, 
         ss_version: str='kilosort2.5',
-        data_dir: str=None, data_name: str='kilosort2.5',
+        data_dir: Optional[str]=None, data_name: str='kilosort2.5',
         analysis_dir: str=ANALYSIS_DIR
     )->tuple[np.ndarray, np.ndarray]:
     """_summary_
