@@ -30,7 +30,7 @@ dependencies = [
   "statsmodels<81",
   "progressbar2",
   "Cython",
-  "setuptools",
+  "setuptools<81",
   "opencv-python",
   "matplotlib",
   "scikit-learn",
