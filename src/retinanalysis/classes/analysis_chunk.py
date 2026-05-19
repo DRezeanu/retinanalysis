@@ -186,8 +186,8 @@ class AnalysisChunk:
             self.numXChecks = int(numXChecks[0])
             self.numYChecks = int(numYChecks[0])
 
-        self.deltaXChecks = (self.numXChecks - self.staXChecks)/2
-        self.deltaYChecks = (self.numYChecks - self.staYChecks)/2
+        self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
+        self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
         
         self.microns_per_pixel = epochs[0].fetch('parameters')[0]['micronsPerPixel']
         self.canvas_size = epochs[0].fetch('parameters')[0]['canvasSize']
