@@ -309,7 +309,8 @@ def compute_stas_for_chunk(
         datafile_name: Optional[list] = None,
         stride: Optional[int] = 2,
         depth: Optional[int] = 60,
-        method: Optional[str] = "conv",
+        method: Optional[str] = "matmul",
+        ls_epochs: Optional[List[int]] = None,
         verbose: bool=True 
     )->dict:
     if sg is None or rg is None:
@@ -357,7 +358,7 @@ def compute_stas_for_chunk(
         # Count n frames where state.time (1/fr steps) is < pre_time_s
         pre_frames = len(np.arange(0, pre_time_s, 1/stage_frame_rate))
         # LCR CORRECTION
-        # pre_frames -= 1
+        pre_frames -= 1
         t_start = pre_frames * stride
         t_end = t_start + n_frames * stride
         if verbose:
@@ -369,20 +370,26 @@ def compute_stas_for_chunk(
         
         # Loop across epochs in batch
         n_epochs = len(sb.df_epochs)
+        if ls_epochs is not None:
+            n_epochs = len(ls_epochs)
+        else:
+            ls_epochs = [i for i in range(n_epochs)]
         n_batches = int(np.ceil(n_epochs/n_epochs_batch))
+        
         for j in tqdm.tqdm(np.arange(n_batches), desc="Epoch batch"):
             e_start = j * n_epochs_batch
             e_end = (j+1) * n_epochs_batch
             if e_end > n_epochs:
                 e_end = n_epochs
+            ls_batch_epochs = ls_epochs[e_start:e_end]
             
             # Regen stim
-            sb.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
+            sb.regenerate_stimulus(ls_epochs=ls_batch_epochs)
             # [N, T, H, W, C]
             stim_frames = sb.stim_data['frames']
             
             # [N, K, T]
-            resp_data = bs[e_start:e_end]
+            resp_data = bs[ls_batch_epochs, :, :]
 
             if stas is None:
                 stas = compute_stas(
