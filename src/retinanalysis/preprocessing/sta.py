@@ -356,7 +356,7 @@ def compute_stas_for_chunk(
         # Count n frames where state.time (1/fr steps) is < pre_time_s
         pre_frames = len(np.arange(0, pre_time_s, 1/stage_frame_rate))
         # LCR CORRECTION
-        # pre_frames -= 1
+        pre_frames -= 1
         t_start = pre_frames * stride
         t_end = t_start + n_frames * stride
         if verbose:
