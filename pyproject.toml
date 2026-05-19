@@ -27,7 +27,7 @@ classifiers = [
 dependencies = [
   "hdf5storage",
   "h5py",
-  "statsmodels",
+  "statsmodels>81",
   "progressbar2",
   "Cython",
   "setuptools",
