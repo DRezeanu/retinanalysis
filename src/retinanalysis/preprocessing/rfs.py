@@ -480,7 +480,7 @@ def fit_spatial_dog(
     plot_performance(d_track, model, spatial_stas, str_save_dir=str_save_dir)
 
     plot_spatial_dog_performance(
-        model, spatial_stas, f'All', str_save_dir=str_save_dir,
+        model, spatial_stas, 'All', str_save_dir=str_save_dir,
         n_max_rows=50
     )
     plot_model_param_dists(model, 'All', str_save_dir=str_save_dir)
