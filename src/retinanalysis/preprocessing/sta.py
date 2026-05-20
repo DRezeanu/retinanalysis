@@ -412,7 +412,7 @@ def compute_stas_for_chunk(
     stas = stas / total_sps
 
     # Normalize by abs max for each cell
-    stas = stas / np.abs(stas).max(axis=(1,2,3), keepdims=True)
+    stas = stas / np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
 
     grid_size = sb.df_epochs.at[0, 'epoch_parameters']['gridSize']
 
