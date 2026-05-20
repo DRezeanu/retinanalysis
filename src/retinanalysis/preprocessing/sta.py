@@ -625,7 +625,7 @@ if __name__ == "__main__":
         print(f"STAs saved to {save_np}")
 
         print(f"Saving STAs in .sta format for {len(d_stas['cell_ids'])} cells...")
-        with STAWriterNP(filepath=save_vcd_sta) as wr:
+        with STAWriter(filepath=save_vcd_sta) as wr:
             wr.write(sta=d_stas['stas'], ste=None, cluster_id=d_stas['cell_ids'], stixel_size=d_stas['grid_size'])
         print(f"STAs saved to {save_vcd_sta}")
 
