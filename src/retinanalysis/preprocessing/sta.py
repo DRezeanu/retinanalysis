@@ -15,7 +15,7 @@ from retinanalysis.classes.stim import (MEAStimBlock,
                                         MEAStimGroup,
                                         create_mea_stim_group)
 import gc
-from visionwriter import STAWriterNP, ParamsWriter, GlobalsFileWriter
+from visionwriter import STAWriter, ParamsWriter, GlobalsFileWriter
 import visionloader as vl
 from retinanalysis.utils import ANALYSIS_DIR
 from retinanalysis.preprocessing import rfs
@@ -25,7 +25,7 @@ def _get_n_splits_memory(
     br: torch.Tensor, 
     stride: int,
     device: torch.device, 
-    n_max_usage: float=0.8, 
+    n_max_usage: float=0.6, 
     method: str="matmul",
     verbose: bool=True)->int:
     """
@@ -413,7 +413,7 @@ def compute_stas_for_chunk(
     total_sps = total_sps.reshape(-1, 1, 1, 1, 1)
     stas = stas / total_sps
 
-    # Normalize by abs max for each cell (max across [D, H, W, C])
+    # Normalize by abs max for each cell
     stas = stas / np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
 
     grid_size = sb.df_epochs.at[0, 'epoch_parameters']['gridSize']
@@ -627,7 +627,7 @@ if __name__ == "__main__":
         print(f"STAs saved to {save_np}")
 
         print(f"Saving STAs in .sta format for {len(d_stas['cell_ids'])} cells...")
-        with STAWriterNP(filepath=save_vcd_sta) as wr:
+        with STAWriter(filepath=save_vcd_sta) as wr:
             wr.write(sta=d_stas['stas'], ste=None, cluster_id=d_stas['cell_ids'], stixel_size=d_stas['grid_size'])
         print(f"STAs saved to {save_vcd_sta}")
 
