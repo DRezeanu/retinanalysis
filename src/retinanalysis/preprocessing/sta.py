@@ -643,6 +643,9 @@ if __name__ == "__main__":
     low_idxs = spike_counts <= threshold
     auto_types = d_rf_params['auto_types']
     auto_types[low_idxs] = 'lowSNR'
+
+    # Prepend 'All/'
+    auto_types = np.array(['All/' + t for t in auto_types])
     
     # Save auto_types to .txt file. rows of {cell ID}  {type}
     auto_types_file = os.path.join(chunk_save_dir, f'auto_types.txt')
