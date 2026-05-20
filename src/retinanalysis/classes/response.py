@@ -798,7 +798,7 @@ class MEAResponseGroup:
 
 def create_mea_response_group(
         exp_name: str, ls_datafile_names: List[str], 
-        ss_version: str=None, b_load_fd: bool = False, 
+        ss_version: str='kilosort2.5', b_load_fd: bool = False, 
         b_LED: bool=False, b_load_vcd: bool = True,
         verbose: bool = False,
         
@@ -819,6 +819,9 @@ def create_mea_response_group(
 
         b_LED (bool): Boolean value, if True assume stimulus for tehse datafiles was deliverd by an LED.
         This automatically sets b_load_fd to False since LED stimuli have no frame data. Default False.
+
+        b_load_vcd (bool): Boolean value, if True will load the vision data table.
+            Mainly for debugging purposes to skip load time.
 
         verbose (bool): Boolean value, if True will print all outputs to the console. Since multiple
         MEAResponseBlocks must be created, with many status messages, Default is False.

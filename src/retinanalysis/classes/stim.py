@@ -20,7 +20,13 @@ D_REGEN_FXNS = {
     'edu.washington.riekelab.rachel.protocols.DovesPerturbationAlpha': regen.make_doves_perturbation_alpha,
     'edu.washington.riekelab.turner.protocols.ExpandingSpots': regen.make_expanding_spots,
     'edu.washington.riekelab.rachel.protocols.CheckerboardNoiseProjectRachel': regen.make_checkerboard_noise_project,
+
+    'edu.washington.riekelab.rachel.protocols.VariableMeanBars': regen.make_variable_mean_bars,
+    'edu.washington.riekelab.rachel.protocols.BarsAndGain': regen.make_bars_and_gain,
+    # 'manookinlab.protocols.DovesMovie'
+
     'manookinlab.protocols.DovesMovie': regen.make_all_doves_movies
+
 }
 
 class StimBlock:
@@ -211,16 +217,20 @@ class MEAStimBlock(StimBlock):
             # Check if this chunk has a typing file
             
             # New way to check for typing files... avoids missing typing files in database
-            ss_version = os.listdir(os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk))[0]
-            typing_file_path = os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version)
-            typing_files = [file for file in os.listdir(typing_file_path) if '.txt' in file]
+            try:
+                ss_version = os.listdir(os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk))[0]
+                typing_file_path = os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version)
+                typing_files = [file for file in os.listdir(typing_file_path) if '.txt' in file]
+            except Exception as e:
+                print(f'Failed to get typing files from nearest noise chunk, error: {e}')
+                typing_files = []
 
             # noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
             # noise_chunk_id = noise_chunk_id.fetch('id')[0]
             # typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
 
             # If there's no typing file, remove the minimum value and try again
-            if len(typing_files) == 0:
+            if not typing_files:
                 min_index = np.argmin(minimum_distance)
                 minimum_distance = np.delete(minimum_distance, min_index)
             # If there is a typing file, break the for loop there

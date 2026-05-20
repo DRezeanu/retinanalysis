@@ -140,22 +140,22 @@ if __name__=='__main__':
                                      description='Convert spike times and TTL data from Kilosort output to .neurons, .globals, and .ei Vision files')
 
     # Positional arguments
-    parser.add_argument('exp_name', help='experiment name, (e.g. 20260715C)')
-    parser.add_argument('datafile_name', help='name of datafile to convert to vision (e.g. data000)')
-    parser.add_argument('output_path', help='path for output files (e.g. /Volumes/SSD/vision_output)')
-    parser.add_argument('vision_path', help='path to Vision.jar file (e.g. .../MEA/src/Vision7_for_2015DAQ/Vision.jar)')
+    parser.add_argument('exp_name', help='experiment name, (e.g. 20260715C)', type=str)
+    parser.add_argument('datafile_name', help='name of datafile to convert to vision (e.g. data000)', type=str)
+    parser.add_argument('output_path', help='path for output files (e.g. /Volumes/SSD/vision_output)', type=str)
+    parser.add_argument('vision_path', help='path to Vision.jar file (e.g. .../MEA/src/Vision7_for_2015DAQ/Vision.jar)', type=str)
 
     # Optional arguments with default values.
     # Note: If the flag is included without an argument, 'const' will be used. If the flag is
     # not included at all, 'default' will be used. Just an argparse quirk.
     parser.add_argument('-r', '--raw', help='Path to raw data directory (e.g. .../Volumes/data/raw/)',
-                        nargs = '?', default = RAW_DIR, const = RAW_DIR)
+                        nargs = '?', default = RAW_DIR, const = RAW_DIR, type=str)
 
     parser.add_argument('-s', '--sorted', help='Path to KS sorter output directory (e.g. .../Volumes/data/sorted)',
-                        nargs = '?', default = DATA_DIR, const = DATA_DIR)
+                        nargs = '?', default = DATA_DIR, const = DATA_DIR, type=str)
 
     parser.add_argument('-k', '--ks_version', help='kilosort version used for spike sorting (e.g. kilosort2.5)',
-                        nargs = '?', default = 'kilosort2.5', const = 'kilosort2.5')
+                        nargs = '?', default = 'kilosort2.5', const = 'kilosort2.5', type=str)
 
     # Boolean optionals.
     # Note: 'store_true' means that including the flag will set the value to true, but it's false by default
