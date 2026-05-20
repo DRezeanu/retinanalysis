@@ -468,7 +468,7 @@ def get_noise_name_by_exp(exp_name: str) -> str:
 
     return noise_protocol_name
 
-def get_stage_frame_rate_by_exp(exp_name: str):
+def get_stage_frame_rate_by_exp(exp_name: str, verbose: bool = True)-> float:
     exp_q = schema.Experiment() & f'exp_name="{exp_name}"'
     exp_id = exp_q.fetch1('id')
     eb_q = schema.EpochBlock() & f'experiment_id={exp_id}'
@@ -483,12 +483,15 @@ def get_stage_frame_rate_by_exp(exp_name: str):
     stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
     
     if len(np.unique(stage_frame_rates))!=1:
-        print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}')
-        print(f'This could be due to PatternMode usage.')
         keep_rate = min(stage_frame_rates)
-        print(f'd_display will keep the min: {keep_rate}')
+        if verbose:
+            print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}')
+            print(f'This could be due to PatternMode usage.')
+            print(f'd_display will keep the min: {keep_rate}')
     else:
         keep_rate = stage_frame_rates[0]
+        if verbose:
+            print(f'Found stage frame rate {keep_rate} for experiment {exp_name}')
 
     return keep_rate
 
@@ -496,7 +499,17 @@ def get_stage_frame_rate_by_exp(exp_name: str):
 def get_display_params_by_exp(exp_name: str, verbose: bool = True):
     # Rig H
     if 'H' in exp_name:
-        raise NotImplementedError('LCR display params not defined for Rig H yet.')
+        if verbose:
+            print(f'For Rig H {exp_name}:')
+        if int(exp_name[:8]) > 20230926:
+            disp_type = 'LCR'
+            mu_per_pixel = 3.24
+            n_ht = 1140
+            n_wt = 1824
+            mean_frame_rate = 59.941548817817917
+        else:
+            raise NotImplementedError('OLED display params not defined for Rig H yet.')
+        
     # Rig C
     elif 'C' in exp_name:
         if verbose:
@@ -528,7 +541,7 @@ def get_display_params_by_exp(exp_name: str, verbose: bool = True):
     else:
         raise ValueError(f'Unexpected Rig identified in MEA experiment name {exp_name} !')
 
-    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name)
+    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name, verbose)
 
     d_display = {
         'disp_type': disp_type,

@@ -15,7 +15,7 @@ from retinanalysis.classes.stim import (MEAStimBlock,
                                         MEAStimGroup,
                                         create_mea_stim_group)
 import gc
-from vision_utils import STAWriter, ParamsWriter
+from visionwriter import STAWriterNP, ParamsWriter
 import visionloader as vl
 from retinanalysis.utils import ANALYSIS_DIR
 from retinanalysis.preprocessing import rfs
@@ -70,8 +70,8 @@ def _get_n_splits_memory(
     return n_splits
 
 def compute_stas(
-    stim_data: np.ndarray, 
-    binned_responses: np.ndarray,
+    stim_data_np: np.ndarray, 
+    binned_responses_np: np.ndarray,
     depth: int=60,
     stride: int=2,
     method: str="matmul",
@@ -82,11 +82,11 @@ def compute_stas(
     Can use for EI as well, where instead of frames you have raw data samples
 
     Args:
-        stim_data (np.ndarray):
+        stim_data_np (np.ndarray):
             Stimulus data of shape [N epochs, T frames, *]
             For noise stim, last dims are [H, W, C]
             For EI, last dims are [C] electrodes
-        binned_responses (np.ndarray):
+        binned_responses_np (np.ndarray):
             Binned spikerate/spikecount of shape [N epochs, K cells, T frames]
         stride (int): Stride for upsampling stimulus data to match binned responses. If stim_data is already upsampled, set to 1.
         method (str): "matmul" or "conv"
@@ -98,9 +98,9 @@ def compute_stas(
             For EI, [C]
     """
     # [N epochs, T frames, H, W, C]
-    stim_data = torch.tensor(stim_data, dtype=torch.float32)
+    stim_data = torch.tensor(stim_data_np, dtype=torch.float32)
     # [N epochs, K cells, T frames]
-    binned_responses = torch.tensor(binned_responses, dtype=torch.float32)
+    binned_responses = torch.tensor(binned_responses_np, dtype=torch.float32)
 
     stim_dims = stim_data.shape[2:]
     n_stim_dims = np.prod(stim_dims)
@@ -233,7 +233,7 @@ def compute_stas(
     return stas
     
 
-def get_noise_datafiles(exp_name, chunk_name):
+def get_noise_datafiles(exp_name: str, chunk_name: str)->list:
     exp_id = schema.Experiment() & {'exp_name': exp_name}
     if len(exp_id) != 1:
         raise ValueError(f"{len(exp_id)} exps found for given exp_name: {exp_name}")
@@ -250,27 +250,35 @@ def get_noise_datafiles(exp_name, chunk_name):
     datafile_name = [os.path.basename(path) for path in noise_data_dirs]
     return datafile_name
 
+def get_stim_response_groups(
+        exp_name: str, chunk_name: str, ss_version: str='kilosort2.5', 
+        datafile_name: Optional[list]=None, verbose: bool=True
+    )->tuple[MEAStimGroup, MEAResponseGroup]:
+    # If datafile name(s) not given, get noise datafiles
+    if datafile_name is None:
+        datafile_name = get_noise_datafiles(exp_name, chunk_name)
+        if verbose:
+            print(f'Found noise datafile(s): {datafile_name}')
+    
+    sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
+    rg = create_mea_response_group(
+        exp_name, datafile_name, ss_version, 
+        b_load_fd = True, verbose=verbose
+    )
+    return sg, rg
+
 def get_data_for_chunk(
-        sg: MEAStimGroup=None,
-        rg: MEAResponseGroup = None,
-        exp_name: str=None, 
-        chunk_name: str=None, 
-        ss_version: Optional[str] = 'kilosort2.5',
+        sg: Optional[MEAStimGroup]=None,
+        rg: Optional[MEAResponseGroup] = None,
+        exp_name: Optional[str]=None, 
+        chunk_name: Optional[str]=None, 
+        ss_version: str='kilosort2.5',
         datafile_name: Optional[list] = None,
         verbose: bool=True 
     )->dict:
     if sg is None or rg is None:
-        # If datafile name(s) not given, get noise datafiles
-        if datafile_name is None:
-            datafile_name = get_noise_datafiles(exp_name, chunk_name)
-            if verbose:
-                print(f'Found noise datafile(s): {datafile_name}')
-
-        # Create stim and response groups
-        sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
-        rg = create_mea_response_group(
-            exp_name, datafile_name, ss_version, 
-            b_load_fd = True, verbose=verbose
+        sg, rg = get_stim_response_groups(
+            exp_name, chunk_name, ss_version, datafile_name, verbose
         )
 
 
@@ -303,30 +311,20 @@ def get_data_for_chunk(
 
 
 def compute_stas_for_chunk(
-        sg: MEAStimGroup=None,
-        rg: MEAResponseGroup = None,
-        exp_name: str=None, 
-        chunk_name: str=None, 
-        ss_version: Optional[str] = 'kilosort2.5',
-        datafile_name: Optional[list] = None,
-        stride: Optional[int] = 2,
-        depth: Optional[int] = 60,
-        method: Optional[str] = "matmul",
-        ls_epochs: Optional[List[int]] = None,
+        sg: Optional[MEAStimGroup]=None,
+        rg: Optional[MEAResponseGroup] = None,
+        exp_name: Optional[str]=None, 
+        chunk_name: Optional[str]=None, 
+        ss_version: str ='kilosort2.5',
+        datafile_name: Optional[list]=None,
+        stride: int=2,
+        depth: int=60,
+        method: str="conv",
         verbose: bool=True 
     )->dict:
     if sg is None or rg is None:
-        # If datafile name(s) not given, get noise datafiles
-        if datafile_name is None:
-            datafile_name = get_noise_datafiles(exp_name, chunk_name)
-            if verbose:
-                print(f'Found noise datafile(s): {datafile_name}')
-
-        # Create stim and response groups
-        sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
-        rg = create_mea_response_group(
-            exp_name, datafile_name, ss_version, 
-            b_load_fd = True, verbose=verbose
+        sg, rg = get_stim_response_groups(
+            exp_name, chunk_name, ss_version, datafile_name, verbose
         )
 
     # STA input gen and calc loop
@@ -372,26 +370,20 @@ def compute_stas_for_chunk(
         
         # Loop across epochs in batch
         n_epochs = len(sb.df_epochs)
-        if ls_epochs is not None:
-            n_epochs = len(ls_epochs)
-        else:
-            ls_epochs = [i for i in range(n_epochs)]
         n_batches = int(np.ceil(n_epochs/n_epochs_batch))
-        
         for j in tqdm.tqdm(np.arange(n_batches), desc="Epoch batch"):
             e_start = j * n_epochs_batch
             e_end = (j+1) * n_epochs_batch
             if e_end > n_epochs:
                 e_end = n_epochs
-            ls_batch_epochs = ls_epochs[e_start:e_end]
             
             # Regen stim
-            sb.regenerate_stimulus(ls_epochs=ls_batch_epochs)
+            sb.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
             # [N, T, H, W, C]
             stim_frames = sb.stim_data['frames']
             
             # [N, K, T]
-            resp_data = bs[ls_batch_epochs, :, :]
+            resp_data = bs[e_start:e_end]
 
             if stas is None:
                 stas = compute_stas(
@@ -456,8 +448,9 @@ def load_stas_from_vcd(vcd: vl.VisionCellDataTable, cell_ids: np.ndarray)->np.nd
     return stas
 
 def load_stas_from_vl(
-        exp_name: str=None, chunk_name: str=None, ss_version: Optional[str] = 'kilosort2.5',
-        data_dir: str=None, data_name: str='kilosort2.5',
+        exp_name: Optional[str]=None, chunk_name: Optional[str]=None, 
+        ss_version: str='kilosort2.5',
+        data_dir: Optional[str]=None, data_name: str='kilosort2.5',
         analysis_dir: str=ANALYSIS_DIR
     )->tuple[np.ndarray, np.ndarray]:
     """_summary_
@@ -465,7 +458,7 @@ def load_stas_from_vl(
     Args:
         exp_name (str, optional): _description_. Defaults to None.
         chunk_name (str, optional): _description_. Defaults to None.
-        ss_version (Optional[str], optional): _description_. Defaults to 'kilosort2.5'.
+        ss_version (str, optional): _description_. Defaults to 'kilosort2.5'.
         data_dir (str, optional): _description_. Defaults to None.
         data_name (str, optional): _description_. Defaults to 'kilosort2.5'.
 
@@ -565,10 +558,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.save_dir is not None:
-        SAVE_DIR = args.save_dir
-    else:
-        SAVE_DIR = '/home/vyomr/Desktop/data/analysis'
+    SAVE_DIR = args.save_dir
     
     chunk_save_dir = os.path.join(SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version)
     if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
@@ -629,7 +619,7 @@ if __name__ == "__main__":
         print(f"STAs saved to {save_np}")
 
         print(f"Saving STAs in .sta format for {len(d_stas['cell_ids'])} cells...")
-        with STAWriter(filepath=save_vcd_sta) as wr:
+        with STAWriterNP(filepath=save_vcd_sta) as wr:
             wr.write(sta=d_stas['stas'], ste=None, cluster_id=d_stas['cell_ids'], stixel_size=d_stas['grid_size'])
         print(f"STAs saved to {save_vcd_sta}")
 

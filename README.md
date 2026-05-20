@@ -6,6 +6,8 @@ MEA and Single Cell Ephys Analysis Package
 ```
 git clone https://github.com/DRezeanu/retinanalysis.git --recursive 
 ```
+---
+### Install with Conda
 2. Create a conda environment using python 3.11:
 ```
 conda create --name retinanalysis python=3.11.13
@@ -23,18 +25,41 @@ pip install -e .
 cd repositories_dir/retinanalysis/lib/artificial-retina-software-pipeline/utilities/ 
 pip install .
 ```
+---
+### Install with uv
+UV is a new, very highly recommended python package and project manager written in Rust that works extremely fast. You can learn more about it here: https://docs.astral.sh/uv/
 
-5. Create a config.ini file using the sample version below as a guide and put this config file inside the retinanalysis/src/retinanalysis/config folder in the repo.
+UV is meant to work with environments at the project level, not system-wide. So you will want to install retinanalysis at the root of every project in which you want to use it (the packages are cached so you aren't using any additional disk space). Virtual environments live in the root of the project in a .venv folder by default, and are named after the root of the project by default. This is best practice, however, you can still select and use any virtual environment on your machine in VSCode, so you could still install it once in one project and use it system wide if you'd like.
 
-## Note for Windows Users
+2. Create a uv venv in your local project directory using python 3.11.13:
+```
+uv venv --python 3.11.13
+```
+
+3. Activate the uv environment, cd to the package directory, and use pip and conda to install all required dependencies:
+```
+source .venv/bin/activate
+cd ../*your_repositories_directory*/retinanalysis
+uv pip install -e . 
+```
+
+4. Install additional requirements from artificial-retina-software-pipeline submodule in lib:
+```
+cd lib/artificial-retina-software-pipeline/utilities/ 
+uv pip install .
+```
+---
+### Installation Note for Windows Users
 
 The above requirements have been tested to work on both Mac and Linux (Ubuntu 24.04 LTS).
 
 For Windows, you may receive a DLL error when the package attempts to import matplotlib for the first time. To fix this, run:
 ```
-pip uninstall Pillow
-pip install -U Pillow.
+pip uninstall Pillow *or* uv pip uninstall Pillow
+pip install -U Pillow *or* uv pip install -U Pillow
 ```
+---
+5. Create a config.ini file using the sample version below as a guide and put this config file inside the retinanalysis/src/retinanalysis/config folder in the repo.
 
 ## Sample config.ini file:
 In this case, the default is an SSD with a subset of the data in it, the secondary is a NAS with all data.

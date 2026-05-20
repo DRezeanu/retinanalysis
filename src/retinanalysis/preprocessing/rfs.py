@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 from matplotlib.patches import Ellipse
-from typing import Callable
+from typing import Optional
 from tqdm import trange
 import matplotlib.pyplot as plt
 import os
@@ -326,7 +326,8 @@ def plot_spatial_dog_performance(
         i_end = np.min([i_end, model.n_cells])
 
         n_rows = i_end - i_start
-        f, axs = plt.subplots(ncols=3, nrows=n_rows, figsize=(9, 3*n_rows))
+        fig, axs = plt.subplots(ncols=3, nrows=n_rows, figsize=(9, 3*n_rows))
+        fig.suptitle(f'{str_type} Spatial DoG Fits - Cells {i_start} to {i_end-1}')
         if n_rows == 1:
             axs = np.array([axs])
         
@@ -392,7 +393,8 @@ def plot_model_param_dists(model: Spatial_DoG, str_type, str_save_dir=None):
     ls_labels = ['Center SigmaY', 'Center SigmaX', 'Surround SigmaY', 'Surround SigmaX',
                  'Surround Amplitude', 'Theta']
     ncols, nrows = 3, 2
-    f, axs = plt.subplots(ncols=ncols, nrows=nrows, figsize=(5*ncols, 4*nrows))
+    fig, axs = plt.subplots(ncols=ncols, nrows=nrows, figsize=(5*ncols, 4*nrows))
+    fig.suptitle(f'{str_type} DoG Model Parameter Distributions')
     for i, ax in enumerate(axs.flatten()):
         if i < len(ls_params):
             ax.grid()
@@ -413,7 +415,8 @@ def plot_model_param_dists(model: Spatial_DoG, str_type, str_save_dir=None):
         plt.close()
 
 def plot_performance(d_track, model: Spatial_DoG, spatial_stas, str_save_dir=None):
-    f, axs = plt.subplots(ncols=2, figsize=(12, 5))
+    fig, axs = plt.subplots(ncols=2, figsize=(12, 5))
+    fig.suptitle('Spatial DoG Fit Performance')
     ax = axs[0]
     ax.plot(d_track['train_loss'], label='Train Loss')
     ax.axvline(d_track['i_best'], color='r', linestyle='--', label='Best Iteration')
@@ -437,18 +440,18 @@ def plot_performance(d_track, model: Spatial_DoG, spatial_stas, str_save_dir=Non
         plt.close()
 
 def fit_spatial_dog(
-        spatial_stas: np.ndarray, 
+        spatial_stas_np: np.ndarray, 
         d_init_params: dict,
-        str_save_dir: str=None,
+        str_save_dir: Optional[str]=None,
         n_total_epochs = 500, n_lr = 0.05, n_patience=500
     )-> tuple[Spatial_DoG, dict]:
     # Fit a Difference of Gaussian (DoG) filter to the data
     # data: input data object
     # str_type: type of the filter (e.g., 'DoG')
     
-    n_cells, n_height, n_width = spatial_stas.shape
+    n_cells, n_height, n_width = spatial_stas_np.shape
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    spatial_stas = torch.tensor(spatial_stas, device=device, dtype=torch.float32)
+    spatial_stas = torch.tensor(spatial_stas_np, device=device, dtype=torch.float32)
     print(f'Stas shape: {spatial_stas.shape}')
     
     # Initialize filter parameters
@@ -578,8 +581,8 @@ def rf_fitting_pipeline(
     else:
         raise ValueError(f'str_output_dir {str_output_dir} is not a valid directory.')
     
-    model, d_track = fit_spatial_dog(
-        spatial_stas=spatial_stas,
+    model, _ = fit_spatial_dog(
+        spatial_stas_np=spatial_stas,
         str_save_dir=str_plot_dir,
         d_init_params=d_init_params,
         n_total_epochs=1000, n_lr=0.1,
