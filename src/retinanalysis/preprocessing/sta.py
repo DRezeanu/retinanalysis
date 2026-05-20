@@ -15,7 +15,7 @@ from retinanalysis.classes.stim import (MEAStimBlock,
                                         MEAStimGroup,
                                         create_mea_stim_group)
 import gc
-from visionwriter import STAWriterNP, ParamsWriter
+from visionwriter import STAWriter, ParamsWriter
 import visionloader as vl
 from retinanalysis.utils import ANALYSIS_DIR
 from retinanalysis.preprocessing import rfs
