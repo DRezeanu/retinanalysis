@@ -15,7 +15,7 @@ from retinanalysis.classes.stim import (MEAStimBlock,
                                         MEAStimGroup,
                                         create_mea_stim_group)
 import gc
-from visionwriter import STAWriterNP, ParamsWriter
+from visionwriter import STAWriterNP, ParamsWriter, GlobalsFileWriter
 import visionloader as vl
 from retinanalysis.utils import ANALYSIS_DIR
 from retinanalysis.preprocessing import rfs
@@ -510,25 +510,33 @@ def write_params_file(sta_height, d_data, d_rf_params, save_dir, ss_version):
     print(f'Saved to {out_file}')
 
 def write_globals_file(
-        globals_path: str, globals_name: str, array_id: int, 
-        num_samples: int, sta_width: int, sta_height: int, 
-        micronsPerStixel: float, pixelsPerStixel: int, 
+        globals_path: str, globals_name: str, 
+        microns_per_pixel: float, display_width_pixels: int,
+        sta_width: int, sta_height: int, 
         mean_frame_rate: float, stride: int
     ):
+    # TODO get array ID and nsamples from raw .bin files or schema?
+    array_id=504
+    num_samples = 20000 # placeholder
+
+    pixels_per_stixel = int(round(display_width_pixels/sta_width))
+    microns_per_stixel = pixels_per_stixel * microns_per_pixel
+
     refreshPeriod = 1000.0/mean_frame_rate/float(stride) # STA refresh period in msec.
-    runtime_movie_params = vl.RunTimeMovieParamsReader(pixelsPerStixelX = pixelsPerStixel,
-                    pixelsPerStixelY = pixelsPerStixel,
+    runtime_movie_params = vl.RunTimeMovieParamsReader(
+                    pixelsPerStixelX = pixels_per_stixel,
+                    pixelsPerStixelY = pixels_per_stixel,
                     width = sta_width,
                     height = sta_height, 
-                    micronsPerStixelX = micronsPerStixel,
-                    micronsPerStixelY = micronsPerStixel,
+                    micronsPerStixelX = microns_per_stixel,
+                    micronsPerStixelY = microns_per_stixel,
                     xOffset = 0.0,
                     yOffset = 0.0,
-                    interval = int(stride), # same as stride, I think 
+                    interval = int(stride), # MM: same as stride, I think 
                     monitorFrequency = mean_frame_rate,
                     framesPerTTL = 1,
                     refreshPeriod = refreshPeriod, 
-                    nFramesRequired = -1, # No idea what this means..
+                    nFramesRequired = -1, # MM: No idea what this means..
                     droppedFrames = []) 
     
     with GlobalsFileWriter(globals_path, globals_name) as gfw:
@@ -642,7 +650,20 @@ if __name__ == "__main__":
     np.savetxt(auto_types_file, type_data, fmt='%s', delimiter='\t')
     print(f"Auto types saved to {auto_types_file}")
     
-    sta_height = stas.shape[2]
+    sta_height, sta_width = stas.shape[2], stas.shape[3]
     
     # Save RF params with ISIs in .params file
     write_params_file(sta_height, d_data, d_rf_params, chunk_save_dir, args.ss_version)
+
+    # Save .globals file
+    d_display = d_data['sg'].ls_blocks[0].d_display
+    write_globals_file(
+        globals_path=chunk_save_dir,
+        globals_name=args.ss_version,
+        microns_per_pixel=d_display['mu_per_pixel'],
+        display_width_pixels=d_display['n_wt'],
+        sta_width=sta_width,
+        sta_height=sta_height,
+        mean_frame_rate=d_display['mean_frame_rate'],
+        stride=args.stride
+    )
