@@ -590,7 +590,8 @@ def create_mea_pipeline(
         exp_name: str, datafile_name: str | List[str], analysis_chunk_name: Optional[str] = None,
         typing_file: Optional[str] = None, ss_version: str = 'kilosort2.5',
         ls_params: Optional[list] = None, b_load_fd: bool = False, 
-        b_LED: bool = False, b_load_vcd: bool = True, verbose: bool = True
+        b_LED: bool = False, b_load_vcd: bool = True, b_load_sta: bool = False,
+        verbose: bool = True
     ):
     """
     Helper function for initializing an MEAPipeline from metadata.
@@ -639,6 +640,6 @@ def create_mea_pipeline(
         if verbose:
             print(f'Using {analysis_chunk_name} for AnalysisChunk\n')
 
-    ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version, verbose = verbose)
+    ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version, verbose = verbose, include_sta = b_load_sta)
     pipeline = MEAPipeline(stim = s, resp = r, analysis_chunk = ac, typing_file = typing_file, verbose = verbose)
     return pipeline

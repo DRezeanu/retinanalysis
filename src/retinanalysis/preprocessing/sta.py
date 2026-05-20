@@ -61,6 +61,8 @@ def _get_n_splits_memory(
     if method == 'conv':
         # Conv uses more memory, so adding some buffer splits
         n_splits *= 2
+    elif method == 'matmul':
+        n_splits += 1
     
     if verbose:
         print(f"Total data size: {total_data_gb:.1f}GB, max available: {max_memory_gb:.1f}GB")
@@ -436,6 +438,23 @@ def compute_stas_for_chunk(
     return d_output
 
 
+def load_stas_from_vcd(vcd: vl.VisionCellDataTable, cell_ids: np.ndarray)->np.ndarray:
+    # Collect STAs for each cell
+    stas = []
+    for cell_id in cell_ids:
+        # [H, W, D] for each channel
+        vcd_sta = vcd.get_sta_for_cell(cell_id)
+        vcd_sta = [vcd_sta.red, vcd_sta.green, vcd_sta.blue]
+        
+        # Make [D, H, W, C]
+        vcd_sta = np.stack(vcd_sta, axis=-1).transpose(2, 0, 1, 3)
+        stas.append(vcd_sta)
+    
+    # Final [K, D, H, W, C]
+    stas = np.stack(stas, axis=0)
+    print(f"Collected STAs into array of shape {stas.shape} for {len(cell_ids)} cells.")
+    return stas
+
 def load_stas_from_vl(
         exp_name: str=None, chunk_name: str=None, ss_version: Optional[str] = 'kilosort2.5',
         data_dir: str=None, data_name: str='kilosort2.5',
@@ -473,20 +492,8 @@ def load_stas_from_vl(
     cell_ids = np.array(vcd.get_cell_ids())
     cell_ids = np.sort(cell_ids)
 
-    # Collect STAs for each cell
-    stas = []
-    for cell_id in cell_ids:
-        # [H, W, D] for each channel
-        vcd_sta = vcd.get_sta_for_cell(cell_id)
-        vcd_sta = [vcd_sta.red, vcd_sta.green, vcd_sta.blue]
-        
-        # Make [D, H, W, C]
-        vcd_sta = np.stack(vcd_sta, axis=-1).transpose(2, 0, 1, 3)
-        stas.append(vcd_sta)
+    stas = load_stas_from_vcd(vcd, cell_ids)
     
-    # Final [K, D, H, W, C]
-    stas = np.stack(stas, axis=0)
-    print(f"Collected STAs into array of shape {stas.shape} for {len(cell_ids)} cells.")
     return stas, cell_ids
 
 
@@ -509,6 +516,38 @@ def write_params_file(sta_height, d_data, d_rf_params, save_dir, ss_version):
         )
     print(f'Saved to {out_file}')
 
+def write_globals_file(
+        globals_path: str, globals_name: str, array_id: int, 
+        num_samples: int, sta_width: int, sta_height: int, 
+        micronsPerStixel: float, pixelsPerStixel: int, 
+        mean_frame_rate: float, stride: int
+    ):
+    refreshPeriod = 1000.0/mean_frame_rate/float(stride) # STA refresh period in msec.
+    runtime_movie_params = vl.RunTimeMovieParamsReader(pixelsPerStixelX = pixelsPerStixel,
+                    pixelsPerStixelY = pixelsPerStixel,
+                    width = sta_width,
+                    height = sta_height, 
+                    micronsPerStixelX = micronsPerStixel,
+                    micronsPerStixelY = micronsPerStixel,
+                    xOffset = 0.0,
+                    yOffset = 0.0,
+                    interval = int(stride), # same as stride, I think 
+                    monitorFrequency = mean_frame_rate,
+                    framesPerTTL = 1,
+                    refreshPeriod = refreshPeriod, 
+                    nFramesRequired = -1, # No idea what this means..
+                    droppedFrames = []) 
+    
+    with GlobalsFileWriter(globals_path, globals_name) as gfw:
+        gfw.write_simplified_litke_array_globals_file(array_id & 0xFFF, # FIXME get rid of this after we figure out what happened with 120um
+                                                        0,
+                                                        0,
+                                                        'Kilosort converted',
+                                                        '',
+                                                        0,
+                                                        num_samples)
+        gfw.write_run_time_movie_params(runtime_movie_params) 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog='sta.py',
@@ -518,6 +557,7 @@ if __name__ == "__main__":
     parser.add_argument('chunk_name', help='Chunk name (e.g. chunk1)')
     parser.add_argument('datafile_name', nargs='*', help='Datafile name(s) to process (e.g. data000). If not given, will attempt to find noise datafiles for the given exp and chunk.')
     parser.add_argument('save_dir', help='Directory to save computed STAs')
+    parser.add_argument('recompute_stas', type=bool, default=False, help='Whether to recompute STAs if they already exist. If False, will load existing STAs and re-run RF fitting.')
     parser.add_argument('--ss_version', default='kilosort2.5', help='Spike sorting version to load responses from (default: kilosort2.5)')
     parser.add_argument('--stride', type=int, default=2, help='Stride (bins/frame)')
     parser.add_argument('--depth', type=int, default=61, help='STA depth (bins)')
@@ -553,8 +593,8 @@ if __name__ == "__main__":
         verbose=True
     )
 
-    # If stas already exist, load and move to RF fitting.
-    if os.path.exists(save_np) or os.path.exists(save_vcd_sta) or os.path.exists(nas_vcd_sta):
+    exists_somewhere = os.path.exists(save_np) or os.path.exists(save_vcd_sta) or os.path.exists(nas_vcd_sta)
+    if not args.recompute_stas and exists_somewhere:
         print(f"STA files already exist!")
         print('Will load saved STAs and re-run RF param fitting.')
         if os.path.exists(save_vcd_sta) or os.path.exists(nas_vcd_sta):
@@ -575,6 +615,7 @@ if __name__ == "__main__":
             print(f"STAs loaded from {save_np}!")
 
     else:
+        print(f"Computing STAs for {args.exp_name} {args.chunk_name} with method {args.method}...")
         d_stas = compute_stas_for_chunk(
             sg=d_data['sg'],
             rg=d_data['rg'],
@@ -591,6 +632,8 @@ if __name__ == "__main__":
         with STAWriter(filepath=save_vcd_sta) as wr:
             wr.write(sta=d_stas['stas'], ste=None, cluster_id=d_stas['cell_ids'], stixel_size=d_stas['grid_size'])
         print(f"STAs saved to {save_vcd_sta}")
+
+        stas = d_stas['stas']
 
     d_rf_params = rfs.rf_fitting_pipeline(
         stas=stas, str_output_dir=chunk_save_dir
