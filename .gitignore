@@ -9,3 +9,5 @@ src/.DS_Store
 src/retinanalysis/.DS_Store
 .vscode
 .venv
+uv.lock
+.python-version
