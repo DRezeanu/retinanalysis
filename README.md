@@ -29,14 +29,14 @@ pip install .
 ### Install with uv
 UV is a new, very highly recommended python package and project manager written in Rust that works extremely fast. You can learn more about it here: https://docs.astral.sh/uv/
 
-UV is meant to work with environments at the project level, not system-wide. So you will want to install retinanalysis at the root of every project in which you want to use it (the packages are cached so you aren't using any additional disk space). Virtual environments live in the root of the project in a .venv folder by default, and are named after the root of the project by default. This is best practice, however, you can still select and use any virtual environment on your machine in VSCode, so you could still install it once in one project and use it system wide if you'd like.
+UV is meant to work with environments at the project level, not system-wide. So you will want to install retinanalysis at the root of every project in which you want to use it (the packages are cached so you aren't using any additional disk space). Virtual environments live in the root of the project in a .venv folder by default, and are named after the root of the project by default. 
 
 2. Create a uv venv in your local project directory using python 3.11.13:
 ```
 uv venv --python 3.11.13
 ```
 
-3. Activate the uv environment, cd to the package directory, and use pip and conda to install all required dependencies:
+3. Activate the uv environment, cd to the package directory, and use `uv pip` to install all required dependencies:
 ```
 source .venv/bin/activate
 cd ../*your_repositories_directory*/retinanalysis
