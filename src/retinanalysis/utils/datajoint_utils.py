@@ -1,6 +1,6 @@
-from retinanalysis.utils import (H5_DIR, QUERY_DIR,
-                                 ANALYSIS_DIR,
-                                 schema)
+from retinanalysis.config.settings import (H5_DIR, QUERY_DIR,
+                                           ANALYSIS_DIR)
+from retinanalysis._database import schema
 
 import numpy as np
 import datajoint as dj

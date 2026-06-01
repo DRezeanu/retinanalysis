@@ -1,5 +1,6 @@
-# Must be the first import, otherwise the database won't load properly
-import retinanalysis.config.schema as schema
+# Lazy proxy for the DataJoint schema. This preserves ``ra.schema`` while
+# avoiding a database connection during ``import retinanalysis``.
+from retinanalysis._database import schema
 
 # Import various data and analysis directories directly.
 # Settings doesn't reference any of the utils or classes so it should be

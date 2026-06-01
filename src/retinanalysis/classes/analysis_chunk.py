@@ -1,5 +1,5 @@
 import retinanalysis 
-import retinanalysis.config.schema as schema
+from retinanalysis._database import schema
 import os
 from retinanalysis.config.settings import (ANALYSIS_DIR,
                                            DATA_DIR)

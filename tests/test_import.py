@@ -6,9 +6,6 @@ import subprocess
 import sys
 import textwrap
 
-import pytest
-
-
 def test_import_retinanalysis_smoke() -> None:
     """The package should be importable through the lab-facing convenience API."""
     import retinanalysis as ra
@@ -16,18 +13,44 @@ def test_import_retinanalysis_smoke() -> None:
     assert ra is not None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Current retinanalysis import eagerly imports retinanalysis.config.schema; "
-        "the DataJoint migration should make schema loading lazy."
-    ),
-)
 def test_plain_import_does_not_load_schema_module() -> None:
-    """Future target: plain package import should not load the schema module."""
+    """Plain package import should not load the DataJoint schema module."""
     code = textwrap.dedent(
         """
         import sys
+        import retinanalysis  # noqa: F401
+        raise SystemExit('retinanalysis.config.schema' in sys.modules)
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_plain_import_does_not_connect_to_datajoint() -> None:
+    """Plain package import should not call DataJoint connection machinery."""
+    code = textwrap.dedent(
+        """
+        import sys
+        import types
+
+        datajoint = types.ModuleType("datajoint")
+        datajoint.config = {}
+        datajoint.Manual = object
+        datajoint.VirtualModule = object
+
+        def conn(*args, **kwargs):
+            raise RuntimeError("dj.conn() should not be called during plain import")
+
+        datajoint.conn = conn
+        sys.modules["datajoint"] = datajoint
+
         import retinanalysis  # noqa: F401
         raise SystemExit('retinanalysis.config.schema' in sys.modules)
         """

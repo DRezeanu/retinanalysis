@@ -4,7 +4,7 @@ from retinanalysis.utils import (USER,
                                  META_DIR,
                                  TAGS_DIR,
                                  database_pop)
-import retinanalysis.config.schema as schema
+from retinanalysis._database import schema
 from typing import List
 
     

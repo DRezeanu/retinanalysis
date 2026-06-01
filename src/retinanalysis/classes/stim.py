@@ -1,4 +1,4 @@
-import retinanalysis.config.schema as schema
+from retinanalysis._database import schema
 import numpy as np
 from retinanalysis.utils.datajoint_utils import (get_exp_summary,
                                                  get_epoch_data_from_exp,

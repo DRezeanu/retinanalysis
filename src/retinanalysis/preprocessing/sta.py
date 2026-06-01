@@ -4,7 +4,7 @@ import tqdm.auto as tqdm
 from typing import Optional, List
 from retinanalysis import regen
 import argparse
-import retinanalysis.config.schema as schema
+from retinanalysis._database import schema
 from retinanalysis.classes import qc
 from retinanalysis.utils.datajoint_utils import get_noise_name_by_exp
 import os
