@@ -57,3 +57,18 @@ dependencies = [
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
 Issues = "https://github.com/DRezeanu/retinanalysis/issues"
 Source = "https://github.com/DRezeanu/retinanalysis"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+markers = [
+    "db: tests that require the local DataJoint test database container",
+    "integration: slower tests that exercise multiple package components",
+    "downstream: tests that exercise downstream repos such as Defocus-Analysis",
+]
