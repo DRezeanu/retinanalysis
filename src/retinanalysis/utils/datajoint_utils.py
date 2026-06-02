@@ -283,7 +283,7 @@ def search_protocol(str_search: str, verbose: bool = True):
     matches (List[str]): a list of full protocol names as strings (e.g., manookinlab.protocols.PresentImages)"""
     
     str_search = str_search.lower()
-    protocols = schema.Protocol().fetch('name')
+    protocols = schema.Protocol().to_arrays('name')
     protocols = np.unique(protocols)
     matches = []
     for p in protocols:
@@ -328,14 +328,14 @@ def get_datasets_from_protocol_names(ls_protocol_names: str | List[str], b_exact
 
     # Query protocol table
     protocol_query = schema.Protocol() & [f'name="{protocol}"' for protocol in found_protocols]
-    protocol_ids = protocol_query.fetch('protocol_id')
+    protocol_ids = protocol_query.to_arrays('protocol_id')
     protocol_query = protocol_query.proj('protocol_id', protocol_name='name')
 
     # Query EpochBlock with these protocol IDs, get associated experiment IDs
     # WARNING: do not use EpochGroup ever for protocol_id queries bc of the "no_group_protocol" situation.
     # Thank you to @DRezeanu for pointing this out.
     epoch_block_query = schema.EpochBlock() & [f'protocol_id={p_id}' for p_id in protocol_ids]
-    experiment_ids = epoch_block_query.fetch('experiment_id')
+    experiment_ids = epoch_block_query.to_arrays('experiment_id')
     experiment_ids = np.unique(experiment_ids)
 
     # Join Experiment, EpochGroup, Protocol
