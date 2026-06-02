@@ -1,17 +1,22 @@
 import datajoint as dj
 
-dj.config['database.host'] = '127.0.0.1'
-dj.config['database.user'] = 'root'
-dj.config['database.password'] = 'simple'
 
-try:
-    dj.conn().connect()
-    B_CONNECTED = True
-    schema = dj.Schema('schema')
-except Exception as e:
-    print(f"Could not connect to DataJoint database: {e}")
-    B_CONNECTED = False
-    schema = lambda x: x  # Dummy schema for testing purposes
+def _apply_default_datajoint_config() -> None:
+    """Apply lab-local DataJoint defaults without overriding user config."""
+    defaults = {
+        "database.host": "127.0.0.1",
+        "database.port": 3306,
+        "database.user": "root",
+        "database.password": "simple",
+    }
+
+    for key, value in defaults.items():
+        if not dj.config.get(key):
+            dj.config[key] = value
+
+
+_apply_default_datajoint_config()
+schema = dj.Schema('schema')
 
 
 @schema
