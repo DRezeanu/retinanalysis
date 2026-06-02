@@ -7,6 +7,7 @@ import datajoint as dj
 import os
 import pandas as pd
 import json
+import warnings
 from tqdm.auto import tqdm
 from IPython.display import display
 import h5py 
@@ -85,27 +86,39 @@ def plot_mosaics_for_datasets(df_exp_search: pd.DataFrame,
 
 
 
-def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
+def djconnect(
+    host_address: str = '127.0.0.1',
+    user: str = 'root',
+    password: str = 'simple',
+    port: int = 3306,
+):
     """
-    Connect to local datajoint database container active inside docker.
-    Note: The docker database container MUST be running.
-    
-    Parameters:
-    host_address (str): IP address of mysql/datajoint server. Default '127.0.0.1'
-    user (str): username to log onto server. Default 'root'
-    password (str): password to log onto server. Default 'simple'
+    Deprecated helper for connecting to a local DataJoint database container.
 
-    Default parameters should not be changed unless you have created a custom
-    config of the mysql/datajoint docker image and database container.
+    DataJoint configuration is now applied lazily when the schema module is
+    loaded. Prefer configuring DataJoint through ``datajoint.json`` or by
+    setting ``dj.config`` before calling database-backed retinanalysis helpers.
+
+    This function is kept as a temporary compatibility shim for old notebooks.
+    It still attempts an immediate connection when called explicitly.
     """
+
+    warnings.warn(
+        "retinanalysis.djconnect() is deprecated. Configure DataJoint via "
+        "datajoint.json or dj.config before calling database-backed helpers.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     try:
-        dj.config["database.host"] = f"{host_address}"
-        dj.config["database.user"] = f"{user}"
-        dj.config["database.password"] = f"{password}"
-        dj.conn()
+        dj.config["database.host"] = host_address
+        dj.config["database.port"] = port
+        dj.config["database.user"] = user
+        dj.config["database.password"] = password
+        return dj.conn()
     except Exception as e:
         print(f"Could not connect to DataJoint database: {e}")
+        return None
 
 
 def populate_ndf_column(df_exp_summary):

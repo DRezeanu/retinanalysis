@@ -1,4 +1,22 @@
+import os
+
 import datajoint as dj
+from datajoint.settings import find_config_file
+
+
+def _should_apply_default_datajoint_config(key: str) -> bool:
+    """Return True when ``key`` should receive a lab-local default."""
+    current_value = dj.config.get(key)
+    if current_value is None:
+        return True
+
+    if key == "database.host" and current_value == "localhost":
+        # DataJoint 2 uses localhost as its built-in default. Override that
+        # to 127.0.0.1 for Docker TCP connections, but preserve explicit
+        # environment-variable configuration.
+        return "DJ_HOST" not in os.environ and find_config_file() is None
+
+    return False
 
 
 def _apply_default_datajoint_config() -> None:
@@ -11,7 +29,7 @@ def _apply_default_datajoint_config() -> None:
     }
 
     for key, value in defaults.items():
-        if not dj.config.get(key):
+        if _should_apply_default_datajoint_config(key):
             dj.config[key] = value
 
 
