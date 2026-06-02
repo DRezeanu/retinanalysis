@@ -1,19 +1,18 @@
-import datajoint as dj
 from retinanalysis.utils import (USER,
                                  H5_DIR,
                                  META_DIR,
                                  TAGS_DIR,
                                  database_pop)
-from retinanalysis._database import schema
+from retinanalysis._database import get_schema_module, schema
 from typing import List
 
     
 def populate_database(username = USER, h5_dir = H5_DIR, 
                         meta_dir = META_DIR, tags_dir = TAGS_DIR):
     
-    db = dj.VirtualModule('schema.py', 'schema', create_schema=True)
+    schema_module = get_schema_module()
 
-    database_pop.append_data(h5_dir, meta_dir, tags_dir, username, db)
+    database_pop.append_data(h5_dir, meta_dir, tags_dir, username, schema_module)
 
 def reload_experiment_data(exp_name, username = USER, h5_dir = H5_DIR, 
                     meta_dir = META_DIR, tags_dir = TAGS_DIR):
