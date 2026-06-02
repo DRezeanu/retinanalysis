@@ -235,16 +235,16 @@ def get_noise_datafiles(exp_name: str, chunk_name: str)->list:
     exp_id = schema.Experiment() & {'exp_name': exp_name}
     if len(exp_id) != 1:
         raise ValueError(f"{len(exp_id)} exps found for given exp_name: {exp_name}")
-    exp_id = exp_id.fetch('id')[0]
+    exp_id = exp_id.to_arrays('id')[0]
     chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name' : chunk_name}
-    chunk_id = chunk_id.fetch('id')[0]
+    chunk_id = chunk_id.to_arrays('id')[0]
     noise_protocol = get_noise_name_by_exp(exp_name)
     protocol_id = schema.Protocol() & {'name' : noise_protocol}
-    protocol_id = protocol_id.fetch('protocol_id')[0]
+    protocol_id = protocol_id.to_arrays('protocol_id')[0]
     
     epoch_blocks = schema.EpochBlock() & {'experiment_id' : exp_id, 'chunk_id' : chunk_id, 'protocol_id' : protocol_id}
 
-    noise_data_dirs = epoch_blocks.fetch('data_dir')
+    noise_data_dirs = epoch_blocks.to_arrays('data_dir')
     datafile_name = [os.path.basename(path) for path in noise_data_dirs]
     return datafile_name
 

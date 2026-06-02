@@ -24,6 +24,7 @@ EXPECTED_N_EPOCHS = 200
 PROTOCOL_SEARCH = "presentmatfiles"
 EXPECTED_PROTOCOL_NAME = "edu.washington.riekelab.protocols.PresentMatFiles"
 EXPECTED_PROTOCOL_DATASET_SHAPE = (160, 13)
+EXPECTED_NOISE_DATAFILES = ["data012"]
 
 SORTED_DATA_DIR = Path(
     f"/Volumes/MEA_SSD/mea_ssd/data/sorted/{EXP_NAME}/{DATAFILE_NAME}/{SS_VERSION}"
@@ -60,6 +61,14 @@ def test_protocol_search_and_dataset_smoke(test_database_container: str) -> None
     assert df_datasets.columns.tolist() == expected_columns
     assert df_datasets["protocol_name"].unique().tolist() == [EXPECTED_PROTOCOL_NAME]
     assert {"20250514C", "20260303C"}.issubset(set(df_datasets["exp_name"]))
+
+
+def test_noise_datafile_lookup_smoke(test_database_container: str) -> None:
+    """Exercise STA noise-datafile lookup against the test DB."""
+    import retinanalysis as ra
+
+    noise_datafiles = ra.sta.get_noise_datafiles(EXP_NAME, ANALYSIS_CHUNK_NAME)
+    assert noise_datafiles == EXPECTED_NOISE_DATAFILES
 
 
 def test_datajoint_query_smoke(test_database_container: str) -> None:
