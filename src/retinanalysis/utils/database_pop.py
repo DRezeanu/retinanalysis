@@ -175,7 +175,7 @@ def build_tuple(base_tuple: dict, level: str, meta: dict) -> dict:
     for dj_name, meta_name in fields[level]:
         if meta_name in meta.keys() and meta[meta_name] is not None:
             field_obj = table_dict[level].heading.attributes[dj_name]
-            if field_obj.type == 'timestamp':
+            if field_obj.type in {'timestamp', 'datetime'}:
                 # currently in string form, example "01/22/2021 09:33:51:729159"
                 base_tuple[dj_name] = datetime.datetime.strptime(
                     meta[meta_name], '%m/%d/%Y %H:%M:%S:%f')
