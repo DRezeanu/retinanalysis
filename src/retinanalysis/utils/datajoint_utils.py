@@ -208,7 +208,7 @@ def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
         epoch_block_query = epoch_block_query * sorting_chunk_query
     protocol_query = epoch_block_query * schema.Protocol.proj(..., protocol_name='name') #type: ignore
 
-    df_exp_summary = protocol_query.fetch(format='frame').reset_index()
+    df_exp_summary = protocol_query.to_pandas().reset_index()
     df_exp_summary = df_exp_summary.sort_values('start_time').reset_index()
     if len(df_exp_summary)==0:
         raise ValueError(f'No data found for experiment {exp_name}')
@@ -266,7 +266,7 @@ def get_block_id_from_datafile(exp_name: str, datafile_name: str):
     exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch1('id')
     epoch_block_query = schema.EpochBlock() & f'experiment_id={exp_id}'
 
-    df_epoch_block = epoch_block_query.fetch(format='frame').reset_index()
+    df_epoch_block = epoch_block_query.to_pandas().reset_index()
     df_epoch_block['datafile_name'] = df_epoch_block['data_dir'].apply(lambda x: os.path.split(x)[-1])
 
     block_id = df_epoch_block.query('datafile_name == @datafile_name')['id'].values[0]
@@ -353,7 +353,7 @@ def get_datasets_from_protocol_names(ls_protocol_names: str | List[str], b_exact
     # Join with SortingChunk and fetch
     sorting_chunk_query = schema.SortingChunk.proj('chunk_name', chunk_id='id') #type: ignore
     epoch_block_query = epoch_block_query * sorting_chunk_query
-    df_exp_search = epoch_block_query.fetch(format='frame').reset_index()
+    df_exp_search = epoch_block_query.to_pandas().reset_index()
 
     df_exp_search = populate_ndf_column(df_exp_search)
 
@@ -604,7 +604,7 @@ def get_typing_files_for_datasets(df: pd.DataFrame, ls_cell_types: list = ['OffP
                 df_chunk = df_exp.query('chunk_name == @noise_chunk and protocol_name == @noise_protocol_name')
                 noise_chunk_id = df_chunk['chunk_id'].values[0]
                 noise_datafile_names = list(df_chunk['datafile_name'].values)
-                df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).fetch(format='frame')
+                df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).to_pandas()
 
                 if not b_found and len(df_ct) > 0:
                     for i_ct in df_ct.index:
@@ -740,7 +740,7 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, b_LED: Optional[bool]=
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
     is_mea = (ex_q.fetch1('is_mea') == 1)
     eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
-    eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
+    eg_q = eg_q.proj('exp_name', 'experiment_id', group_label='label', group_id='id')
     
     ls_eb_cols = ['protocol_id']
     if is_mea:
@@ -754,7 +754,7 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, b_LED: Optional[bool]=
 
     if is_mea:
         # Check num epoch ends matches num epoch starts
-        eb_df = eb_q.fetch(format='frame').reset_index()
+        eb_df = eb_q.to_pandas().reset_index()
         d_data = eb_df.loc[0].to_dict()
         epoch_starts = d_data['block_properties']['epochStarts']
         epoch_ends = d_data['block_properties']['epochEnds']
@@ -768,7 +768,7 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, b_LED: Optional[bool]=
         frame_times_ms="properties->>'$.frameTimesMs'"
     ) #type: ignore
 
-    df = e_q.fetch(format='frame')
+    df = e_q.to_pandas()
     df = df.reset_index()
 
     if is_mea:
@@ -829,7 +829,7 @@ def get_epochblock_query(exp_name: str, block_id: int):
 
 def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> dict:
     eb_q = get_epochblock_query(exp_name, block_id)
-    df = eb_q.fetch(format='frame').reset_index()
+    df = eb_q.to_pandas().reset_index()
     if len(df) > 1:
         raise ValueError(f'Expected only one EpochBlock for {exp_name} {block_id}, but found {len(df)}')
     if len(df) == 0:
@@ -923,7 +923,7 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> di
         stage_frame_rate="parameters->>'$.frameRate'"
     )
 
-    df_transitions = e_q.fetch(format='frame').drop_duplicates().reset_index()
+    df_transitions = e_q.to_pandas().drop_duplicates().reset_index()
 
     if len(df_transitions) != 1:
         display(df_transitions)
@@ -1020,7 +1020,7 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str
         print(f'Loading frame monitor data from {str_h5} ...')
 
     r_q = get_epochblock_response_query(exp_name, block_id)
-    df = r_q.fetch(format='frame').reset_index()
+    df = r_q.to_pandas().reset_index()
 
     df_frame = df.query('device_name == "Frame Monitor"')
     df_frame = df_frame.reset_index(drop=True)
@@ -1057,7 +1057,7 @@ def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=
         print(f'Loading Amp1 data from {str_h5} ...')
 
     r_q = get_epochblock_response_query(exp_name, block_id)
-    df = r_q.fetch(format='frame').reset_index()
+    df = r_q.to_pandas().reset_index()
     
     df_amp = df[df['device_name']=='Amp1']
     df_amp = df_amp.reset_index(drop=True)

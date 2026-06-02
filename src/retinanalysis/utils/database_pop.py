@@ -615,7 +615,7 @@ def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_p
 
 def append_celltypefiles(sc_q):
     # Get all sorting chunks, each of which we'll look for typing files for.
-    df_sc = sc_q.fetch(format='frame').reset_index()
+    df_sc = sc_q.to_pandas().reset_index()
     df_sc = df_sc.set_index('id')
     
     print('Finding CellTypeFile entries for each chunk...')
