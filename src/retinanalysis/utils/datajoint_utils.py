@@ -144,8 +144,8 @@ def populate_ndf_column(df_exp_summary):
         if len(ep_q) == 0:
             print(f'No epochs found for block {bid}')
             continue
-        ep_id = ep_q.fetch('id')[0]
-        params = (schema.Epoch() & f'id={ep_id}').fetch('parameters')[0]
+        ep_id = ep_q.to_arrays('id')[0]
+        params = (schema.Epoch() & f'id={ep_id}').fetch1('parameters')
         if 'NDF' in params.keys():
             df_exp_summary.loc[df_exp_summary['block_id']==bid, 'NDF'] = params['NDF']
         # else:
@@ -168,11 +168,11 @@ def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
     their datafile directory.
     """
 
-    exp_ids = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')
-    exp_id = exp_ids[0]
+    exp_ids = (schema.Experiment() & f'exp_name="{exp_name}"').to_arrays('id')
     if len(exp_ids) == 0:
         print(f'Experiment "{exp_name}" not found!')
         return None
+    exp_id = exp_ids[0]
     is_mea = (schema.Experiment() & f'id={exp_id}').fetch1('is_mea')
 
     epoch_group_query = schema.EpochGroup() & f'experiment_id={exp_id}'
@@ -486,11 +486,11 @@ def get_stage_frame_rate_by_exp(exp_name: str, verbose: bool = True)-> float:
     exp_id = exp_q.fetch1('id')
     eb_q = schema.EpochBlock() & f'experiment_id={exp_id}'
     # Get epochs for all these epoch blocks based on id (parent_id)
-    e_q = schema.Epoch() & [f'parent_id={eb_id}' for eb_id in eb_q.fetch('id')]
+    e_q = schema.Epoch() & [f'parent_id={eb_id}' for eb_id in eb_q.to_arrays('id')]
     e_q = e_q.proj(
         stage_frame_rate="parameters->>'$.frameRate'"
     )
-    stage_frame_rates = e_q.fetch('stage_frame_rate')
+    stage_frame_rates = e_q.to_arrays('stage_frame_rate')
     stage_frame_rates = stage_frame_rates.astype(float)
     # Remove NaN values if any
     stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
