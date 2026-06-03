@@ -16,14 +16,15 @@ pytestmark = pytest.mark.db
 
 EXP_NAME = "20260401C"
 DATAFILE_NAME = "data009"
-BLOCK_ID = 4764
+DATAFILE_CHUNK_NAME = "defocus1"
 ANALYSIS_CHUNK_NAME = "chunk2"
 SS_VERSION = "kilosort2.5"
 B_LED = False
 EXPECTED_N_EPOCHS = 200
-PROTOCOL_SEARCH = "presentmatfiles"
-EXPECTED_PROTOCOL_NAME = "edu.washington.riekelab.protocols.PresentMatFiles"
-EXPECTED_PROTOCOL_DATASET_SHAPE = (160, 13)
+PROTOCOL_SEARCH = "defocusnoise"
+EXPECTED_PROTOCOL_NAME = "edu.washington.riekelab.protocols.DefocusNoise"
+EXPECTED_PROTOCOL_DATASET_SHAPE = (6, 13)
+EXPECTED_PROTOCOL_DATAFILES = ["data004", "data005", "data006", "data007", "data008", "data009"]
 EXPECTED_NOISE_DATAFILES = ["data012"]
 
 SORTED_DATA_DIR = Path(
@@ -60,7 +61,9 @@ def test_protocol_search_and_dataset_smoke(test_database_container: str) -> None
     assert df_datasets.shape == EXPECTED_PROTOCOL_DATASET_SHAPE
     assert df_datasets.columns.tolist() == expected_columns
     assert df_datasets["protocol_name"].unique().tolist() == [EXPECTED_PROTOCOL_NAME]
-    assert {"20250514C", "20260303C"}.issubset(set(df_datasets["exp_name"]))
+    assert df_datasets["exp_name"].unique().tolist() == [EXP_NAME]
+    assert sorted(df_datasets["datafile_name"].tolist()) == EXPECTED_PROTOCOL_DATAFILES
+    assert df_datasets["chunk_name"].unique().tolist() == [DATAFILE_CHUNK_NAME]
 
 
 def test_noise_datafile_lookup_smoke(test_database_container: str) -> None:
@@ -80,9 +83,10 @@ def test_datajoint_query_smoke(test_database_container: str) -> None:
 
     assert df_summary.shape == (24, 18)
     assert len(datafile_rows) == 1
+    assert datafile_rows["chunk_name"].iloc[0] == DATAFILE_CHUNK_NAME
 
     block_id = ra.get_block_id_from_datafile(EXP_NAME, DATAFILE_NAME)
-    assert block_id == BLOCK_ID
+    assert block_id == datafile_rows["block_id"].iloc[0]
 
     df_epochs = ra.get_epoch_data_from_exp(EXP_NAME, block_id, b_LED=B_LED)
     required_epoch_columns = {
@@ -124,3 +128,5 @@ def test_create_mea_pipeline_smoke(test_database_container: str) -> None:
     assert type(pipeline.stim).__name__ == "MEAStimBlock"
     assert type(pipeline.resp).__name__ == "MEAResponseBlock"
     assert type(pipeline.analysis_chunk).__name__ == "AnalysisChunk"
+    assert pipeline.stim.datafile_name == DATAFILE_NAME
+    assert pipeline.analysis_chunk.chunk_name == ANALYSIS_CHUNK_NAME
