@@ -19,17 +19,19 @@ def test_populate_database_uses_canonical_schema_module(monkeypatch) -> None:
         captured["tags_dir"] = tags_dir
         captured["username"] = username
         captured["db_param"] = db_param
+        return 1
 
     monkeypatch.setattr(database_utils, "get_schema_module", fake_get_schema_module)
     monkeypatch.setattr(database_utils.database_pop, "append_data", fake_append_data)
 
-    database_utils.populate_database(
+    records_added = database_utils.populate_database(
         username="test_user",
         h5_dir="/tmp/h5",
         meta_dir="/tmp/meta",
         tags_dir="/tmp/tags",
     )
 
+    assert records_added == 1
     assert captured == {
         "h5_dir": "/tmp/h5",
         "meta_dir": "/tmp/meta",

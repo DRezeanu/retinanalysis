@@ -12,7 +12,7 @@ def populate_database(username = USER, h5_dir = H5_DIR,
     
     schema_module = get_schema_module()
 
-    database_pop.append_data(h5_dir, meta_dir, tags_dir, username, schema_module)
+    return database_pop.append_data(h5_dir, meta_dir, tags_dir, username, schema_module)
 
 def reload_experiment_data(exp_name, username = USER, h5_dir = H5_DIR, 
                     meta_dir = META_DIR, tags_dir = TAGS_DIR):

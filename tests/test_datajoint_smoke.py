@@ -26,6 +26,8 @@ EXPECTED_PROTOCOL_NAME = "edu.washington.riekelab.protocols.DefocusNoise"
 EXPECTED_PROTOCOL_DATASET_SHAPE = (6, 13)
 EXPECTED_PROTOCOL_DATAFILES = ["data004", "data005", "data006", "data007", "data008", "data009"]
 EXPECTED_NOISE_DATAFILES = ["data012"]
+EXPECTED_SORTING_CHUNKS = 7
+EXPECTED_CELL_TYPE_FILES = 3
 
 SORTED_DATA_DIR = Path(
     f"/Volumes/MEA_SSD/mea_ssd/data/sorted/{EXP_NAME}/{DATAFILE_NAME}/{SS_VERSION}"
@@ -102,6 +104,9 @@ def test_datajoint_query_smoke(test_database_container: str) -> None:
     timing = ra.get_epochblock_timing(EXP_NAME, block_id, b_LED=B_LED)
     assert timing["n_epochs"] == EXPECTED_N_EPOCHS
     assert timing["stage_frame_rate"] == 59.0
+
+    assert len(ra.schema.SortingChunk()) == EXPECTED_SORTING_CHUNKS
+    assert len(ra.schema.CellTypeFile()) == EXPECTED_CELL_TYPE_FILES
 
 
 @pytest.mark.integration

@@ -615,12 +615,10 @@ def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_p
         records_added += 1
         ls_new_exp.append(exp_name)
     
-    e_q = Experiment() & 'is_mea=1' & [f'exp_name="{exp_name}"' for exp_name in ls_new_exp]
-    sc_q = SortingChunk() * e_q.proj(..., experiment_id='id')
-    if len(sc_q) == 0:
-        print("No new sorting chunks found in database, skipping cell type file population.")
-    else:
-        append_celltypefiles(sc_q)
+    # Sorting chunks, cell type files, and sorted-cell type labels are populated
+    # during append_experiment_analysis() -> append_sorting_chunk().  Do not run
+    # append_celltypefiles() here: that helper only inserts CellTypeFile rows and
+    # would duplicate files already inserted by append_sorting_files().
     
     return records_added
 
