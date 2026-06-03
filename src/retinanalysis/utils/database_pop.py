@@ -279,7 +279,7 @@ def append_experiment_analysis(experiment_id: int, exp_name: str):
 def get_block_chunk(experiment_id: int, data_dir: str) -> int:
     # data_index = data_dir.split("/")[1]
     data_index = os.path.basename(data_dir)
-    possible_chunks = (SortingChunk & f"experiment_id={experiment_id}").fetch()['chunk_name']
+    possible_chunks = (SortingChunk & f"experiment_id={experiment_id}").to_arrays('chunk_name')
     exp_name = (Experiment & f"id={experiment_id}").fetch1('exp_name')
     # exp_name = os.path.basename(exp_name)[:-3]
     experiment_dir = os.path.join(DATA_DIR, exp_name)
@@ -669,21 +669,27 @@ def reload_celltypefiles(experiment_names: list=None):
     # which is likely desirable but might take longer.
     configure_tables(get_schema_module())
 
-    # Query for any input experiments
+    # Query for any input experiments. Restrict SortingChunk by Experiment
+    # instead of joining in Experiment attributes; the join path is fragile under
+    # DataJoint 2 semantic matching and append_celltypefiles only needs chunk
+    # table fields.
     ctf_q = CellTypeFile()
     e_q = Experiment() & 'is_mea=1'
-    sc_q = SortingChunk() * e_q.proj(..., experiment_id='id')
     if experiment_names is not None:
-        e_q = Experiment() & [f'exp_name="{exp_name}"' for exp_name in experiment_names]
-        sc_q = sc_q * e_q.proj(...,experiment_id='id')
-        chunk_ids = sc_q.fetch('id')
-        ctf_q = ctf_q & [f'chunk_id={id}' for id in chunk_ids]
-        # df_delete = (ctf_q * sc_q.proj(...,chunk_id='id')).fetch(format='frame')
-        # display(df_delete)
+        e_q = e_q & [{'exp_name': exp_name} for exp_name in experiment_names]
     else:
         experiment_names = 'all experiments'
+
+    sc_q = SortingChunk() & e_q.proj(experiment_id='id')
+    chunk_ids = sc_q.to_arrays('id')
+    if len(chunk_ids):
+        ctf_q = ctf_q & [{'chunk_id': int(chunk_id)} for chunk_id in chunk_ids]
+    else:
+        ctf_q = ctf_q & 'FALSE'
+        # df_delete = (ctf_q * sc_q.proj(...,chunk_id='id')).fetch(format='frame')
+        # display(df_delete)
     print(f'Found {len(sc_q)} chunks for {experiment_names}.')
     print(f'Deleting associated {len(ctf_q)} cell type files.')
-    ctf_q.delete(safemode=False)
+    ctf_q.delete(prompt=False)
     
     append_celltypefiles(sc_q)
