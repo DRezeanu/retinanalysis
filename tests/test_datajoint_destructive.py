@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 
 
-pytestmark = [pytest.mark.db, pytest.mark.destructive_db]
+pytestmark = [pytest.mark.db, pytest.mark.destructive_db, pytest.mark.migration_fixture]
 
 EXP_NAME = "20260401C"
-FIXTURE_ROOT = Path("/Volumes/MEA_SSD/mea_ssd/datajoint_migration_fixture")
+FIXTURE_ROOT_ENV_VAR = "RETINANALYSIS_MIGRATION_FIXTURE_ROOT"
 EXPECTED_SORTING_CHUNKS = 7
 EXPECTED_CELL_TYPE_FILES = 3
 EXPECTED_SORTED_CELL_TYPES = 1463
@@ -32,25 +32,36 @@ def require_destructive_db_opt_in() -> None:
         )
 
 
-def configure_fixture_paths(monkeypatch: pytest.MonkeyPatch):
-    """Point population helpers at the isolated migration fixture."""
-    if not FIXTURE_ROOT.exists():
-        pytest.skip(f"DataJoint migration fixture is not mounted: {FIXTURE_ROOT}")
+def require_migration_fixture_root() -> Path:
+    """Return the explicitly configured migration fixture root, or skip."""
+    fixture_root = os.environ.get(FIXTURE_ROOT_ENV_VAR)
+    if not fixture_root:
+        pytest.skip(
+            f"Set {FIXTURE_ROOT_ENV_VAR} to run migration-fixture destructive checks."
+        )
 
+    path = Path(fixture_root).expanduser()
+    if not path.exists():
+        pytest.skip(f"DataJoint migration fixture is not mounted: {path}")
+    return path
+
+
+def configure_fixture_paths(monkeypatch: pytest.MonkeyPatch, fixture_root: Path):
+    """Point population helpers at the isolated migration fixture."""
     from retinanalysis.utils import database_pop
 
-    monkeypatch.setattr(database_pop, "DATA_DIR", str(FIXTURE_ROOT / "sorted"))
-    monkeypatch.setattr(database_pop, "ANALYSIS_DIR", str(FIXTURE_ROOT / "analysis"))
+    monkeypatch.setattr(database_pop, "DATA_DIR", str(fixture_root / "sorted"))
+    monkeypatch.setattr(database_pop, "ANALYSIS_DIR", str(fixture_root / "analysis"))
     return database_pop
 
 
-def populate_fixture_database(ra) -> int:
+def populate_fixture_database(ra, fixture_root: Path) -> int:
     """Populate the test DB from the isolated 20260401C fixture."""
     return ra.populate_database(
         username="test_user",
-        h5_dir=str(FIXTURE_ROOT / "h5"),
-        meta_dir=str(FIXTURE_ROOT / "meta"),
-        tags_dir=str(FIXTURE_ROOT / "tags"),
+        h5_dir=str(fixture_root / "h5"),
+        meta_dir=str(fixture_root / "meta"),
+        tags_dir=str(fixture_root / "tags"),
     )
 
 
@@ -65,10 +76,10 @@ def assert_refreshed_fixture_counts(ra) -> None:
     assert len(ra.schema.SortedCellType()) == EXPECTED_SORTED_CELL_TYPES
 
 
-def ensure_fixture_database_populated(ra) -> None:
+def ensure_fixture_database_populated(ra, fixture_root: Path) -> None:
     """Populate the fixture if this destructive test starts from an empty DB."""
     if len(ra.schema.Experiment() & {"exp_name": EXP_NAME}) == 0:
-        assert populate_fixture_database(ra) == 1
+        assert populate_fixture_database(ra, fixture_root) == 1
 
     assert_refreshed_fixture_counts(ra)
 
@@ -83,8 +94,9 @@ def test_reload_celltypefiles_purge_and_refresh_fixture_database(
     import retinanalysis as ra
     from retinanalysis.utils import database_utils
 
-    database_pop = configure_fixture_paths(monkeypatch)
-    ensure_fixture_database_populated(ra)
+    fixture_root = require_migration_fixture_root()
+    database_pop = configure_fixture_paths(monkeypatch, fixture_root)
+    ensure_fixture_database_populated(ra, fixture_root)
 
     exp_id = (ra.schema.Experiment() & {"exp_name": EXP_NAME}).fetch1("id")
     chunk_ids = (ra.schema.SortingChunk() & {"experiment_id": exp_id}).to_arrays("id")
@@ -102,5 +114,5 @@ def test_reload_celltypefiles_purge_and_refresh_fixture_database(
     assert len(ra.schema.CellTypeFile()) == 0
     assert len(ra.schema.SortedCellType()) == 0
 
-    assert populate_fixture_database(ra) == 1
+    assert populate_fixture_database(ra, fixture_root) == 1
     assert_refreshed_fixture_counts(ra)

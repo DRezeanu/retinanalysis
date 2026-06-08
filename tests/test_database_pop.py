@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,7 +30,7 @@ TABLE_NAMES = (
     "SortedCellType",
 )
 
-FIXTURE_ROOT = Path("/Volumes/MEA_SSD/mea_ssd/datajoint_migration_fixture")
+FIXTURE_ROOT_ENV_VAR = "RETINANALYSIS_MIGRATION_FIXTURE_ROOT"
 FIXTURE_EXP_NAME = "20260401C"
 FIXTURE_SS_VERSION = "kilosort2.5"
 FIXTURE_CHUNK_MAP = {
@@ -64,6 +65,20 @@ def make_fake_schema_source() -> tuple[SimpleNamespace, dict[str, object]]:
     """Create a schema-like object with fake table attributes."""
     tables = {name: object() for name in TABLE_NAMES}
     return SimpleNamespace(**tables), tables
+
+
+def require_migration_fixture_root() -> Path:
+    """Return the explicitly configured migration fixture root, or skip."""
+    fixture_root = os.environ.get(FIXTURE_ROOT_ENV_VAR)
+    if not fixture_root:
+        pytest.skip(
+            f"Set {FIXTURE_ROOT_ENV_VAR} to run migration-fixture preflight checks."
+        )
+
+    path = Path(fixture_root).expanduser()
+    if not path.exists():
+        pytest.skip(f"DataJoint migration fixture is not mounted: {path}")
+    return path
 
 
 def test_configure_tables_binds_schema_like_source(restore_database_pop_globals) -> None:
@@ -107,16 +122,16 @@ def test_configure_tables_rejects_missing_schema_source(restore_database_pop_glo
 
 
 @pytest.mark.integration
+@pytest.mark.migration_fixture
 def test_datajoint_migration_fixture_preflight(monkeypatch) -> None:
-    """Validate the full-experiment Phase 6 fixture without touching MySQL."""
-    if not FIXTURE_ROOT.exists():
-        pytest.skip(f"DataJoint migration fixture is not mounted: {FIXTURE_ROOT}")
+    """Validate an explicitly configured migration fixture without touching MySQL."""
+    fixture_root = require_migration_fixture_root()
 
-    h5_dir = FIXTURE_ROOT / "h5"
-    meta_dir = FIXTURE_ROOT / "meta"
-    tags_dir = FIXTURE_ROOT / "tags"
-    sorted_dir = FIXTURE_ROOT / "sorted"
-    analysis_dir = FIXTURE_ROOT / "analysis"
+    h5_dir = fixture_root / "h5"
+    meta_dir = fixture_root / "meta"
+    tags_dir = fixture_root / "tags"
+    sorted_dir = fixture_root / "sorted"
+    analysis_dir = fixture_root / "analysis"
 
     def fail_if_called(*args, **kwargs):
         raise AssertionError("fixture preflight should not create or convert files")

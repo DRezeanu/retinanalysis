@@ -29,12 +29,14 @@ EXPECTED_NOISE_DATAFILES = ["data012"]
 EXPECTED_SORTING_CHUNKS = 7
 EXPECTED_CELL_TYPE_FILES = 3
 
-SORTED_DATA_DIR = Path(
-    f"/Volumes/MEA_SSD/mea_ssd/data/sorted/{EXP_NAME}/{DATAFILE_NAME}/{SS_VERSION}"
-)
-ANALYSIS_CHUNK_DIR = Path(
-    f"/Volumes/MEA_SSD/mea_ssd/analysis/{EXP_NAME}/{ANALYSIS_CHUNK_NAME}/{SS_VERSION}"
-)
+
+def configured_pipeline_paths() -> tuple[Path, Path]:
+    """Return the configured sorted-data and analysis paths for the smoke target."""
+    from retinanalysis.config import settings
+
+    sorted_data_dir = Path(settings.DATA_DIR) / EXP_NAME / DATAFILE_NAME / SS_VERSION
+    analysis_chunk_dir = Path(settings.ANALYSIS_DIR) / EXP_NAME / ANALYSIS_CHUNK_NAME / SS_VERSION
+    return sorted_data_dir, analysis_chunk_dir
 
 
 def test_protocol_search_and_dataset_smoke(test_database_container: str) -> None:
@@ -111,11 +113,14 @@ def test_datajoint_query_smoke(test_database_container: str) -> None:
 
 @pytest.mark.integration
 def test_create_mea_pipeline_smoke(test_database_container: str) -> None:
-    """Exercise a known MEA pipeline path when local data files are mounted."""
-    if not SORTED_DATA_DIR.exists():
-        pytest.skip(f"Sorted data directory is not available: {SORTED_DATA_DIR}")
-    if not ANALYSIS_CHUNK_DIR.exists():
-        pytest.skip(f"Analysis chunk directory is not available: {ANALYSIS_CHUNK_DIR}")
+    """Exercise a known MEA pipeline path using paths from config.ini."""
+    sorted_data_dir, analysis_chunk_dir = configured_pipeline_paths()
+    if not sorted_data_dir.exists():
+        pytest.skip(f"Configured sorted data directory is not available: {sorted_data_dir}")
+    if not analysis_chunk_dir.exists():
+        pytest.skip(
+            f"Configured analysis chunk directory is not available: {analysis_chunk_dir}"
+        )
 
     import retinanalysis as ra
 
