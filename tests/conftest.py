@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 
-EXPECTED_DB_CONTAINER = "test_database-db-1"
+EXPECTED_DB_CONTAINER = "database_20-db-1"
 
 
 def running_docker_container_names() -> set[str]:
