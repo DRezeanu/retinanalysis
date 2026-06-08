@@ -67,9 +67,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-ra"
 markers = [
-    "db: tests that require the local DataJoint test database container",
     "integration: slower tests that exercise multiple package components",
-    "downstream: tests that exercise downstream repos such as Defocus-Analysis",
-    "destructive_db: opt-in tests that mutate/reset the local DataJoint test database",
-    "migration_fixture: tests that require an explicitly configured local migration fixture",
+    "downstream: tests that exercise downstream repos dependent on retinanalysis",
 ]
