@@ -98,33 +98,54 @@ user = your_username
 ```
 Note: The `query` dir is used by `datajoint_utils.plot_mosaics_for_all_datasets` and it's useful to have it set to the NAS analysis dir even when all other paths are SSD. This allows loading and plotting mosaics and cell typing from all the data on the NAS instead of just the data on your SSD's `analysis` dir.
 
-## DataJoint 2 migration note for existing users
+## Docker Installation
 
-Retinanalysis now uses `datajoint==2.2.2`. Existing users should reinstall or update retinanalysis in their analysis environment, create a fresh local DataJoint/MySQL database, and repopulate that database with the updated schema. Do not try to update an old DataJoint 0.14 database in place.
+Retinanalysis uses a custom DataJoint MySQL database to store experiment metadata. DataJoint 2 requires MySQL 8. The DataJoint MySQL Docker image is available at <a href='https://hub.docker.com/r/datajoint/mysql'>https://hub.docker.com/r/datajoint/mysql</a>.
 
-After reinstalling and starting your local database, populate the fresh database from your configured `config.ini` paths:
+We've included a modified docker-compose.yaml file for easy installation using the steps below:
 
-```python
+6. Install Docker Desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>
+
+7. Copy the docker-compose.yaml file from the repository's root into an empty directory where you
+   will store your database. You can create this folder in the repository root if you'd like,
+   but you must add it to your .gitignore if you do this.
+
+8. cd into the new directory and run:
+
+```
+docker-compose up -d
+```
+
+If you have newer versions of Docker, the command syntax is:
+
+```
+docker compose up -d
+```
+
+NOTE: `import retinanalysis as ra` no longer requires the database to be running; however, database-backed calls, such as queries or `ra.populate_database(...)`, require the local database container to be running.
+
+Before running database-backed calls, make sure the container is running in Docker Desktop (or through the terminal if you're comfortable with the Docker CLI). If it is running, you will see a stop icon; otherwise, click the play button.
+
+<img width="1382" height="832" alt="Screenshot 2025-10-24 at 3 00 20 PM" src="https://github.com/user-attachments/assets/45ee0d03-6dd7-48c4-ad38-c75e558259ed" />
+
+9. Populate the database. Before you can look up anything in the database you need to fill its entries. To populate a fresh database, run:
+
+```
 import retinanalysis as ra
-
-records_added = ra.populate_database()
+ra.populate_database()
 ```
 
-`ra.populate_database()` uses the `user` value from `config.ini`. If your H5, metadata, or tags paths are not set in `config.ini`, pass those paths explicitly:
+If you have properly set up your config.ini file, there should be no need to give this function any input arguments.
 
-```python
-records_added = ra.populate_database(
-    h5_dir="/path/to/h5",
-    meta_dir="/path/to/meta",
-    tags_dir="/path/to/tags",
-)
-```
+## UPDATE (Jun3 2026): DataJoint 2 migration note for existing users
 
-The first population run can take a long time for large local databases.
+Retinanalysis now uses `datajoint==2.2.2`. To use the latest version of retinanalysis, existing users should reinstall or update retinanalysis in their analysis environment, create a fresh local DataJoint/MySQL database (use the docker compose file to initialize a fresh database per steps 7 and 8 above), and repopulate that database (per step 9) AFTER retinanalysis has been updated to datajoint 2.2.2. Do not try to update an old DataJoint 0.14 database in place.
+
+We recommend doing this in a fresh conda or uv environment, and keeping the old database and retinanalysis installation until you have confirmed that the updated version is not causing any issues in your analysis code.   
 
 ## DataJoint configuration
 
-Retinanalysis provides fallback local DataJoint settings for the common lab workflow, but DataJoint 2 may warn if it cannot find a `datajoint.json` file. To make the connection explicit and avoid that warning, create a `datajoint.json` file in the root of your analysis project, for example:
+Retinanalysis provides fallback local DataJoint settings for the common lab workflow, but DataJoint 2 will warn you if it does not find a `datajoint.json` file in your project root. You can safely ignore this warning, but if you want to make the connection explicit and avoid that warning, create a `datajoint.json` file in the root of your analysis project using the values below:
 
 ```json
 {
@@ -136,37 +157,3 @@ Retinanalysis provides fallback local DataJoint settings for the common lab work
 ```
 
 Project-level `datajoint.json`, environment variables, or explicit `datajoint.config` settings take precedence over retinanalysis' local fallback settings.
-
-## Docker Installation
-Retinanalysis uses a custom DataJoint MySQL database to store experiment metadata. DataJoint 2 requires MySQL 8. The DataJoint MySQL Docker image is available at <a href='https://hub.docker.com/r/datajoint/mysql'>https://hub.docker.com/r/datajoint/mysql</a>.
-
-We've included a modified docker-compose.yaml file for easy installation using the steps below:
-
-6. Install Docker Desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>
-
-7. Copy the docker-compose.yaml file from the repository's root into an empty directory where you
-will store your database. You can create this folder in the repository root if you'd like,
-but you must add it to your .gitignore if you do this.
-
-8. cd into the new directory and run:
-```
-docker-compose up -d
-```
-In case that doesn't work and you have newer versions of Docker, the command syntax is:
-```
-docker compose up -d
-```
-
-NOTE: `import retinanalysis as ra` no longer requires the database to be running. Database-backed calls, such as queries or `ra.populate_database(...)`, require the local database container to be running.
-
-Before running database-backed calls, make sure the container is running in Docker Desktop (or through the terminal if you're comfortable with the Docker CLI). If it is running, you will see a stop icon; otherwise, click the play button.
-
-<img width="1382" height="832" alt="Screenshot 2025-10-24 at 3 00 20 PM" src="https://github.com/user-attachments/assets/45ee0d03-6dd7-48c4-ad38-c75e558259ed" />
-
-9. Populate the database. Before you can look up anything in the database you need to fill its entries. To populate a fresh database, run:
-```
-import retinanalysis as ra
-ra.populate_database()
-```
-If you have properly set up your config.ini file, there should be no need to give this function any input arguments.
-
