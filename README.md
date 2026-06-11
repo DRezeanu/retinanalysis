@@ -1,6 +1,52 @@
 # RetinAnalysis
 MEA and Single Cell Ephys Analysis Package
 
+## Quickstart
+
+These steps get a fresh macOS/Linux setup running with the local DataJoint database workflow.
+
+1. Install Docker Engine. On macOS, install Docker Desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>.
+
+2. Clone the repo with submodules and run the installer with either `uv` or `conda`:
+
+```bash
+git clone https://github.com/DRezeanu/retinanalysis.git --recursive
+cd retinanalysis
+./install.sh uv
+# or:
+./install.sh conda
+```
+
+The installer creates/uses the Python environment, installs `retinanalysis`, installs the local `vision-utils` package from the bundled submodule, and creates `src/retinanalysis/config/config.ini` if it is missing.
+
+Useful installer options:
+
+```bash
+./install.sh uv --dev
+./install.sh conda --dev --env retinanalysis
+./install.sh uv --python 3.11.13
+```
+
+3. Edit `src/retinanalysis/config/config.ini` and replace the placeholder paths with real data paths for your machine or mounted drive.
+
+4. Start the local DataJoint/MySQL database and populate it:
+
+```bash
+mkdir -p ../retinanalysis-database
+cp docker-compose.yaml ../retinanalysis-database/
+cd ../retinanalysis-database
+docker compose up -d
+```
+
+Then, from the installed Python environment:
+
+```python
+import retinanalysis as ra
+ra.populate_database()
+```
+
+`import retinanalysis as ra` does not require the database to be running, but database-backed calls such as queries and `ra.populate_database(...)` do.
+
 ## Installation
 1. Pull retinanalysis repo (include --recursive flag to get required submodules contained in 'lib' folder):
 ```
