@@ -27,7 +27,7 @@ Options:
                      Must satisfy pyproject.toml requires-python.
   --dev              Install development/test dependencies.
   --env NAME         Conda environment name. Default: retinanalysis.
-                     Only valid in conda mode.
+                     Only valid in conda mode. Note: Cannot use existing environment!
   -h, --help         Show this help message.
 
 Notes:
