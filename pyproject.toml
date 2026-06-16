@@ -36,7 +36,6 @@ dependencies = [
   "scikit-learn",
   "pybind11",
   "scipy==1.15",
-  "numpy==2.2.6",
   "pandas",
   "seaborn",
   "datajoint==0.14.4",
