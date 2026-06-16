@@ -8,6 +8,8 @@ import os
 import datetime
 from tqdm.auto import tqdm
 
+from retinanalysis._database import get_schema_module
+
 
 Experiment: dj.Manual = None
 Animal: dj.Manual = None
@@ -27,7 +29,7 @@ CellTypeFile: dj.Manual = None
 SortedCellType: dj.Manual = None
 
 
-db: dj.VirtualModule = None
+db: object = None
 user = USER
 
 fields = {
@@ -140,33 +142,45 @@ def child_table(table_name: str) -> str:
 def parent_table(table_name: str) -> str:
     return None if table_name == 'experiment' else table_arr[table_arr.index(table_name) - 1]
 
-def fill_tables():
-    if not db:
-        print("ERROR")
-        return
+def configure_tables(schema_source: object) -> dict:
+    """Bind this module's table globals from a schema-like source object."""
+    if schema_source is None:
+        raise ValueError("schema_source cannot be None")
+
+    global db
     global Experiment, Animal, Preparation, Cell, EpochGroup, EpochBlock, Epoch, Response, Stimulus
     global Protocol, Tags, SortingChunk, SortedCell, CellTypeFile, SortedCellType
     global table_dict
-    Experiment = db.Experiment
-    Animal = db.Animal
-    Preparation = db.Preparation
-    Cell = db.Cell
-    EpochGroup = db.EpochGroup
-    EpochBlock = db.EpochBlock
-    Epoch = db.Epoch
-    Response = db.Response
-    Stimulus = db.Stimulus
 
-    Protocol = db.Protocol
-    Tags = db.Tags
+    db = schema_source
+    Experiment = schema_source.Experiment
+    Animal = schema_source.Animal
+    Preparation = schema_source.Preparation
+    Cell = schema_source.Cell
+    EpochGroup = schema_source.EpochGroup
+    EpochBlock = schema_source.EpochBlock
+    Epoch = schema_source.Epoch
+    Response = schema_source.Response
+    Stimulus = schema_source.Stimulus
 
-    SortingChunk = db.SortingChunk
-    SortedCell = db.SortedCell
-    CellTypeFile = db.CellTypeFile
-    SortedCellType = db.SortedCellType
+    Protocol = schema_source.Protocol
+    Tags = schema_source.Tags
+
+    SortingChunk = schema_source.SortingChunk
+    SortedCell = schema_source.SortedCell
+    CellTypeFile = schema_source.CellTypeFile
+    SortedCellType = schema_source.SortedCellType
 
     table_dict = make_table_dict(Experiment, Animal, Preparation, Cell, EpochGroup, 
                                   EpochBlock, Epoch, Response, Stimulus, Tags)
+    return table_dict
+
+
+def fill_tables():
+    if db is None:
+        print("ERROR")
+        return
+    configure_tables(db)
 
 def max_id(table: dj.Manual) -> int:
     return dj.U().aggr(table, max=f'max(id)').fetch1('max')
@@ -175,7 +189,7 @@ def build_tuple(base_tuple: dict, level: str, meta: dict) -> dict:
     for dj_name, meta_name in fields[level]:
         if meta_name in meta.keys() and meta[meta_name] is not None:
             field_obj = table_dict[level].heading.attributes[dj_name]
-            if field_obj.type == 'timestamp':
+            if field_obj.type in {'timestamp', 'datetime'}:
                 # currently in string form, example "01/22/2021 09:33:51:729159"
                 base_tuple[dj_name] = datetime.datetime.strptime(
                     meta[meta_name], '%m/%d/%Y %H:%M:%S:%f')
@@ -265,7 +279,7 @@ def append_experiment_analysis(experiment_id: int, exp_name: str):
 def get_block_chunk(experiment_id: int, data_dir: str) -> int:
     # data_index = data_dir.split("/")[1]
     data_index = os.path.basename(data_dir)
-    possible_chunks = (SortingChunk & f"experiment_id={experiment_id}").fetch()['chunk_name']
+    possible_chunks = (SortingChunk & f"experiment_id={experiment_id}").to_arrays('chunk_name')
     exp_name = (Experiment & f"id={experiment_id}").fetch1('exp_name')
     # exp_name = os.path.basename(exp_name)[:-3]
     experiment_dir = os.path.join(DATA_DIR, exp_name)
@@ -576,12 +590,10 @@ def gen_meta_list(data_dir: str, meta_dir: str, tags_dir: str) -> list:
     return meta_list
 
 # entrance method to generate database from a directory
-def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_param: dj.VirtualModule):
-    global db
+def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_param: object):
     global user
-    db = db_param
     user = username
-    fill_tables()
+    configure_tables(db_param)
 
     meta_list = gen_meta_list(data_dir, meta_dir, tags_dir)
     records_added = 0
@@ -603,19 +615,17 @@ def append_data(data_dir: str, meta_dir: str, tags_dir: str, username: str, db_p
         records_added += 1
         ls_new_exp.append(exp_name)
     
-    e_q = Experiment() & 'is_mea=1' & [f'exp_name="{exp_name}"' for exp_name in ls_new_exp]
-    sc_q = SortingChunk() * e_q.proj(..., experiment_id='id')
-    if len(sc_q) == 0:
-        print("No new sorting chunks found in database, skipping cell type file population.")
-    else:
-        append_celltypefiles(sc_q)
+    # Sorting chunks, cell type files, and sorted-cell type labels are populated
+    # during append_experiment_analysis() -> append_sorting_chunk().  Do not run
+    # append_celltypefiles() here: that helper only inserts CellTypeFile rows and
+    # would duplicate files already inserted by append_sorting_files().
     
     return records_added
 
 
 def append_celltypefiles(sc_q):
     # Get all sorting chunks, each of which we'll look for typing files for.
-    df_sc = sc_q.fetch(format='frame').reset_index()
+    df_sc = sc_q.to_pandas().reset_index()
     df_sc = df_sc.set_index('id')
     
     print('Finding CellTypeFile entries for each chunk...')
@@ -657,25 +667,29 @@ def reload_celltypefiles(experiment_names: list=None):
     # Optimized so takes ~40s for my NAS connection. 
     # TODO: This doesn't update the SortedCellType table, 
     # which is likely desirable but might take longer.
-    global db
-    db = dj.VirtualModule('schema.py', 'schema')
-    fill_tables()
+    configure_tables(get_schema_module())
 
-    # Query for any input experiments
+    # Query for any input experiments. Restrict SortingChunk by Experiment
+    # instead of joining in Experiment attributes; the join path is fragile under
+    # DataJoint 2 semantic matching and append_celltypefiles only needs chunk
+    # table fields.
     ctf_q = CellTypeFile()
     e_q = Experiment() & 'is_mea=1'
-    sc_q = SortingChunk() * e_q.proj(..., experiment_id='id')
     if experiment_names is not None:
-        e_q = Experiment() & [f'exp_name="{exp_name}"' for exp_name in experiment_names]
-        sc_q = sc_q * e_q.proj(...,experiment_id='id')
-        chunk_ids = sc_q.fetch('id')
-        ctf_q = ctf_q & [f'chunk_id={id}' for id in chunk_ids]
-        # df_delete = (ctf_q * sc_q.proj(...,chunk_id='id')).fetch(format='frame')
-        # display(df_delete)
+        e_q = e_q & [{'exp_name': exp_name} for exp_name in experiment_names]
     else:
         experiment_names = 'all experiments'
+
+    sc_q = SortingChunk() & e_q.proj(experiment_id='id')
+    chunk_ids = sc_q.to_arrays('id')
+    if len(chunk_ids):
+        ctf_q = ctf_q & [{'chunk_id': int(chunk_id)} for chunk_id in chunk_ids]
+    else:
+        ctf_q = ctf_q & 'FALSE'
+        # df_delete = (ctf_q * sc_q.proj(...,chunk_id='id')).fetch(format='frame')
+        # display(df_delete)
     print(f'Found {len(sc_q)} chunks for {experiment_names}.')
     print(f'Deleting associated {len(ctf_q)} cell type files.')
-    ctf_q.delete(safemode=False)
+    ctf_q.delete(prompt=False)
     
     append_celltypefiles(sc_q)

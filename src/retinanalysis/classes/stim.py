@@ -1,4 +1,4 @@
-import retinanalysis.config.schema as schema
+from retinanalysis._database import schema
 import numpy as np
 from retinanalysis.utils.datajoint_utils import (get_exp_summary,
                                                  get_epoch_data_from_exp,
@@ -72,7 +72,7 @@ class StimBlock:
         self.prep_label = self.d_block_summary['prep_label']
         
         epoch_block = schema.EpochBlock() & {'id': block_id}
-        self.d_epoch_block_params = epoch_block.fetch('parameters')[0]
+        self.d_epoch_block_params = epoch_block.fetch1('parameters')
 
         df_e = get_epoch_data_from_exp(exp_name, block_id, b_LED=self.b_LED, ls_params=ls_params)
         self.df_epochs = df_e
@@ -177,7 +177,7 @@ class MEAStimBlock(StimBlock):
         experiment_summary = experiment_summary.query('prep_label == @self.prep_label')
         
         exp_id = schema.Experiment() & {'exp_name' : self.exp_name}
-        exp_id = exp_id.fetch('id')[0]
+        exp_id = exp_id.to_arrays('id')[0]
 
         # Pull noise runs and target protocol run from experiment summary df
         noise_runs = experiment_summary.query('protocol_name == @self.noise_protocol_name and chunk_name.str.contains("chunk")')

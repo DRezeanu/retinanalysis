@@ -1,17 +1,40 @@
+import os
+
 import datajoint as dj
+from datajoint.settings import find_config_file
 
-dj.config['database.host'] = '127.0.0.1'
-dj.config['database.user'] = 'root'
-dj.config['database.password'] = 'simple'
 
-try:
-    dj.conn().connect()
-    B_CONNECTED = True
-    schema = dj.Schema('schema')
-except Exception as e:
-    print(f"Could not connect to DataJoint database: {e}")
-    B_CONNECTED = False
-    schema = lambda x: x  # Dummy schema for testing purposes
+def _should_apply_default_datajoint_config(key: str) -> bool:
+    """Return True when ``key`` should receive a lab-local default."""
+    current_value = dj.config.get(key)
+    if current_value is None:
+        return True
+
+    if key == "database.host" and current_value == "localhost":
+        # DataJoint 2 uses localhost as its built-in default. Override that
+        # to 127.0.0.1 for Docker TCP connections, but preserve explicit
+        # environment-variable configuration.
+        return "DJ_HOST" not in os.environ and find_config_file() is None
+
+    return False
+
+
+def _apply_default_datajoint_config() -> None:
+    """Apply lab-local DataJoint defaults without overriding user config."""
+    defaults = {
+        "database.host": "127.0.0.1",
+        "database.port": 3306,
+        "database.user": "root",
+        "database.password": "simple",
+    }
+
+    for key, value in defaults.items():
+        if _should_apply_default_datajoint_config(key):
+            dj.config[key] = value
+
+
+_apply_default_datajoint_config()
+schema = dj.Schema('schema')
 
 
 @schema
@@ -37,12 +60,12 @@ class Experiment(dj.Manual):
     meta_file: varchar(255)
     data_file: varchar(255) # empty if MEA for now, maybe should store "/Volumes/data/data/sorted" here?
     tags_file: varchar(255)
-    is_mea: tinyint unsigned # 1 if MEA, 0 if not
-    date_added: timestamp
+    is_mea: bool # 1 if MEA, 0 if not
+    date_added: datetime
     label: varchar(255)
     properties: json
     attributes: json
-    start_time = NULL : timestamp
+    start_time = NULL : datetime
     experimenter = NULL : varchar(255)
     institution = NULL : varchar(255)
     lab = NULL : varchar(255)
@@ -63,7 +86,7 @@ class Animal(dj.Manual):
     label: varchar(255)
     properties: json
     attributes: json
-    start_time = NULL : timestamp
+    start_time = NULL : datetime
     props_id = NULL : varchar(255)
     description = NULL : varchar(255)
     sex = NULL : varchar(255)
@@ -85,7 +108,7 @@ class Preparation(dj.Manual):
     label: varchar(255)
     properties: json
     attributes: json
-    start_time = NULL : timestamp
+    start_time = NULL : datetime
     bath_solution = NULL : varchar(255)
     preparation_type = NULL : varchar(255)
     region = NULL : varchar(255)
@@ -104,7 +127,7 @@ class Cell(dj.Manual):
     label: varchar(255)
     properties: json
     attributes: json
-    start_time = NULL : timestamp
+    start_time = NULL : datetime
     type = NULL : varchar(255)
     """
 
@@ -121,8 +144,8 @@ class EpochGroup(dj.Manual):
     label = NULL : varchar(255)
     properties: json
     attributes: json
-    start_time = NULL : timestamp
-    end_time = NULL : timestamp
+    start_time = NULL : datetime
+    end_time = NULL : datetime
     """
 
 # analysis table
@@ -145,7 +168,7 @@ class SortedCell(dj.Manual):
     ---
     -> SortingChunk.proj(chunk_id='id')
     algorithm: varchar(200) # should be directory name
-    cluster_id: int
+    cluster_id: int32
     """
 
 # extra fields for sorted cell:
@@ -198,8 +221,8 @@ class EpochBlock(dj.Manual):
     label = NULL : varchar(255)
     properties: json
     attributes: json
-    start_time = NULL : timestamp
-    end_time = NULL : timestamp
+    start_time = NULL : datetime
+    end_time = NULL : datetime
     parameters = NULL : json
     array_pitch = NULL : varchar(255)
     """
@@ -216,8 +239,8 @@ class Epoch(dj.Manual):
     label = NULL : varchar(255)
     properties: json
     attributes: json
-    start_time = NULL : timestamp
-    end_time = NULL : timestamp
+    start_time = NULL : datetime
+    end_time = NULL : datetime
     parameters = NULL : json
     """
 
@@ -260,7 +283,7 @@ class Tags(dj.Manual):
     h5_uuid: varchar(255) # id of object in h5 file
     -> Experiment.proj(experiment_id='id')
     table_name: varchar(255) # name of table in database
-    table_id: int # id of object in database table
+    table_id: int32 # id of object in database table
     user: varchar(63) # name of profile who made this tag: could be a name or anything else
     tag: varchar(255) # tag: THIS SHOULD CHANGE. For now, comma separated list.
     """

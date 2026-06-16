@@ -16,8 +16,6 @@ authors = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -39,7 +37,7 @@ dependencies = [
   "numpy==2.2.6",
   "pandas",
   "seaborn",
-  "datajoint==0.14.4",
+  "datajoint==2.2.2",
   "ipywidgets",
   "ipympl",
   "matplotlib_venn",
@@ -51,9 +49,24 @@ dependencies = [
   "dask",
   "netCDF4",
   "bottleneck",
-  "scikit-image"]
+  "scikit-image",
+]
 
 [project.urls]
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
 Issues = "https://github.com/DRezeanu/retinanalysis/issues"
 Source = "https://github.com/DRezeanu/retinanalysis"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+markers = [
+    "integration: slower tests that exercise multiple package components",
+    "downstream: tests that exercise downstream repos dependent on retinanalysis",
+]
