@@ -37,7 +37,7 @@ dependencies = [
   "pybind11",
   "pandas",
   "seaborn",
-  "datajoint==2.2.2",
+  "datajoint",
   "ipywidgets",
   "ipympl",
   "matplotlib_venn",
