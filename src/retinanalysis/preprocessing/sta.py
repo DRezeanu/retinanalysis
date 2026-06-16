@@ -341,6 +341,7 @@ def compute_stas_for_chunk(
         )
 
     # STA input gen and calc loop
+    # TODO initialize stas with max n_cells across blocks, and keep track of cell idx to add for each block.
     stas = None
     total_sps = None
     # Number of epochs to process in batch
