@@ -268,7 +268,7 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4,
              b_auto_min_peak_amp=False, min_peak_amp_factor=0.8,
              n_clusters=2, max_trial_length_s=1, 
              b_burst_correction=True, amp_drop_factor = 0.6,
-             burst_isi_thresh_s = 50e-3, # 50ms
+             burst_isi_thresh_s = 60e-3, # 60ms
              str_save_dir=None):
     # Convert from s to data points
     refractory_period_dp = refractory_period * sample_rate 
