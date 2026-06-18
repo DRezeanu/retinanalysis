@@ -265,7 +265,7 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4,
              refractory_period=1.5e-3, search_window=1.2e-3,
              snippet_len=40, cutoff_frequency=500, 
              global_polarity=False, min_peak_amplitude=0,
-             b_auto_min_peak_amp=False, min_peak_amp_factor=0.8,
+             b_auto_min_peak_amp=True, min_peak_amp_factor=0.8,
              n_clusters=2, max_trial_length_s=1, 
              b_burst_correction=True, amp_drop_factor = 0.6,
              burst_isi_thresh_s = 60e-3, # 60ms
@@ -373,6 +373,8 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4,
                 min_peak_amplitude, peak_amplitudes, peak_times, spike_index_logical, cluster_index, non_spike_cluster_index
             )
         else:
+            spike_amplitudes[tt] = peak_amplitudes
+            non_spike_amplitudes = np.array([])
             print(f'Trial {tt + 1}: No minimum peak amplitude threshold applied.')
 
         # Burst correction
@@ -385,8 +387,10 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4,
                 burst_isi_thresh=burst_isi_thresh_dp, amp_drop_factor=amp_drop_factor
             )
 
+        
         # check for no spikes trace
         sigF = (np.mean(spike_amplitudes[tt]) - np.mean(non_spike_amplitudes)) / np.std(non_spike_amplitudes)
+
         d_output['sigF'].append(sigF)
         if sigF < 5:  # no spikes
             spike_times[tt] = np.array([])
