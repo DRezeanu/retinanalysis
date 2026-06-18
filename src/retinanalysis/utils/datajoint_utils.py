@@ -1,12 +1,13 @@
-from retinanalysis.utils import (H5_DIR, QUERY_DIR,
-                                 ANALYSIS_DIR,
-                                 schema)
+from retinanalysis.config.settings import (H5_DIR, QUERY_DIR,
+                                           ANALYSIS_DIR)
+from retinanalysis._database import schema
 
 import numpy as np
 import datajoint as dj
 import os
 import pandas as pd
 import json
+import warnings
 from tqdm.auto import tqdm
 from IPython.display import display
 import h5py 
@@ -85,27 +86,39 @@ def plot_mosaics_for_datasets(df_exp_search: pd.DataFrame,
 
 
 
-def djconnect(host_address: str = '127.0.0.1', user: str = 'root', password: str = 'simple'):
+def djconnect(
+    host_address: str = '127.0.0.1',
+    user: str = 'root',
+    password: str = 'simple',
+    port: int = 3306,
+):
     """
-    Connect to local datajoint database container active inside docker.
-    Note: The docker database container MUST be running.
-    
-    Parameters:
-    host_address (str): IP address of mysql/datajoint server. Default '127.0.0.1'
-    user (str): username to log onto server. Default 'root'
-    password (str): password to log onto server. Default 'simple'
+    Deprecated helper for connecting to a local DataJoint database container.
 
-    Default parameters should not be changed unless you have created a custom
-    config of the mysql/datajoint docker image and database container.
+    DataJoint configuration is now applied lazily when the schema module is
+    loaded. Prefer configuring DataJoint through ``datajoint.json`` or by
+    setting ``dj.config`` before calling database-backed retinanalysis helpers.
+
+    This function is kept as a temporary compatibility shim for old notebooks.
+    It still attempts an immediate connection when called explicitly.
     """
+
+    warnings.warn(
+        "retinanalysis.djconnect() is deprecated. Configure DataJoint via "
+        "datajoint.json or dj.config before calling database-backed helpers.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     try:
-        dj.config["database.host"] = f"{host_address}"
-        dj.config["database.user"] = f"{user}"
-        dj.config["database.password"] = f"{password}"
-        dj.conn()
+        dj.config["database.host"] = host_address
+        dj.config["database.port"] = port
+        dj.config["database.user"] = user
+        dj.config["database.password"] = password
+        return dj.conn()
     except Exception as e:
         print(f"Could not connect to DataJoint database: {e}")
+        return None
 
 
 def populate_ndf_column(df_exp_summary):
@@ -131,8 +144,8 @@ def populate_ndf_column(df_exp_summary):
         if len(ep_q) == 0:
             print(f'No epochs found for block {bid}')
             continue
-        ep_id = ep_q.fetch('id')[0]
-        params = (schema.Epoch() & f'id={ep_id}').fetch('parameters')[0]
+        ep_id = ep_q.to_arrays('id')[0]
+        params = (schema.Epoch() & f'id={ep_id}').fetch1('parameters')
         if 'NDF' in params.keys():
             df_exp_summary.loc[df_exp_summary['block_id']==bid, 'NDF'] = params['NDF']
         # else:
@@ -155,11 +168,11 @@ def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
     their datafile directory.
     """
 
-    exp_ids = (schema.Experiment() & f'exp_name="{exp_name}"').fetch('id')
-    exp_id = exp_ids[0]
+    exp_ids = (schema.Experiment() & f'exp_name="{exp_name}"').to_arrays('id')
     if len(exp_ids) == 0:
         print(f'Experiment "{exp_name}" not found!')
         return None
+    exp_id = exp_ids[0]
     is_mea = (schema.Experiment() & f'id={exp_id}').fetch1('is_mea')
 
     epoch_group_query = schema.EpochGroup() & f'experiment_id={exp_id}'
@@ -195,7 +208,7 @@ def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
         epoch_block_query = epoch_block_query * sorting_chunk_query
     protocol_query = epoch_block_query * schema.Protocol.proj(..., protocol_name='name') #type: ignore
 
-    df_exp_summary = protocol_query.fetch(format='frame').reset_index()
+    df_exp_summary = protocol_query.to_pandas().reset_index()
     df_exp_summary = df_exp_summary.sort_values('start_time').reset_index()
     if len(df_exp_summary)==0:
         raise ValueError(f'No data found for experiment {exp_name}')
@@ -253,7 +266,7 @@ def get_block_id_from_datafile(exp_name: str, datafile_name: str):
     exp_id = (schema.Experiment() & f'exp_name="{exp_name}"').fetch1('id')
     epoch_block_query = schema.EpochBlock() & f'experiment_id={exp_id}'
 
-    df_epoch_block = epoch_block_query.fetch(format='frame').reset_index()
+    df_epoch_block = epoch_block_query.to_pandas().reset_index()
     df_epoch_block['datafile_name'] = df_epoch_block['data_dir'].apply(lambda x: os.path.split(x)[-1])
 
     block_id = df_epoch_block.query('datafile_name == @datafile_name')['id'].values[0]
@@ -270,7 +283,7 @@ def search_protocol(str_search: str, verbose: bool = True):
     matches (List[str]): a list of full protocol names as strings (e.g., manookinlab.protocols.PresentImages)"""
     
     str_search = str_search.lower()
-    protocols = schema.Protocol().fetch('name')
+    protocols = schema.Protocol().to_arrays('name')
     protocols = np.unique(protocols)
     matches = []
     for p in protocols:
@@ -315,14 +328,14 @@ def get_datasets_from_protocol_names(ls_protocol_names: str | List[str], b_exact
 
     # Query protocol table
     protocol_query = schema.Protocol() & [f'name="{protocol}"' for protocol in found_protocols]
-    protocol_ids = protocol_query.fetch('protocol_id')
+    protocol_ids = protocol_query.to_arrays('protocol_id')
     protocol_query = protocol_query.proj('protocol_id', protocol_name='name')
 
     # Query EpochBlock with these protocol IDs, get associated experiment IDs
     # WARNING: do not use EpochGroup ever for protocol_id queries bc of the "no_group_protocol" situation.
     # Thank you to @DRezeanu for pointing this out.
     epoch_block_query = schema.EpochBlock() & [f'protocol_id={p_id}' for p_id in protocol_ids]
-    experiment_ids = epoch_block_query.fetch('experiment_id')
+    experiment_ids = epoch_block_query.to_arrays('experiment_id')
     experiment_ids = np.unique(experiment_ids)
 
     # Join Experiment, EpochGroup, Protocol
@@ -340,7 +353,7 @@ def get_datasets_from_protocol_names(ls_protocol_names: str | List[str], b_exact
     # Join with SortingChunk and fetch
     sorting_chunk_query = schema.SortingChunk.proj('chunk_name', chunk_id='id') #type: ignore
     epoch_block_query = epoch_block_query * sorting_chunk_query
-    df_exp_search = epoch_block_query.fetch(format='frame').reset_index()
+    df_exp_search = epoch_block_query.to_pandas().reset_index()
 
     df_exp_search = populate_ndf_column(df_exp_search)
 
@@ -468,31 +481,39 @@ def get_noise_name_by_exp(exp_name: str) -> str:
 
     return noise_protocol_name
 
-def get_stage_frame_rate_by_exp(exp_name: str):
+def get_stage_frame_rate_by_exp(exp_name: str, verbose: bool = True)-> float:
     exp_q = schema.Experiment() & f'exp_name="{exp_name}"'
     exp_id = exp_q.fetch1('id')
     eb_q = schema.EpochBlock() & f'experiment_id={exp_id}'
     # Get epochs for all these epoch blocks based on id (parent_id)
-    e_q = schema.Epoch() & [f'parent_id={eb_id}' for eb_id in eb_q.fetch('id')]
+    e_q = schema.Epoch() & [f'parent_id={eb_id}' for eb_id in eb_q.to_arrays('id')]
     e_q = e_q.proj(
         stage_frame_rate="parameters->>'$.frameRate'"
     )
-    stage_frame_rates = e_q.fetch('stage_frame_rate')
+    stage_frame_rates = e_q.to_arrays('stage_frame_rate')
     stage_frame_rates = stage_frame_rates.astype(float)
     # Remove NaN values if any
     stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
+    
     if len(np.unique(stage_frame_rates))!=1:
-        print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}')
-        print(f'd_display will keep the first one: {stage_frame_rates[0]}')
+        keep_rate = min(stage_frame_rates)
+        if verbose:
+            print(f'Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}')
+            print(f'This could be due to PatternMode usage.')
+            print(f'd_display will keep the min: {keep_rate}')
+    else:
+        keep_rate = stage_frame_rates[0]
+        if verbose:
+            print(f'Found stage frame rate {keep_rate} for experiment {exp_name}')
 
-    return stage_frame_rates[0]
+    return keep_rate
 
 
 def get_display_params_by_exp(exp_name: str, verbose: bool = True):
     # Rig H
     if 'H' in exp_name:
-        # raise NotImplementedError('LCR display params not defined for Rig H yet.')
-        print(f'For Rig H {exp_name}:')
+        if verbose:
+            print(f'For Rig H {exp_name}:')
         if int(exp_name[:8]) > 20230926:
             disp_type = 'LCR'
             mu_per_pixel = 3.24
@@ -533,7 +554,7 @@ def get_display_params_by_exp(exp_name: str, verbose: bool = True):
     else:
         raise ValueError(f'Unexpected Rig identified in MEA experiment name {exp_name} !')
 
-    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name)
+    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name, verbose)
 
     d_display = {
         'disp_type': disp_type,
@@ -583,7 +604,7 @@ def get_typing_files_for_datasets(df: pd.DataFrame, ls_cell_types: list = ['OffP
                 df_chunk = df_exp.query('chunk_name == @noise_chunk and protocol_name == @noise_protocol_name')
                 noise_chunk_id = df_chunk['chunk_id'].values[0]
                 noise_datafile_names = list(df_chunk['datafile_name'].values)
-                df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).fetch(format='frame')
+                df_ct = (schema.CellTypeFile() & {'chunk_id': noise_chunk_id}).to_pandas()
 
                 if not b_found and len(df_ct) > 0:
                     for i_ct in df_ct.index:
@@ -719,7 +740,7 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, b_LED: Optional[bool]=
     ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
     is_mea = (ex_q.fetch1('is_mea') == 1)
     eg_q = schema.EpochGroup() * ex_q.proj('exp_name', experiment_id='id')
-    eg_q = eg_q.proj('exp_name', group_label='label', group_id='id')
+    eg_q = eg_q.proj('exp_name', 'experiment_id', group_label='label', group_id='id')
     
     ls_eb_cols = ['protocol_id']
     if is_mea:
@@ -733,7 +754,7 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, b_LED: Optional[bool]=
 
     if is_mea:
         # Check num epoch ends matches num epoch starts
-        eb_df = eb_q.fetch(format='frame').reset_index()
+        eb_df = eb_q.to_pandas().reset_index()
         d_data = eb_df.loc[0].to_dict()
         epoch_starts = d_data['block_properties']['epochStarts']
         epoch_ends = d_data['block_properties']['epochEnds']
@@ -747,7 +768,7 @@ def get_epoch_data_from_exp(exp_name: str, block_id: int, b_LED: Optional[bool]=
         frame_times_ms="properties->>'$.frameTimesMs'"
     ) #type: ignore
 
-    df = e_q.fetch(format='frame')
+    df = e_q.to_pandas()
     df = df.reset_index()
 
     if is_mea:
@@ -808,7 +829,7 @@ def get_epochblock_query(exp_name: str, block_id: int):
 
 def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> dict:
     eb_q = get_epochblock_query(exp_name, block_id)
-    df = eb_q.fetch(format='frame').reset_index()
+    df = eb_q.to_pandas().reset_index()
     if len(df) > 1:
         raise ValueError(f'Expected only one EpochBlock for {exp_name} {block_id}, but found {len(df)}')
     if len(df) == 0:
@@ -902,7 +923,7 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool=False) -> di
         stage_frame_rate="parameters->>'$.frameRate'"
     )
 
-    df_transitions = e_q.fetch(format='frame').drop_duplicates().reset_index()
+    df_transitions = e_q.to_pandas().drop_duplicates().reset_index()
 
     if len(df_transitions) != 1:
         display(df_transitions)
@@ -999,7 +1020,7 @@ def get_epochblock_frame_data(exp_name: str, block_id: int, str_h5: Optional[str
         print(f'Loading frame monitor data from {str_h5} ...')
 
     r_q = get_epochblock_response_query(exp_name, block_id)
-    df = r_q.fetch(format='frame').reset_index()
+    df = r_q.to_pandas().reset_index()
 
     df_frame = df.query('device_name == "Frame Monitor"')
     df_frame = df_frame.reset_index(drop=True)
@@ -1036,7 +1057,7 @@ def get_epochblock_amp_data(exp_name: str, block_id: int, str_h5: Optional[str]=
         print(f'Loading Amp1 data from {str_h5} ...')
 
     r_q = get_epochblock_response_query(exp_name, block_id)
-    df = r_q.fetch(format='frame').reset_index()
+    df = r_q.to_pandas().reset_index()
     
     df_amp = df[df['device_name']=='Amp1']
     df_amp = df_amp.reset_index(drop=True)

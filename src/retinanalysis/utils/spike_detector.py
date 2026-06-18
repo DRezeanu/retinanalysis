@@ -1,8 +1,11 @@
 import numpy as np
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # Import for 3D plotting
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.gridspec as gridspec
 import os
+from multiprocessing import Pool
+
 
 def fit_kmeans(data, n_clusters):
     # KMeans
@@ -69,12 +72,13 @@ def apply_min_peak_amp(min_peak_amplitude, peak_amplitudes, peak_times, spike_in
 
     return spike_times, spike_amplitudes, non_spike_amplitudes, spike_index_logical, cluster_index
 
-def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_period=1.5e-3, search_window=1.2e-3, 
+def _depr_detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_period=1.5e-3, search_window=1.2e-3, 
              cutoff_frequency=500, global_polarity=False, min_peak_amplitude=0,
              n_clusters=2, max_trial_length_s=1, str_save_dir=None):
-    refractory_period_dp = refractory_period * sample_rate  # datapoints
-    search_window_dp = search_window * sample_rate  # datapoints
-    max_trial_length_dp = int(max_trial_length_s * sample_rate)  # Convert seconds to datapoints
+    # Convert from s to data points
+    refractory_period_dp = refractory_period * sample_rate 
+    search_window_dp = search_window * sample_rate 
+    max_trial_length_dp = int(max_trial_length_s * sample_rate) 
     print(f'Max trial length in data points: {max_trial_length_dp} = {max_trial_length_s} s')
 
     data_matrix = high_pass_filter(data_matrix, cutoff_frequency, 1/sample_rate)
@@ -182,13 +186,263 @@ def detector(data_matrix, check_detection=False, sample_rate=1e4, refractory_per
                                     non_spike_cluster_index, current_trace, spike_times[tt],
                                     refractory_violations[tt], sigF, str_save_plot=str_save_plot)
 
-    # if len(spike_times) == 1:  # return vector not list if only 1 trial
-    #     spike_times = spike_times[0]
-    #     spike_amplitudes = spike_amplitudes[0]
-    #     refractory_violations = refractory_violations[0]
-    
-
     return spike_times, spike_amplitudes, refractory_violations
+
+def burst_correction(
+    peak_times, peak_amplitudes, 
+    spike_times, spike_amplitudes, spike_index_b,
+    burst_isi_thresh=10, amp_drop_factor=0.5
+):
+    """
+    Post-process spike detection to allow lower amplitude spikes within bursts.
+
+    Parameters:
+    - peak_times: np.ndarray, indices of detected peaks (all peaks)
+    - peak_amplitudes: np.ndarray, amplitudes of detected peaks (all peaks)
+    - spike_index_b: np.ndarray, boolean mask for spikes after min_peak_amp
+    - min_peak_amplitude: float, main amplitude threshold
+    - burst_isi_thresh: int, max interval (in data points) to consider spikes part of a burst
+    - amp_drop_factor: float, fraction of first spike amplitude allowed for burst followers
+
+    Returns:
+    - spike_index_b: np.ndarray, boolean mask with burst correction applied
+    - spike_times: np.ndarray, times of detected spikes after burst correction
+    - spike_amplitudes: np.ndarray, amplitudes of detected spikes after burst correction
+    """
+    # Copy mask to update
+    n_original_sps = np.sum(spike_index_b)
+    spike_index_b = spike_index_b.copy()
+    n_peaks = len(peak_times)
+    if n_peaks == 0:
+        return spike_index_b
+
+    # Sort peaks by time
+    sort_idx = np.argsort(peak_times)
+    peak_times_sorted = peak_times[sort_idx]
+    peak_amplitudes_sorted = peak_amplitudes[sort_idx]
+    spike_mask_sorted = spike_index_b[sort_idx]
+
+    # Iterate through peaks, look for bursts
+    i = 0
+    while i < n_peaks:
+        if spike_mask_sorted[i]:
+            # Start of burst: first spike above threshold
+            burst_start_amp = peak_amplitudes_sorted[i]
+            burst_start_time = peak_times_sorted[i]
+            burst_thresh = amp_drop_factor * burst_start_amp
+            j = i + 1
+            # Find burst followers
+            while (
+                j < n_peaks and
+                (peak_times_sorted[j] - burst_start_time) < burst_isi_thresh
+            ):
+                # If not already marked as spike, check if amplitude crosses lowered threshold
+                if not spike_mask_sorted[j]:
+                    if peak_amplitudes_sorted[j] > burst_thresh:
+                        spike_mask_sorted[j] = True
+                        # Reset burst amp for next followers to compare against
+                        burst_start_amp = peak_amplitudes_sorted[j]
+                j += 1
+            i = j
+        else:
+            i += 1
+
+    # Restore original order
+    spike_index_b[sort_idx] = spike_mask_sorted
+    
+    # Update spike_times and spike_amplitudes based on updated mask
+    spike_times = peak_times[spike_index_b]
+    spike_amplitudes = peak_amplitudes[spike_index_b]
+
+    # Print number of additional spikes added by burst correction
+    n_added_spikes = np.sum(spike_index_b) - n_original_sps
+    print(f'Number of additional spikes added by burst correction: {n_added_spikes}')
+
+
+    return spike_index_b, spike_times, spike_amplitudes
+
+def detector(data_matrix, check_detection=False, sample_rate=1e4, 
+             refractory_period=1.5e-3, search_window=1.2e-3,
+             snippet_len=40, cutoff_frequency=500, 
+             global_polarity=False, min_peak_amplitude=0,
+             b_auto_min_peak_amp=False, min_peak_amp_factor=0.8,
+             n_clusters=2, max_trial_length_s=1, 
+             b_burst_correction=True, amp_drop_factor = 0.6,
+             burst_isi_thresh_s = 50e-3, # 50ms
+             str_save_dir=None):
+    # Convert from s to data points
+    refractory_period_dp = refractory_period * sample_rate 
+    search_window_dp = search_window * sample_rate 
+    max_trial_length_dp = int(max_trial_length_s * sample_rate) 
+    print(f'Max trial length in data points: {max_trial_length_dp} = {max_trial_length_s} s')
+
+    data_matrix = high_pass_filter(data_matrix, cutoff_frequency, 1/sample_rate)
+
+    n_traces = data_matrix.shape[0]
+    spike_times = [[] for _ in range(n_traces)]
+    spike_amplitudes = [[] for _ in range(n_traces)]
+    refractory_violations = [[] for _ in range(n_traces)]
+
+    # Fix non-spike cluster index to k-1, and spike cluster indices to k-2
+    spike_cluster_indices = np.arange(n_clusters - 1)  # k-1 clusters for spikes
+    non_spike_cluster_index = n_clusters - 1  # k-1 cluster for non-spikes
+
+    d_output = {
+        'filtered_data': data_matrix,
+        'peak_times': [],
+        'peak_amplitudes': [],
+        'cluster_index': [],
+        'spike_times_init': [],
+        'spike_times_final': [],
+        'spike_amps_final': [],
+        'non_spike_amps': [],
+        'refractory_violations': [],
+        'rebound': [],
+        'clustering_data': [],
+        'sigF': [],
+        'params': {
+            "sample_rate": sample_rate,
+            "refractory_period": refractory_period,
+            "search_window": search_window,
+            "cutoff_frequency": cutoff_frequency,
+            "min_peak_amplitude": min_peak_amplitude,
+            "n_clusters": n_clusters,
+            "snippet_len": snippet_len
+        }
+    }
+    for tt in range(n_traces):
+        current_trace = data_matrix[tt, :]
+        if global_polarity:
+            if abs(np.max(data_matrix)) > abs(np.min(data_matrix)):  # flip it over, big peaks down
+                current_trace = -current_trace
+        else:
+            if abs(np.max(current_trace)) > abs(np.min(current_trace)):  # flip it over, big peaks down
+                current_trace = -current_trace
+
+        # Peak detection
+        peak_amplitudes, peak_times = get_peaks(current_trace, -1)  # -1 for negative peaks
+        peak_times = peak_times[peak_amplitudes < 0]  # only negative deflections
+        peak_amplitudes = np.abs(peak_amplitudes[peak_amplitudes < 0])  # only negative deflections
+        print(f'Trial {tt + 1}: Found {len(peak_amplitudes)} peaks')
+        d_output['peak_times'].append(peak_times)
+        d_output['peak_amplitudes'].append(peak_amplitudes)
+
+        # get rebounds on either side of each peak
+        rebound = get_rebounds(peak_times, current_trace, search_window_dp)
+        d_output['rebound'].append(rebound)
+
+        # cluster spikes
+        clustering_data = np.column_stack((peak_amplitudes, rebound['Left'], rebound['Right']))
+        d_output['clustering_data'].append(clustering_data)
+
+        if len(current_trace) > max_trial_length_dp:
+            num_sections = int(np.ceil(len(current_trace) / max_trial_length_dp))
+            section_indices = np.array_split(np.arange(len(current_trace)), num_sections)
+            print(f"Trial {tt + 1}: Splitting data into {num_sections} sections for KMeans clustering.")
+
+            cluster_index = np.zeros(len(peak_amplitudes), dtype=int)
+            spike_index_logical = np.zeros(len(peak_amplitudes), dtype=bool)
+            for section_idx, section in enumerate(section_indices):
+                section_mask = np.isin(peak_times, section)  # Select peaks within the current section
+                section_data = clustering_data[section_mask]
+
+                if len(section_data) == 0:
+                    continue
+                cluster_index[section_mask], spike_index_logical[section_mask] = fit_kmeans(section_data, n_clusters)
+
+        else:
+            # Standard KMeans clustering for shorter traces
+            cluster_index, spike_index_logical = fit_kmeans(clustering_data, n_clusters)
+        
+        print(f'Trial {tt + 1}: Found {spike_index_logical.sum()} spikes')
+        d_output['cluster_index'].append(cluster_index)
+        d_output['spike_times_init'].append(spike_index_logical)
+
+        if b_auto_min_peak_amp:
+            # Set min_peak_amplitude to min_peak_amp_factor * max of spike amplitudes
+            temp_spike_amps = peak_amplitudes[spike_index_logical]
+            if len(temp_spike_amps) > 0:
+                min_peak_amplitude = min_peak_amp_factor * np.max(temp_spike_amps)
+                print(f'Trial {tt + 1}: Auto min peak amplitude set to {min_peak_amplitude:.2f} ({min_peak_amp_factor} * max spike amp)')
+            else:
+                min_peak_amplitude = min_peak_amplitude  # fallback to default if no spikes detected
+                print(f'Trial {tt + 1}: No spikes detected for auto min peak amplitude. Using default {min_peak_amplitude:.2f}')
+
+        if min_peak_amplitude > 0:
+            spike_times[tt], spike_amplitudes[tt], non_spike_amplitudes, spike_index_logical, cluster_index = apply_min_peak_amp(
+                min_peak_amplitude, peak_amplitudes, peak_times, spike_index_logical, cluster_index, non_spike_cluster_index
+            )
+        else:
+            print(f'Trial {tt + 1}: No minimum peak amplitude threshold applied.')
+
+        # Burst correction
+        if b_burst_correction and len(spike_times[tt]) > 0:
+            burst_isi_thresh_dp = int(burst_isi_thresh_s * sample_rate)
+            
+            print(f'Trial {tt + 1}: Applying burst correction with ISI threshold {burst_isi_thresh_s:.3f} s ({burst_isi_thresh_dp} dp) and amplitude drop factor {amp_drop_factor}')
+            spike_index_logical, spike_times[tt], spike_amplitudes[tt] = burst_correction(
+                peak_times, peak_amplitudes, spike_times[tt], spike_amplitudes[tt], spike_index_logical,
+                burst_isi_thresh=burst_isi_thresh_dp, amp_drop_factor=amp_drop_factor
+            )
+
+        # check for no spikes trace
+        sigF = (np.mean(spike_amplitudes[tt]) - np.mean(non_spike_amplitudes)) / np.std(non_spike_amplitudes)
+        d_output['sigF'].append(sigF)
+        if sigF < 5:  # no spikes
+            spike_times[tt] = np.array([])
+            spike_amplitudes[tt] = np.array([])
+            refractory_violations[tt] = np.array([])
+            print(f'Trial {tt + 1}: no spikes!')
+            if check_detection:
+                plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_indices,
+                                      non_spike_cluster_index, current_trace, spike_times[tt], 
+                                      refractory_violations[tt], sigF)
+            d_output['spike_times_final'].append(spike_times[tt])
+            d_output['spike_amps_final'].append(spike_amplitudes[tt])
+            d_output['refractory_violations'].append(refractory_violations[tt])
+            
+            continue
+
+        # check for refractory violations
+        refractory_violations[tt] = np.where(np.diff(spike_times[tt]) < refractory_period_dp)[0] + 1
+        ref_violations = len(refractory_violations[tt])
+        if ref_violations > 0:
+            print(f'Trial {tt + 1}: {ref_violations} refractory violations')
+        d_output['spike_times_final'].append(spike_times[tt])
+        d_output['spike_amps_final'].append(spike_amplitudes[tt])
+        d_output['refractory_violations'].append(refractory_violations[tt])
+        d_output['non_spike_amps'].append(non_spike_amplitudes)
+
+        if check_detection:
+            # Plot clustering data for each section
+            if len(current_trace) > max_trial_length_dp:
+                for section_idx, section in enumerate(section_indices):
+                    section_mask = np.isin(peak_times, section)
+                    s_peak_amps = peak_amplitudes[section_mask]
+                    s_rebound = {'Left': rebound['Left'][section_mask], 'Right': rebound['Right'][section_mask]}                 
+                    s_cluster_index = cluster_index[section_mask]
+                    s_trace = current_trace[section]
+                    s_spike_times = spike_times[tt][np.isin(spike_times[tt], section)]
+                    # Subtract time of section start
+                    s_spike_times = s_spike_times - section[0]
+                    s_refractory_violations = np.where(np.diff(s_spike_times) < refractory_period_dp)[0] + 1
+                    if str_save_dir:
+                        str_save_plot = os.path.join(str_save_dir, f'trial_{tt + 1}_section_{section_idx + 1}_clustering.png')
+                    else:
+                        str_save_plot=None
+                    plot_clustering_data(s_peak_amps, s_rebound, s_cluster_index, spike_cluster_indices,
+                                        non_spike_cluster_index, s_trace, s_spike_times,
+                                        s_refractory_violations, sigF, str_save_plot=str_save_plot)
+            else:
+                if str_save_dir:
+                    str_save_plot = os.path.join(str_save_dir, f'trial_{tt + 1}_clustering.png')
+                else:
+                    str_save_plot=None
+                plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_indices,
+                                    non_spike_cluster_index, current_trace, spike_times[tt],
+                                    refractory_violations[tt], sigF, str_save_plot=str_save_plot)
+
+    return d_output
 
 
 def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_indices, non_spike_cluster_index, 
@@ -208,10 +462,11 @@ def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_
     - sigF: Spike factor for the current trace.
     - str_save_plot: Path to save the plots.
     """
-    fig = plt.figure(figsize=(12, 6))
+    fig = plt.figure(figsize=(24, 6))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[1, 8])
 
     # 3D scatter plot for clustering data
-    ax1 = fig.add_subplot(1, 2, 1, projection='3d')
+    ax1 = fig.add_subplot(gs[0, 0], projection='3d')
     # ax1.scatter(
     #     peak_amplitudes[cluster_index == spike_cluster_indices],
     #     rebound['Left'][cluster_index == spike_cluster_indices],
@@ -246,7 +501,7 @@ def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_
     ax1.set_title('Clustering Data')
 
     # 2D plot for the trace
-    ax2 = fig.add_subplot(1, 2, 2)
+    ax2 = fig.add_subplot(gs[0, 1])
     ax2.plot(current_trace, 'k', label='Trace')
     if len(spike_times) > 0:
         ax2.scatter(spike_times, current_trace[spike_times], c='r', label='Spikes')
@@ -264,6 +519,7 @@ def plot_clustering_data(peak_amplitudes, rebound, cluster_index, spike_cluster_
         ax2.scatter(spike_times[refractory_violations], current_trace[ref_sts], c='g', label='Refractory Violations')
     ax2.set_title(f'SpikeFactor = {sigF:.2f}')
     ax2.legend()
+    ax2.grid(True)
 
     plt.tight_layout()
     if str_save_plot:

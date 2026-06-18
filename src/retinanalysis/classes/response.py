@@ -180,10 +180,11 @@ class SCResponseBlock(ResponseBlock):
             self.get_spike_times(**detector_kwargs)
 
     def get_spike_times(self, **detector_kwargs):
-        spike_times, amps, refs = detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
-        self.spike_times = spike_times
-        self.spike_amps = amps
-        self.spike_refs = refs
+        d_output = detector(self.amp_data, sample_rate=self.amp_sample_rate, **detector_kwargs)
+        self.d_detector_output = d_output
+        self.spike_times = d_output['spike_times_final']
+        self.spike_amps = d_output['spike_amps_final']
+        self.spike_refs = d_output['refractory_violations']
 
     def __repr__(self):
         str_self = super().__repr__()
@@ -227,7 +228,8 @@ class MEAResponseBlock(ResponseBlock):
     def __init__(self, exp_name: Optional[str]=None, datafile_name: Optional[str]=None,
                  ss_version: str = 'kilosort2.5', pkl_file: Optional[str]=None, 
                  h5_file: Optional[str]=None, include_ei: bool=True, 
-                 b_load_fd: bool=False, b_LED: bool=False,
+                 b_load_fd: bool=False, b_LED: Optional[bool]=False,
+                 b_load_vcd: bool = True,
                  verbose: bool = True):
 
         if pkl_file is None:
@@ -250,35 +252,35 @@ class MEAResponseBlock(ResponseBlock):
             h5_file=h5_file, b_LED=b_LED, b_load_fd=b_load_fd, verbose = verbose)
 
         self.amp_sample_rate = SAMPLE_RATE # MEA DAQ sample rate in Hz, analogous variable in SCResponseBlock
-        self.vcd = get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei, verbose = self.verbose)
+
+        if b_load_vcd:
+            self.vcd = get_protocol_vcd(self.exp_name, self.datafile_name, self.ss_version, include_ei=include_ei, verbose = self.verbose)
+            self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
+            self.cell_ids = np.sort(self.cell_ids)
+
+            if include_ei:
+                self.d_EIs = dict()
+                self.d_EI_error = dict()
+                bad_ids = []
+                for id in self.cell_ids:
+                    try:
+                        self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
+                        self.d_EI_error[id] = self.vcd.get_ei_for_cell(id).ei_error
+                    except:
+                        print(f'WARNING: No ei for ref cell id {id}, removing from {self.datafile_name} ResponseBlock')
+                        bad_ids.append(id)
+
+                mask = ~np.isin(self.cell_ids, bad_ids)
+                self.cell_ids = self.cell_ids[mask]
+            
+            self.get_spike_times()
 
         # If pkl_file is provided, everything else is already loaded in parent init.
         if pkl_file is not None:
             return
 
-        
         self.protocol_name = self.d_block_summary['protocol_name']
-        self.cell_ids = np.array(self.vcd.get_cell_ids(), dtype=int)
-
-        if include_ei:
-            self.d_EIs = dict()
-            self.d_EI_error = dict()
-            bad_ids = []
-            for id in self.cell_ids:
-                try:
-                    self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
-                    self.d_EI_error[id] = self.vcd.get_ei_for_cell(id).ei_error
-                except:
-                    print(f'WARNING: No ei for ref cell id {id}, removing from {self.datafile_name} ResponseBlock')
-                    bad_ids.append(id)
-
-            mask = ~np.isin(self.cell_ids, bad_ids)
-            self.cell_ids = self.cell_ids[mask]
         
-        self.get_spike_times()
-
-    # Pull spike times from Vision Cell Data Table, split by cell and epoch,
-    # and add them to df_spike_times dataframe for each cell and epoch
     def get_spike_times(self):
         d_spike_times = {'cell_id': [], 'spike_times': []}
 
@@ -323,12 +325,10 @@ class MEAResponseBlock(ResponseBlock):
         n_max_bins = int(np.max(ls_bins))
         return n_max_bins
     
-    def bin_spike_times_by_frames(self): # , stride: int=1
+    def bin_spike_times_by_frames(self, stride: int=1):
         if self.b_LED:
             raise ValueError("Cannot bin spike times by frames for LED blocks, no frame data.")
 
-        stride = 1
-        # TODO implement stride > 1 with interpolating bw frame times.
         frame_times_ms = self.d_timing['frameTimesMs']
         if int(self.exp_name[:8]) < 20230926:
             marginal_frame_rate = 60.31807657 # Upper bound on the frame rate to make sure that we don't miss any frames.
@@ -350,7 +350,12 @@ class MEAResponseBlock(ResponseBlock):
                 fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
                 ls_diff_frames.append(np.diff(fts))
 
-                bs = np.histogram(e_sts, bins=fts)[0]
+                # Interpolate by stride
+                n_frames = len(fts)
+                stride_idxs = np.linspace(0, n_frames, n_frames*stride)
+                bin_edges = np.interp(stride_idxs, np.arange(n_frames), fts)
+
+                bs = np.histogram(e_sts, bins=bin_edges)[0]
                 if len(bs) > n_max_bins:
                     bs = bs[:n_max_bins]
                 binned_spikes[i_cell, j_epoch, :len(bs)] = bs
@@ -545,6 +550,7 @@ class MEAResponseGroup:
         # Pull only cell ids that are common to all blocks in this group
         all_ids = [set(block.cell_ids) for block in ls_blocks]
         self.cell_ids = list(set.intersection(*all_ids))
+        self.cell_ids = np.sort(self.cell_ids)
         n_cells_lost = len(set.union(*all_ids)) - len(self.cell_ids)
         if self.verbose:
             print(f'\nLost {n_cells_lost} cells when concatenating response blocks')
@@ -662,8 +668,12 @@ class MEAResponseGroup:
             )
 
             total_spikes = np.sum(ls_spikes)
-
-            pooled_var = (within_var + between_var) / (total_spikes - 1)
+            # Avoid div by 0
+            if total_spikes <= 1:
+                pooled_var = np.zeros_like(average_ei)
+            else:
+                pooled_var = (within_var + between_var) / (total_spikes - 1)
+            
             average_error = np.sqrt(pooled_var)
 
             all_eis.append(average_ei)
@@ -788,7 +798,9 @@ class MEAResponseGroup:
 def create_mea_response_group(
         exp_name: str, ls_datafile_names: List[str], 
         ss_version: str='kilosort2.5', b_load_fd: bool = False, 
-        b_LED: bool=False, verbose: bool = False
+        b_LED: bool=False, b_load_vcd: bool = True,
+        verbose: bool = False,
+        
     ):
     """
     Helper function for creating an MEA Response Group from a list of datafiles. The function creates all of the
@@ -807,6 +819,9 @@ def create_mea_response_group(
         b_LED (bool): Boolean value, if True assume stimulus for tehse datafiles was deliverd by an LED.
         This automatically sets b_load_fd to False since LED stimuli have no frame data. Default False.
 
+        b_load_vcd (bool): Boolean value, if True will load the vision data table.
+            Mainly for debugging purposes to skip load time.
+
         verbose (bool): Boolean value, if True will print all outputs to the console. Since multiple
         MEAResponseBlocks must be created, with many status messages, Default is False.
 
@@ -818,7 +833,7 @@ def create_mea_response_group(
     response_blocks = [
         MEAResponseBlock(
             exp_name, datafile_name, ss_version = ss_version, b_LED = b_LED, 
-            b_load_fd = b_load_fd, verbose = verbose
+            b_load_fd = b_load_fd, verbose = verbose, b_load_vcd = b_load_vcd
             ) for datafile_name in ls_datafile_names
             ]
 

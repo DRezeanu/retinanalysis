@@ -1,5 +1,5 @@
 import retinanalysis 
-import retinanalysis.config.schema as schema
+from retinanalysis._database import schema
 import os
 from retinanalysis.config.settings import (ANALYSIS_DIR,
                                            DATA_DIR)
@@ -86,20 +86,20 @@ class AnalysisChunk:
         
         # Pull Experiment ID
         exp_id = schema.Experiment() & {'exp_name': self.exp_name}
-        self.exp_id = exp_id.fetch('id')[0]
+        self.exp_id = exp_id.to_arrays('id')[0]
 
         # Pull chunk id
         chunk_id = schema.SortingChunk() & {'experiment_id' : self.exp_id, 'chunk_name' : self.chunk_name}
-        self.chunk_id = chunk_id.fetch('id')[0]
+        self.chunk_id = chunk_id.to_arrays('id')[0]
 
         self.noise_protocol = get_noise_name_by_exp(exp_name)
 
         # Pull protocol id
         protocol_id = schema.Protocol() & {'name' : self.noise_protocol}
-        self.protocol_id = protocol_id.fetch('protocol_id')[0]
+        self.protocol_id = protocol_id.to_arrays('protocol_id')[0]
 
         self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
-        self.cell_ids = np.array(self.vcd.get_cell_ids())
+        self.cell_ids = np.sort(self.vcd.get_cell_ids())
 
         # Pull EIs into an EI dictionary (if include_ei param is true)
         if 'include_ei' in vu_kwargs:
@@ -166,18 +166,18 @@ class AnalysisChunk:
 
         # Pull epoch block and epoch to get num X and num Y checks used in noise
         epoch_blocks = schema.EpochBlock() & {'experiment_id' : self.exp_id, 'chunk_id' : self.chunk_id, 'protocol_id' : self.protocol_id}
-        epoch_block_ids = [epoch_blocks.fetch('id')[idx] for idx in range(len(epoch_blocks))]
+        epoch_block_ids = epoch_blocks.to_arrays('id')
         epochs = [schema.Epoch() & {'experiment_id' : self.exp_id, 'parent_id' : block_id} for block_id in epoch_block_ids]
 
-        numXChecks = np.array([epoch.fetch('parameters')[0]['numXChecks'] for epoch in epochs])
-        numYChecks = np.array([epoch.fetch('parameters')[0]['numYChecks'] for epoch in epochs])
+        numXChecks = np.array([epoch.to_arrays('parameters')[0]['numXChecks'] for epoch in epochs])
+        numYChecks = np.array([epoch.to_arrays('parameters')[0]['numYChecks'] for epoch in epochs])
         
         if (not all(element == numXChecks[0] for element in numXChecks) and
             not all(element == numYChecks[0] for element in numYChecks)):
             print('WARNING: Not all epoch blocks used the same number of X and Y checks\n')
 
             vision_micronsPerStixel = self.vcd.runtimemovie_params.micronsPerStixelX
-            gridSizes = np.array([epoch.fetch('parameters')[0]['gridSize'] for epoch in epochs])
+            gridSizes = np.array([epoch.to_arrays('parameters')[0]['gridSize'] for epoch in epochs])
             
             self.numXChecks = int(numXChecks[gridSizes == vision_micronsPerStixel])
             self.numYChecks = int(numYChecks[gridSizes == vision_micronsPerStixel])
@@ -186,14 +186,14 @@ class AnalysisChunk:
             self.numXChecks = int(numXChecks[0])
             self.numYChecks = int(numYChecks[0])
 
-        self.deltaXChecks = (self.numXChecks - self.staXChecks)/2
-        self.deltaYChecks = (self.numYChecks - self.staYChecks)/2
+        self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
+        self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
         
-        self.microns_per_pixel = epochs[0].fetch('parameters')[0]['micronsPerPixel']
-        self.canvas_size = epochs[0].fetch('parameters')[0]['canvasSize']
+        self.microns_per_pixel = epochs[0].to_arrays('parameters')[0]['micronsPerPixel']
+        self.canvas_size = epochs[0].to_arrays('parameters')[0]['canvasSize']
 
         # Pull noise data file names
-        noise_data_dirs = epoch_blocks.fetch('data_dir')
+        noise_data_dirs = epoch_blocks.to_arrays('data_dir')
         self.data_files = [os.path.basename(path) for path in noise_data_dirs]
 
         # Pull typing files directly from available Analysis Directory... avoids issues with datajoint
@@ -994,7 +994,7 @@ class AnalysisChunk:
         str_self += f"  canvas_size: {self.canvas_size}\n"
         str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
-        str_self += f"  rf_params with fiels: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
+        str_self += f"  rf_params with fields: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
         str_self += f"  df_cell_params of shape: {self.df_cell_params.shape}\n"
 
         if hasattr(self, 'd_spatial_maps'):

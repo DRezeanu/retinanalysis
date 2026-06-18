@@ -1,4 +1,4 @@
-import retinanalysis.config.schema as schema
+from retinanalysis._database import schema
 import numpy as np
 from retinanalysis.utils.datajoint_utils import (get_exp_summary,
                                                  get_epoch_data_from_exp,
@@ -72,13 +72,14 @@ class StimBlock:
         self.prep_label = self.d_block_summary['prep_label']
         
         epoch_block = schema.EpochBlock() & {'id': block_id}
-        self.d_epoch_block_params = epoch_block.fetch('parameters')[0]
+        self.d_epoch_block_params = epoch_block.fetch1('parameters')
 
         df_e = get_epoch_data_from_exp(exp_name, block_id, b_LED=self.b_LED, ls_params=ls_params)
         self.df_epochs = df_e
         self.parameter_names = list(df_e.at[0,'epoch_parameters'].keys())
 
         self.d_display = get_display_params_by_exp(self.exp_name, verbose = self.verbose)
+        self.stim_data = None
 
     def regenerate_stimulus(self, ls_epochs: Optional[int | list]=None, **kwargs):
         """
@@ -176,7 +177,7 @@ class MEAStimBlock(StimBlock):
         experiment_summary = experiment_summary.query('prep_label == @self.prep_label')
         
         exp_id = schema.Experiment() & {'exp_name' : self.exp_name}
-        exp_id = exp_id.fetch('id')[0]
+        exp_id = exp_id.to_arrays('id')[0]
 
         # Pull noise runs and target protocol run from experiment summary df
         noise_runs = experiment_summary.query('protocol_name == @self.noise_protocol_name and chunk_name.str.contains("chunk")')
@@ -216,16 +217,20 @@ class MEAStimBlock(StimBlock):
             # Check if this chunk has a typing file
             
             # New way to check for typing files... avoids missing typing files in database
-            ss_version = os.listdir(os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk))[0]
-            typing_file_path = os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version)
-            typing_files = [file for file in os.listdir(typing_file_path) if '.txt' in file]
+            try:
+                ss_version = os.listdir(os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk))[0]
+                typing_file_path = os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version)
+                typing_files = [file for file in os.listdir(typing_file_path) if '.txt' in file]
+            except Exception as e:
+                print(f'Failed to get typing files from nearest noise chunk, error: {e}')
+                typing_files = []
 
             # noise_chunk_id = schema.SortingChunk() & {'experiment_id' : exp_id, 'chunk_name': nearest_noise_chunk}
             # noise_chunk_id = noise_chunk_id.fetch('id')[0]
             # typing_files = schema.CellTypeFile() & {'chunk_id' : noise_chunk_id}
 
             # If there's no typing file, remove the minimum value and try again
-            if len(typing_files) == 0:
+            if not typing_files:
                 min_index = np.argmin(minimum_distance)
                 minimum_distance = np.delete(minimum_distance, min_index)
             # If there is a typing file, break the for loop there
