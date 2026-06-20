@@ -34,7 +34,7 @@ def _apply_default_datajoint_config() -> None:
 
 
 _apply_default_datajoint_config()
-schema = dj.Schema('schema')
+schema = dj.Schema("schema")
 
 
 @schema
@@ -46,8 +46,10 @@ class Protocol(dj.Manual):
     name: varchar(255)
     """
 
+
 # central schema: directly from h5 files
 # for now going to be mostly empty! just connectors to each other
+
 
 @schema
 class Experiment(dj.Manual):
@@ -74,6 +76,7 @@ class Experiment(dj.Manual):
     rig_type = NULL : varchar(255)
     """
 
+
 @schema
 class Animal(dj.Manual):
     definition = """
@@ -96,6 +99,7 @@ class Animal(dj.Manual):
     species = NULL : varchar(255)
     """
 
+
 @schema
 class Preparation(dj.Manual):
     definition = """
@@ -115,6 +119,7 @@ class Preparation(dj.Manual):
     array_pitch = NULL : varchar(255)
     """
 
+
 @schema
 class Cell(dj.Manual):
     definition = """
@@ -130,6 +135,7 @@ class Cell(dj.Manual):
     start_time = NULL : datetime
     type = NULL : varchar(255)
     """
+
 
 @schema
 class EpochGroup(dj.Manual):
@@ -148,6 +154,7 @@ class EpochGroup(dj.Manual):
     end_time = NULL : datetime
     """
 
+
 # analysis table
 @schema
 class SortingChunk(dj.Manual):
@@ -158,6 +165,7 @@ class SortingChunk(dj.Manual):
     -> Experiment.proj(experiment_id='id')
     chunk_name: varchar(255)
     """
+
 
 # analysis table
 @schema
@@ -171,6 +179,7 @@ class SortedCell(dj.Manual):
     cluster_id: int32
     """
 
+
 # extra fields for sorted cell:
 # - STAfit: lots of fields here, could include time course as well?
 # - Spike count
@@ -180,7 +189,8 @@ class SortedCell(dj.Manual):
 # NEW TABLE: BlockSortedCell (inherit from SortedCell and EpochBlock)
 # - Spike count
 # - % ISI violations, figure out what to keep: full binned spike data, or just preset cutoff thing
-# - 
+# -
+
 
 # analysis table
 @schema
@@ -194,6 +204,7 @@ class CellTypeFile(dj.Manual):
     file_name: varchar(255) # name of sorting file
     """
 
+
 # analysis table
 @schema
 class SortedCellType(dj.Manual):
@@ -205,6 +216,7 @@ class SortedCellType(dj.Manual):
     -> CellTypeFile.proj(file_id='id')
     cell_type: varchar(255)
     """
+
 
 @schema
 class EpochBlock(dj.Manual):
@@ -227,6 +239,7 @@ class EpochBlock(dj.Manual):
     array_pitch = NULL : varchar(255)
     """
 
+
 @schema
 class Epoch(dj.Manual):
     definition = """
@@ -243,6 +256,7 @@ class Epoch(dj.Manual):
     end_time = NULL : datetime
     parameters = NULL : json
     """
+
 
 @schema
 class Response(dj.Manual):
@@ -261,6 +275,7 @@ class Response(dj.Manual):
     offset_ticks = NULL : varchar(255)
     """
 
+
 @schema
 class Stimulus(dj.Manual):
     definition = """
@@ -272,6 +287,7 @@ class Stimulus(dj.Manual):
     device_name: varchar(255)
     h5path: varchar(511)
     """
+
 
 # misc. peripheral schema
 @schema
