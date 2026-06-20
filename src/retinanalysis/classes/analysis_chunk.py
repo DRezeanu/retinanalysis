@@ -1,20 +1,13 @@
-import retinanalysis 
+import retinanalysis
 from retinanalysis._database import schema
 import os
-from retinanalysis.config.settings import (ANALYSIS_DIR,
-                                           DATA_DIR)
+from retinanalysis.config.settings import ANALYSIS_DIR, DATA_DIR
 import pandas as pd
-from retinanalysis.utils.vision_utils import (get_analysis_vcd,
-                                              get_ells,
-                                              get_timecourses)
+from retinanalysis.utils.vision_utils import get_analysis_vcd, get_ells, get_timecourses
 from hdf5storage import loadmat
 import pickle
 import numpy as np
-from typing import (cast,
-                    List,
-                    Dict,
-                    Optional,
-                    Any)
+from typing import cast, List, Dict, Optional, Any
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
@@ -24,9 +17,10 @@ from scipy.ndimage import zoom
 try:
     import importlib.resources as ir
 except:
-    import importlib_resources as ir # type: ignore
+    import importlib_resources as ir  # type: ignore
 
 from retinanalysis.utils.datajoint_utils import get_noise_name_by_exp
+
 
 class AnalysisChunk:
     """
@@ -57,53 +51,78 @@ class AnalysisChunk:
         Use the print command on a AnalysisChunk instance to get a list of all properties contained in
         the object
     """
-    def __init__(self, exp_name: Optional[str]=None, chunk_name: Optional[str]=None, 
-                 ss_version: str = 'kilosort2.5', pkl_file: Optional[dict | str]=None, 
-                 b_load_spatial_maps: bool=True, verbose: bool = True, **vu_kwargs):
+
+    def __init__(
+        self,
+        exp_name: Optional[str] = None,
+        chunk_name: Optional[str] = None,
+        ss_version: str = "kilosort2.5",
+        pkl_file: Optional[dict | str] = None,
+        b_load_spatial_maps: bool = True,
+        verbose: bool = True,
+        **vu_kwargs,
+    ):
 
         self.verbose = verbose
 
         if pkl_file is None:
             if exp_name is None or chunk_name is None:
-                raise ValueError("Either exp_name and chunk_name or pkl_file must be provided.")
+                raise ValueError(
+                    "Either exp_name and chunk_name or pkl_file must be provided."
+                )
         else:
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
-                with open(pkl_file, 'rb') as f:
+                with open(pkl_file, "rb") as f:
                     d_out = pickle.load(f)
             else:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
-            self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
+            self.vcd = get_analysis_vcd(
+                self.exp_name,
+                self.chunk_name,
+                self.ss_version,
+                verbose=self.verbose,
+                **vu_kwargs,
+            )
             if self.verbose:
                 print(f"AnalysisChunk loaded from {pkl_file}")
             return
-        
+
         self.exp_name = exp_name
         self.chunk_name = chunk_name
         self.ss_version = ss_version
-        
+
         # Pull Experiment ID
-        exp_id = schema.Experiment() & {'exp_name': self.exp_name}
-        self.exp_id = exp_id.to_arrays('id')[0]
+        exp_id = schema.Experiment() & {"exp_name": self.exp_name}
+        self.exp_id = exp_id.to_arrays("id")[0]
 
         # Pull chunk id
-        chunk_id = schema.SortingChunk() & {'experiment_id' : self.exp_id, 'chunk_name' : self.chunk_name}
-        self.chunk_id = chunk_id.to_arrays('id')[0]
+        chunk_id = schema.SortingChunk() & {
+            "experiment_id": self.exp_id,
+            "chunk_name": self.chunk_name,
+        }
+        self.chunk_id = chunk_id.to_arrays("id")[0]
 
         self.noise_protocol = get_noise_name_by_exp(exp_name)
 
         # Pull protocol id
-        protocol_id = schema.Protocol() & {'name' : self.noise_protocol}
-        self.protocol_id = protocol_id.to_arrays('protocol_id')[0]
+        protocol_id = schema.Protocol() & {"name": self.noise_protocol}
+        self.protocol_id = protocol_id.to_arrays("protocol_id")[0]
 
-        self.vcd = get_analysis_vcd(self.exp_name, self.chunk_name, self.ss_version, verbose = self.verbose, **vu_kwargs)
+        self.vcd = get_analysis_vcd(
+            self.exp_name,
+            self.chunk_name,
+            self.ss_version,
+            verbose=self.verbose,
+            **vu_kwargs,
+        )
         self.cell_ids = np.sort(self.vcd.get_cell_ids())
 
         # Pull EIs into an EI dictionary (if include_ei param is true)
-        if 'include_ei' in vu_kwargs:
-            if vu_kwargs['include_ei'] == False:
+        if "include_ei" in vu_kwargs:
+            if vu_kwargs["include_ei"] == False:
                 pass
             else:
                 self.d_EIs = dict()
@@ -112,7 +131,9 @@ class AnalysisChunk:
                     try:
                         self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
                     except:
-                        print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
+                        print(
+                            f"WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk"
+                        )
                         bad_ids.append(id)
 
                 mask = ~np.isin(self.cell_ids, bad_ids)
@@ -124,30 +145,33 @@ class AnalysisChunk:
                 try:
                     self.d_EIs[id] = self.vcd.get_ei_for_cell(id).ei
                 except:
-                    print(f'WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk')
+                    print(
+                        f"WARNING: No ei for ref cell id {id}, removing from {self.chunk_name} AnalysisChunk"
+                    )
                     bad_ids.append(id)
 
             mask = ~np.isin(self.cell_ids, bad_ids)
             self.cell_ids = self.cell_ids[mask]
 
-        # Pull timecourses into an timecourse dictionary 
+        # Pull timecourses into an timecourse dictionary
         self.d_timecourses = dict()
         for id in self.cell_ids:
-            timecourse_r = self.vcd.main_datatable[id]['RedTimeCourse']
-            timecourse_g = self.vcd.main_datatable[id]['GreenTimeCourse']
-            timecourse_b = self.vcd.main_datatable[id]['BlueTimeCourse']
-            self.d_timecourses[id] = {'red' : timecourse_r,
-                                      'green' : timecourse_g,
-                                      'blue' : timecourse_b}
+            timecourse_r = self.vcd.main_datatable[id]["RedTimeCourse"]
+            timecourse_g = self.vcd.main_datatable[id]["GreenTimeCourse"]
+            timecourse_b = self.vcd.main_datatable[id]["BlueTimeCourse"]
+            self.d_timecourses[id] = {
+                "red": timecourse_r,
+                "green": timecourse_g,
+                "blue": timecourse_b,
+            }
 
-        # Pull ISIs into an ISI  dictionary 
+        # Pull ISIs into an ISI  dictionary
         self.d_ISIs = dict()
         for id in self.cell_ids:
             isi = self.vcd.get_acf_numpairs_for_cell(id)
             np.nan_to_num(isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
             self.d_ISIs[id] = isi
-        self.isi_bin_edges = np.linspace(0,300,601)
-
+        self.isi_bin_edges = np.linspace(0, 300, 601)
 
         self.get_noise_params()
         self.get_rf_params()
@@ -165,20 +189,36 @@ class AnalysisChunk:
         self.staYChecks = int(self.vcd.runtimemovie_params.height)
 
         # Pull epoch block and epoch to get num X and num Y checks used in noise
-        epoch_blocks = schema.EpochBlock() & {'experiment_id' : self.exp_id, 'chunk_id' : self.chunk_id, 'protocol_id' : self.protocol_id}
-        epoch_block_ids = epoch_blocks.to_arrays('id')
-        epochs = [schema.Epoch() & {'experiment_id' : self.exp_id, 'parent_id' : block_id} for block_id in epoch_block_ids]
+        epoch_blocks = schema.EpochBlock() & {
+            "experiment_id": self.exp_id,
+            "chunk_id": self.chunk_id,
+            "protocol_id": self.protocol_id,
+        }
+        epoch_block_ids = epoch_blocks.to_arrays("id")
+        epochs = [
+            schema.Epoch() & {"experiment_id": self.exp_id, "parent_id": block_id}
+            for block_id in epoch_block_ids
+        ]
 
-        numXChecks = np.array([epoch.to_arrays('parameters')[0]['numXChecks'] for epoch in epochs])
-        numYChecks = np.array([epoch.to_arrays('parameters')[0]['numYChecks'] for epoch in epochs])
-        
-        if (not all(element == numXChecks[0] for element in numXChecks) and
-            not all(element == numYChecks[0] for element in numYChecks)):
-            print('WARNING: Not all epoch blocks used the same number of X and Y checks\n')
+        numXChecks = np.array(
+            [epoch.to_arrays("parameters")[0]["numXChecks"] for epoch in epochs]
+        )
+        numYChecks = np.array(
+            [epoch.to_arrays("parameters")[0]["numYChecks"] for epoch in epochs]
+        )
+
+        if not all(element == numXChecks[0] for element in numXChecks) and not all(
+            element == numYChecks[0] for element in numYChecks
+        ):
+            print(
+                "WARNING: Not all epoch blocks used the same number of X and Y checks\n"
+            )
 
             vision_micronsPerStixel = self.vcd.runtimemovie_params.micronsPerStixelX
-            gridSizes = np.array([epoch.to_arrays('parameters')[0]['gridSize'] for epoch in epochs])
-            
+            gridSizes = np.array(
+                [epoch.to_arrays("parameters")[0]["gridSize"] for epoch in epochs]
+            )
+
             self.numXChecks = int(numXChecks[gridSizes == vision_micronsPerStixel])
             self.numYChecks = int(numYChecks[gridSizes == vision_micronsPerStixel])
 
@@ -186,183 +226,231 @@ class AnalysisChunk:
             self.numXChecks = int(numXChecks[0])
             self.numYChecks = int(numYChecks[0])
 
-        self.deltaXChecks = int((self.numXChecks - self.staXChecks)/2)
-        self.deltaYChecks = int((self.numYChecks - self.staYChecks)/2)
-        
-        self.microns_per_pixel = epochs[0].to_arrays('parameters')[0]['micronsPerPixel']
-        self.canvas_size = epochs[0].to_arrays('parameters')[0]['canvasSize']
+        self.deltaXChecks = int((self.numXChecks - self.staXChecks) / 2)
+        self.deltaYChecks = int((self.numYChecks - self.staYChecks) / 2)
+
+        self.microns_per_pixel = epochs[0].to_arrays("parameters")[0]["micronsPerPixel"]
+        self.canvas_size = epochs[0].to_arrays("parameters")[0]["canvasSize"]
 
         # Pull noise data file names
-        noise_data_dirs = epoch_blocks.to_arrays('data_dir')
+        noise_data_dirs = epoch_blocks.to_arrays("data_dir")
         self.data_files = [os.path.basename(path) for path in noise_data_dirs]
 
         # Pull typing files directly from available Analysis Directory... avoids issues with datajoint
         # not updating typing files on existing experiments
-        typing_file_dir = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version)
-        self.typing_files = [file for file in os.listdir(typing_file_dir) if 'txt' in os.path.splitext(file)[1]]
+        typing_file_dir = os.path.join(
+            ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version
+        )
+        self.typing_files = [
+            file
+            for file in os.listdir(typing_file_dir)
+            if "txt" in os.path.splitext(file)[1]
+        ]
 
         # typing_files = schema.CellTypeFile() & {'chunk_id' : self.chunk_id, 'algorithm': self.ss_version}
-        # self.typing_files = [file_name for file_name in typing_files.fetch('file_name')] 
+        # self.typing_files = [file_name for file_name in typing_files.fetch('file_name')]
 
-        self.pixels_per_stixel = self.canvas_size[0]/self.numXChecks
+        self.pixels_per_stixel = self.canvas_size[0] / self.numXChecks
         self.microns_per_stixel = self.microns_per_pixel * self.pixels_per_stixel
 
     def get_rf_params(self):
         """
         Method for pulling the receptive field parameters stored in the vision cell data table (VCD).
-        
+
         This method also corrects for Y-flipping and any crop discrepancies between the size of the
         spatial noise and the size of the STA.
         """
         self.rf_params = dict()
         broken_ids = []
         for id in self.cell_ids:
-            try: 
-                center_x = self.vcd.main_datatable[id]['x0']
-                center_y = self.vcd.main_datatable[id]['y0']
-                self.rf_params[id] = {'center_x' : center_x + self.deltaXChecks,
-                                    'center_y' : (self.staYChecks - center_y) + self.deltaYChecks,
-                                    'std_x' : self.vcd.main_datatable[id]['SigmaX'],
-                                    'std_y' : self.vcd.main_datatable[id]['SigmaY'],
-                                    'rot' : self.vcd.main_datatable[id]['Theta']}
+            try:
+                center_x = self.vcd.main_datatable[id]["x0"]
+                center_y = self.vcd.main_datatable[id]["y0"]
+                self.rf_params[id] = {
+                    "center_x": center_x + self.deltaXChecks,
+                    "center_y": (self.staYChecks - center_y) + self.deltaYChecks,
+                    "std_x": self.vcd.main_datatable[id]["SigmaX"],
+                    "std_y": self.vcd.main_datatable[id]["SigmaY"],
+                    "rot": self.vcd.main_datatable[id]["Theta"],
+                }
             except:
                 print(f"Issue with id {id}...\nWill remove from cell_ids list.")
                 broken_ids.append(id)
-            
+
         for id in broken_ids:
             self.cell_ids = self.cell_ids[self.cell_ids != id]
 
-    def get_cells_by_region(self, roi: Dict[str, float], units: str = 'pixels'):
+    def get_cells_by_region(self, roi: Dict[str, float], units: str = "pixels"):
         """
         Method for pulling cell_ids by region of interest.
-        
+
         Parameters:
             roi (dict): roi definition as a dictionary with 4 values. 'x_min','x_max', 'y_min', 'y_max'.
             These define the vertical and horizontal lines that define the region of interest. Units of ROI
             definition must match the units parameter!
-                                        
+
         units (str): units to use when defining the roi. Must be either 'pixels', 'microns', or 'stixels'. Default 'pixels'.
 
         Returns:
-            arr_ids (ndarray): returns a 1D array of cell ids whose center_x and center_y fall within the defined roi.                                
+            arr_ids (ndarray): returns a 1D array of cell ids whose center_x and center_y fall within the defined roi.
         """
 
-        if 'pixels' in units.lower():
+        if "pixels" in units.lower():
             unit_scaling = self.pixels_per_stixel
-        elif 'microns' in units.lower():
+        elif "microns" in units.lower():
             unit_scaling = self.microns_per_stixel
-        elif 'stixels' in units.lower():
+        elif "stixels" in units.lower():
             unit_scaling = 1
         else:
             raise Exception("Units must be 'pixels', 'microns' or 'stixels'")
-        
+
         bounding_box = dict()
         for key, val in roi.items():
-            bounding_box[key] = val/unit_scaling
-         
-        x_min = bounding_box['x_min']
-        x_max = bounding_box['x_max']
-        y_min = bounding_box['y_min']
-        y_max = bounding_box['y_max']
+            bounding_box[key] = val / unit_scaling
 
-        df_cell_params_filtered = self.df_cell_params.query("center_x > @x_min and center_x < @x_max and center_y > @y_min and center_y < @y_max")
-        arr_ids = df_cell_params_filtered['cell_id'].values
+        x_min = bounding_box["x_min"]
+        x_max = bounding_box["x_max"]
+        y_min = bounding_box["y_min"]
+        y_max = bounding_box["y_max"]
+
+        df_cell_params_filtered = self.df_cell_params.query(
+            "center_x > @x_min and center_x < @x_max and center_y > @y_min and center_y < @y_max"
+        )
+        arr_ids = df_cell_params_filtered["cell_id"].values
 
         return arr_ids
-              
+
     def get_df(self):
         """
         Internal method for generating the cell params dataframe accessible as self.df_cell_params
         """
-        center_x = [self.rf_params[id]['center_x'] for id in self.cell_ids]
-        center_y = [self.rf_params[id]['center_y'] for id in self.cell_ids]
-        std_x = [self.rf_params[id]['std_x'] for id in self.cell_ids]
-        std_y = [self.rf_params[id]['std_y'] for id in self.cell_ids]
-        rot = [self.rf_params[id]['rot'] for id in self.cell_ids]
+        center_x = [self.rf_params[id]["center_x"] for id in self.cell_ids]
+        center_y = [self.rf_params[id]["center_y"] for id in self.cell_ids]
+        std_x = [self.rf_params[id]["std_x"] for id in self.cell_ids]
+        std_y = [self.rf_params[id]["std_y"] for id in self.cell_ids]
+        rot = [self.rf_params[id]["rot"] for id in self.cell_ids]
 
-        df_dict = {'cell_id': self.cell_ids, 'center_x' : center_x,
-                   'center_y': center_y, 'std_x' : std_x,
-                   'std_y' : std_y, 'rot' : rot} 
+        df_dict = {
+            "cell_id": self.cell_ids,
+            "center_x": center_x,
+            "center_y": center_y,
+            "std_x": std_x,
+            "std_y": std_y,
+            "rot": rot,
+        }
 
         cell_types_list_path = str(ir.files(retinanalysis) / "assets/cell_types.csv")
         cell_types_list = pd.read_csv(cell_types_list_path)
-        cell_types = cell_types_list['cell_types'].values
+        cell_types = cell_types_list["cell_types"].values
 
         for idx, typing_file in enumerate(self.typing_files):
-            file_path = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version, typing_file)
+            file_path = os.path.join(
+                ANALYSIS_DIR,
+                self.exp_name,
+                self.chunk_name,
+                self.ss_version,
+                typing_file,
+            )
             d_result = dict()
-            
-            with open(file_path, 'r') as file:
-               for line in file:
+
+            with open(file_path, "r") as file:
+                for line in file:
                     # Split each line into key and value using the specified delimiter
-                    key, value = map(str.strip, line.split(' ', 1))
-                    sub_values = value.split('/')
-                    
+                    key, value = map(str.strip, line.split(" ", 1))
+                    sub_values = value.split("/")
+
                     # Add key-value pair to the dictionary
                     d_result[int(key)] = sub_values[:-1]
 
             for cell in self.cell_ids:
                 if cell in d_result.keys():
-
                     for type in cell_types:
                         if type in d_result[cell]:
                             d_result[cell] = type
                             break
                 else:
-                    d_result[cell] = 'Unknown'
-                
-                if 'All' in d_result[cell]:
-                    d_result[cell] = 'Unknown'
-                
-            
-            
+                    d_result[cell] = "Unknown"
+
+                if "All" in d_result[cell]:
+                    d_result[cell] = "Unknown"
+
             classification = [d_result[cell] for cell in self.cell_ids]
-            df_dict[f'typing_file_{idx}'] = classification
-        
+            df_dict[f"typing_file_{idx}"] = classification
+
         self.df_cell_params = pd.DataFrame(df_dict)
 
-    def get_spatial_maps(self, ls_channels=[0,2]):
-        # By default load red and blue channel spatial maps. 
-        mat_file = os.path.join(DATA_DIR, self.exp_name, self.chunk_name, self.ss_version, f'{self.ss_version}_params.mat')
+    def get_spatial_maps(self, ls_channels=[0, 2]):
+        # By default load red and blue channel spatial maps.
+        mat_file = os.path.join(
+            DATA_DIR,
+            self.exp_name,
+            self.chunk_name,
+            self.ss_version,
+            f"{self.ss_version}_params.mat",
+        )
 
         # If _params.mat file doesn't exist in data dir, look in analysis dir instead
         if not os.path.exists(mat_file):
-            mat_file = os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version,f'{self.ss_version}_params.mat')
-        
+            mat_file = os.path.join(
+                ANALYSIS_DIR,
+                self.exp_name,
+                self.chunk_name,
+                self.ss_version,
+                f"{self.ss_version}_params.mat",
+            )
+
         # if no _params.mat file found at all, print a warning and return
         if not os.path.exists(mat_file):
-            print(f'WARNING: _params.mat file not found in: {mat_file}\nSpatial maps were not loaded')
+            print(
+                f"WARNING: _params.mat file not found in: {mat_file}\nSpatial maps were not loaded"
+            )
             return
-        
+
         d_params = loadmat(mat_file)
         d_spatial_maps = {}
         for idx_ID, n_ID in enumerate(self.cell_ids):
-            # TODO pad spatial maps to match N_HEIGHT and N_WIDTH @roaksleaf pls help 
+            # TODO pad spatial maps to match N_HEIGHT and N_WIDTH @roaksleaf pls help
             # Cell ID index in vcd should be same as in _params.mat
-            spat_mat = d_params['spatial_maps'][idx_ID][:, :, ls_channels]
+            spat_mat = d_params["spatial_maps"][idx_ID][:, :, ls_channels]
             left_pad = int(self.deltaXChecks)
             right_pad = int(self.numXChecks - self.staXChecks - self.deltaXChecks)
             top_pad = int(self.deltaYChecks)
             bottom_pad = int(self.numYChecks - self.staYChecks - self.deltaYChecks)
 
-            padded = np.pad(spat_mat, ((top_pad, bottom_pad), (left_pad, right_pad), (0, 0)), mode='constant', constant_values=0)
+            padded = np.pad(
+                spat_mat,
+                ((top_pad, bottom_pad), (left_pad, right_pad), (0, 0)),
+                mode="constant",
+                constant_values=0,
+            )
             d_spatial_maps[n_ID] = padded
-            
+
         self.d_spatial_maps = d_spatial_maps
         if self.verbose:
-            print(f'\nLoaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}')# from:\n{mat_file}')
-            print(f'Spatial maps have been padded to align with RF parameters.\n')
+            print(
+                f"\nLoaded spatial maps for channels {ls_channels} and {len(self.cell_ids)} cells of shape {d_spatial_maps[self.cell_ids[0]].shape}"
+            )  # from:\n{mat_file}')
+            print(f"Spatial maps have been padded to align with RF parameters.\n")
         # TODO could also load convex hull fits too under 'hull_vertices'
 
-    def plot_rfs(self, noise_ids: Optional[List[int]] = None, cell_types: Optional[List[str]] = None,
-                 typing_file: Optional[str] = None, units: str = 'pixels', std_scaling: float = 1.6,
-                 b_zoom: bool = False, n_pad: int = 6, minimum_n: int = 1,
-                 roi: Optional[Dict[str, float]] = None, label_cells: bool = False) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
+    def plot_rfs(
+        self,
+        noise_ids: Optional[List[int]] = None,
+        cell_types: Optional[List[str]] = None,
+        typing_file: Optional[str] = None,
+        units: str = "pixels",
+        std_scaling: float = 1.6,
+        b_zoom: bool = False,
+        n_pad: int = 6,
+        minimum_n: int = 1,
+        roi: Optional[Dict[str, float]] = None,
+        label_cells: bool = False,
+    ) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         """
-        Method for plotting the receptive fields for a given list of cell ids, cell types, 
+        Method for plotting the receptive fields for a given list of cell ids, cell types,
         or a union of both. If no cell_ids or cell types are given, all cells in the
         analysis chunk are plotted by type.
-        
+
         Parameters:
             noise_ids (List[int]): A list of cell_ids to plot. Default None.
 
@@ -382,12 +470,12 @@ class AnalysisChunk:
             center_y values in the mosaic, and n_pad will zoom back out by the given number of stixels. Default 6
 
             minimum_n (int): min number of cells required to actually plot the output
-            
+
             roi (dict): roi definition as a dictionary with 4 values. 'x_min', 'x_max', 'y_min', 'y_max'. These
             define the vertical and horizontal lines that define the region of interest
 
             label_cells (bool): If True, put text label with cell id on each ellipse. Default False.
-        
+
         Returns:
             axs (axes): Axes object that contains all of the axes used in the receptive field figure.
             There will be as many axes as there are cell_types represented in the plot.
@@ -398,7 +486,7 @@ class AnalysisChunk:
         # Convert individual cell type or cell id into list
         if isinstance(cell_types, str):
             cell_types = [cell_types]
-        
+
         if isinstance(noise_ids, int) or isinstance(noise_ids, float):
             noise_ids = [int(noise_ids)]
 
@@ -407,7 +495,7 @@ class AnalysisChunk:
             try:
                 typing_file = self.typing_files[0]
             except:
-                print(f'No typing files for {self.exp_name} {self.chunk_name}')
+                print(f"No typing files for {self.exp_name} {self.chunk_name}")
                 return
 
         if typing_file not in self.typing_files:
@@ -415,28 +503,32 @@ class AnalysisChunk:
             return
 
         typing_file_idx = self.typing_files.index(typing_file)
-        
+
         # Pull appropriate union of noise cell ids and cell types using given params.
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
-            noise_ids = list(filtered_df['cell_id'].values)
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            noise_ids = list(filtered_df["cell_id"].values)
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
         elif noise_ids is None:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
-            noise_ids = list(filtered_df['cell_id'].values)
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            filtered_df = self.df_cell_params.query(
+                f"typing_file_{typing_file_idx} in @cell_types"
+            )
+            noise_ids = list(filtered_df["cell_id"].values)
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
         elif cell_types is None:
-            filtered_df = self.df_cell_params.query(f'cell_id  in @noise_ids')
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            filtered_df = self.df_cell_params.query(f"cell_id  in @noise_ids")
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
         else:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            filtered_df = self.df_cell_params.query(
+                f"typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids"
+            )
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
 
         # Pull only those cells inside the given region of interest (roi) if one was specified.
         if roi is not None:
-            roi_cell_ids = self.get_cells_by_region(roi = roi, units = units)
-            filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            roi_cell_ids = self.get_cells_by_region(roi=roi, units=units)
+            filtered_df = filtered_df.query("cell_id in @roi_cell_ids")
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
 
         # If no cells found after all the above filtering, return
         if len(filtered_df) == 0:
@@ -444,25 +536,44 @@ class AnalysisChunk:
             return
 
         # Remove cells below minimum threshold set in params (minimum_n param)
-        too_few_cells = [ct for ct in cell_types if len(filtered_df.query(f"typing_file_{typing_file_idx} == @ct")['cell_id'].values) < minimum_n]
-        
+        too_few_cells = [
+            ct
+            for ct in cell_types
+            if len(
+                filtered_df.query(f"typing_file_{typing_file_idx} == @ct")[
+                    "cell_id"
+                ].values
+            )
+            < minimum_n
+        ]
+
         for ct in too_few_cells:
-            cell_types.remove(ct) 
+            cell_types.remove(ct)
 
         # Sort cell types alphabetically for plotting
         cell_types = sorted(cell_types)
 
         # Organize IDs and types into dictionary and pass to get_ells() function to pull ellipses
-        d_noise_ids_by_type = {ct : list(filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values) for ct in cell_types}
-        d_ells_by_type, scale_factor = get_ells(self, d_noise_ids_by_type, std_scaling = std_scaling, units = units)
-
+        d_noise_ids_by_type = {
+            ct: list(
+                filtered_df.query(f"typing_file_{typing_file_idx} == @ct")[
+                    "cell_id"
+                ].values
+            )
+            for ct in cell_types
+        }
+        d_ells_by_type, scale_factor = get_ells(
+            self, d_noise_ids_by_type, std_scaling=std_scaling, units=units
+        )
 
         # Plot ellipses, one axis per cell type
-        rows = int(np.ceil(len(cell_types)/4))
-        cols = np.min([(len(cell_types)-1 % 4)+1, 4])
-        size = (4*cols, int(3*rows))
+        rows = int(np.ceil(len(cell_types) / 4))
+        cols = np.min([(len(cell_types) - 1 % 4) + 1, 4])
+        size = (4 * cols, int(3 * rows))
 
-        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size, layout = 'constrained')
+        fig, axs = plt.subplots(
+            nrows=rows, ncols=cols, figsize=size, layout="constrained"
+        )
 
         if cols != 1:
             axs = np.array(axs).flatten()
@@ -474,11 +585,16 @@ class AnalysisChunk:
             for id in d_ells_by_type[ct]:
                 ax.add_patch(d_ells_by_type[ct][id])
                 if label_cells:
-                    ax.text(d_ells_by_type[ct][id].center[0], d_ells_by_type[ct][id].center[1], str(id),
-                            horizontalalignment = 'center', verticalalignment = 'center')
+                    ax.text(
+                        d_ells_by_type[ct][id].center[0],
+                        d_ells_by_type[ct][id].center[1],
+                        str(id),
+                        horizontalalignment="center",
+                        verticalalignment="center",
+                    )
 
-            ax.set_xlim(0,self.numXChecks * scale_factor)
-            ax.set_ylim(0,self.numYChecks * scale_factor)
+            ax.set_xlim(0, self.numXChecks * scale_factor)
+            ax.set_ylim(0, self.numYChecks * scale_factor)
 
             ax.set_ylabel(units.lower())
             ax.set_xlabel(units.lower())
@@ -486,7 +602,7 @@ class AnalysisChunk:
             n_cells = len(d_ells_by_type[ct])
             ax.set_title(f"{ct}, (n = {n_cells})")
 
-        # Remove any empty axes 
+        # Remove any empty axes
         num_axes = rows * cols
         empty_axes = num_axes - len(cell_types)
 
@@ -495,25 +611,37 @@ class AnalysisChunk:
 
         # If b_zoom is true, crop each axis to zoom in on the array
         if b_zoom:
-            x_min, x_max = filtered_df['center_x'].min(), filtered_df['center_x'].max()
-            y_min, y_max = filtered_df['center_y'].min(), filtered_df['center_y'].max()
-            
+            x_min, x_max = filtered_df["center_x"].min(), filtered_df["center_x"].max()
+            y_min, y_max = filtered_df["center_y"].min(), filtered_df["center_y"].max()
+
             for ax in axs:
-                ax.set_xlim((x_min - n_pad)*scale_factor, (x_max + n_pad)*scale_factor)
-                ax.set_ylim((y_min - n_pad)*scale_factor, (y_max + n_pad)*scale_factor)
-        
-        fig.suptitle("RFs by Cell Type", fontsize = 15)
+                ax.set_xlim(
+                    (x_min - n_pad) * scale_factor, (x_max + n_pad) * scale_factor
+                )
+                ax.set_ylim(
+                    (y_min - n_pad) * scale_factor, (y_max + n_pad) * scale_factor
+                )
+
+        fig.suptitle("RFs by Cell Type", fontsize=15)
 
         return axs
-        
-    def plot_timecourses(self, noise_ids: Optional[List[int]]=None, cell_types: Optional[List[str]]=None,
-                         typing_file: Optional[str] = None, units: str = 'ms', std_scaling: float = 2, minimum_n: int = 1,
-                         roi: Optional[Dict[str, float]] = None, roi_units: str = 'pixels') -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
+
+    def plot_timecourses(
+        self,
+        noise_ids: Optional[List[int]] = None,
+        cell_types: Optional[List[str]] = None,
+        typing_file: Optional[str] = None,
+        units: str = "ms",
+        std_scaling: float = 2,
+        minimum_n: int = 1,
+        roi: Optional[Dict[str, float]] = None,
+        roi_units: str = "pixels",
+    ) -> Optional[np.ndarray[Any, np.dtype[np.object_]]]:
         """
         Method for plotting the timecourses for a given list of cell ids, cell types, or a union of both. If no cell_ids
-        or cell types are given, the timecourses for all cells in the analysis chunk are plotted by type. The mean is 
+        or cell types are given, the timecourses for all cells in the analysis chunk are plotted by type. The mean is
         plotted as a line with a shaded region defined by the standard deviation * std_scaling.
-        
+
         Parameters:
             noise_ids (List[int]): A list of cell_ids to plot. Default None.
 
@@ -533,7 +661,7 @@ class AnalysisChunk:
 
             roi_units (str): Units to use when defining the region of interest. Must be 'pixels', 'microns',
             or 'stixels'. Default 'pixels'.
-        
+
         Returns:
             axs (axes): Axes object that contains all of the axes used in the timecourses figure. There
             will be as many axes as there are cell_types represented in the plot.
@@ -545,24 +673,26 @@ class AnalysisChunk:
         # Convert individual cell type or cell id into list
         if isinstance(cell_types, str):
             cell_types = [cell_types]
-        
+
         if isinstance(noise_ids, int) or isinstance(noise_ids, float):
             noise_ids = [int(noise_ids)]
 
         # Parse units input
-        if 'ms' in units.lower() or 'milliseconds' in units.lower():
+        if "ms" in units.lower() or "milliseconds" in units.lower():
             scale_factor = 1
-        elif 's' in units.lower() or 'seconds' in units.lower():
+        elif "s" in units.lower() or "seconds" in units.lower():
             scale_factor = 1e-3
         else:
-            raise NameError("Units string must be 'ms', 'milliseconds', 's' or 'seconds'")
+            raise NameError(
+                "Units string must be 'ms', 'milliseconds', 's' or 'seconds'"
+            )
 
         # Parse typing file, use typing file 0 if none given
         if typing_file is None:
             try:
                 typing_file = self.typing_files[0]
             except:
-                print(f'No typing files for {self.exp_name} {self.chunk_name}')
+                print(f"No typing files for {self.exp_name} {self.chunk_name}")
                 return
 
         if typing_file not in self.typing_files:
@@ -574,24 +704,28 @@ class AnalysisChunk:
         # Filter for union of cell ids and cell types provided by user
         if noise_ids is None and cell_types is None:
             filtered_df = self.df_cell_params
-            noise_ids = list(filtered_df['cell_id'].values)
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            noise_ids = list(filtered_df["cell_id"].values)
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
         elif noise_ids is None:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
-            noise_ids = list(filtered_df['cell_id'].values)
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            filtered_df = self.df_cell_params.query(
+                f"typing_file_{typing_file_idx} in @cell_types"
+            )
+            noise_ids = list(filtered_df["cell_id"].values)
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
         elif cell_types is None:
-            filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids')
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            filtered_df = self.df_cell_params.query(f"cell_id in @noise_ids")
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
         else:
-            filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids')
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            filtered_df = self.df_cell_params.query(
+                f"typing_file_{typing_file_idx} in @cell_types and cell_id in @noise_ids"
+            )
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
 
         # Filter for cells inside region of interest (roi) if one was provided
         if roi is not None:
-            roi_cell_ids = self.get_cells_by_region(roi = roi, units = roi_units)
-            filtered_df = filtered_df.query('cell_id in @roi_cell_ids')
-            cell_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+            roi_cell_ids = self.get_cells_by_region(roi=roi, units=roi_units)
+            filtered_df = filtered_df.query("cell_id in @roi_cell_ids")
+            cell_types = sorted(filtered_df[f"typing_file_{typing_file_idx}"].unique())
 
         # Check that we actually have cells to plot
         if len(filtered_df) == 0:
@@ -599,23 +733,37 @@ class AnalysisChunk:
             return
 
         # Remove cells below minimum threshold
-        too_few_cells = [ct for ct in cell_types if len(filtered_df.query(f"typing_file_{typing_file_idx} == @ct")['cell_id'].values) < minimum_n]
-        
-        for ct in too_few_cells:
-            cell_types.remove(ct) 
+        too_few_cells = [
+            ct
+            for ct in cell_types
+            if len(
+                filtered_df.query(f"typing_file_{typing_file_idx} == @ct")[
+                    "cell_id"
+                ].values
+            )
+            < minimum_n
+        ]
 
+        for ct in too_few_cells:
+            cell_types.remove(ct)
 
         # Organize cells into dictionary and pass that dictionary to get_timecourses() function
-        d_noise_ids_by_type = {ct : filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].values for ct in cell_types}
+        d_noise_ids_by_type = {
+            ct: filtered_df.query(f"typing_file_{typing_file_idx} == @ct")[
+                "cell_id"
+            ].values
+            for ct in cell_types
+        }
         d_timecourses_by_type = get_timecourses(self, d_noise_ids_by_type)
 
-
         # Plot timecourses, one axis per cell type
-        rows = np.ceil(len(cell_types)/4).astype(int)
-        cols = np.min([(len(cell_types)-1 % 4)+1, 4])
-        size = (4*cols, int(3*rows))
+        rows = np.ceil(len(cell_types) / 4).astype(int)
+        cols = np.min([(len(cell_types) - 1 % 4) + 1, 4])
+        size = (4 * cols, int(3 * rows))
 
-        fig, axs = plt.subplots(nrows = rows, ncols = cols, figsize = size, layout = 'constrained')
+        fig, axs = plt.subplots(
+            nrows=rows, ncols=cols, figsize=size, layout="constrained"
+        )
 
         if cols != 1:
             axs = np.array(axs).flatten()
@@ -625,60 +773,101 @@ class AnalysisChunk:
         for idx, ct in enumerate(cell_types):
             ax = axs[idx]
 
-            time_vals = np.linspace(-491.66,8.33,len(d_timecourses_by_type[ct]['g_mean']))*scale_factor
+            time_vals = (
+                np.linspace(-491.66, 8.33, len(d_timecourses_by_type[ct]["g_mean"]))
+                * scale_factor
+            )
 
-            if np.array_equal(d_timecourses_by_type[ct]['r_mean'], d_timecourses_by_type[ct]['g_mean']):
-                g_err_top = d_timecourses_by_type[ct]['g_mean'] + d_timecourses_by_type[ct]['g_std']*std_scaling
-                g_err_bottom = d_timecourses_by_type[ct]['g_mean'] - d_timecourses_by_type[ct]['g_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['g_mean'], '-g')
-                ax.fill_between(time_vals, g_err_bottom, g_err_top, alpha = 0.4, color = 'g')
+            if np.array_equal(
+                d_timecourses_by_type[ct]["r_mean"], d_timecourses_by_type[ct]["g_mean"]
+            ):
+                g_err_top = (
+                    d_timecourses_by_type[ct]["g_mean"]
+                    + d_timecourses_by_type[ct]["g_std"] * std_scaling
+                )
+                g_err_bottom = (
+                    d_timecourses_by_type[ct]["g_mean"]
+                    - d_timecourses_by_type[ct]["g_std"] * std_scaling
+                )
+                ax.plot(time_vals, d_timecourses_by_type[ct]["g_mean"], "-g")
+                ax.fill_between(
+                    time_vals, g_err_bottom, g_err_top, alpha=0.4, color="g"
+                )
             else:
-                r_err_top = d_timecourses_by_type[ct]['r_mean'] + d_timecourses_by_type[ct]['r_std']*std_scaling
-                r_err_bottom = d_timecourses_by_type[ct]['r_mean'] - d_timecourses_by_type[ct]['r_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['r_mean'], '-r')
-                ax.fill_between(time_vals, r_err_bottom, r_err_top, alpha = 0.4, color = 'r')
+                r_err_top = (
+                    d_timecourses_by_type[ct]["r_mean"]
+                    + d_timecourses_by_type[ct]["r_std"] * std_scaling
+                )
+                r_err_bottom = (
+                    d_timecourses_by_type[ct]["r_mean"]
+                    - d_timecourses_by_type[ct]["r_std"] * std_scaling
+                )
+                ax.plot(time_vals, d_timecourses_by_type[ct]["r_mean"], "-r")
+                ax.fill_between(
+                    time_vals, r_err_bottom, r_err_top, alpha=0.4, color="r"
+                )
 
-                g_err_top = d_timecourses_by_type[ct]['g_mean'] + d_timecourses_by_type[ct]['g_std']*std_scaling
-                g_err_bottom = d_timecourses_by_type[ct]['g_mean'] - d_timecourses_by_type[ct]['g_std']*std_scaling
-                ax.plot(time_vals, d_timecourses_by_type[ct]['g_mean'], '-g')
-                ax.fill_between(time_vals, g_err_bottom, g_err_top, alpha = 0.4, color = 'g')
+                g_err_top = (
+                    d_timecourses_by_type[ct]["g_mean"]
+                    + d_timecourses_by_type[ct]["g_std"] * std_scaling
+                )
+                g_err_bottom = (
+                    d_timecourses_by_type[ct]["g_mean"]
+                    - d_timecourses_by_type[ct]["g_std"] * std_scaling
+                )
+                ax.plot(time_vals, d_timecourses_by_type[ct]["g_mean"], "-g")
+                ax.fill_between(
+                    time_vals, g_err_bottom, g_err_top, alpha=0.4, color="g"
+                )
 
-
-            b_err_top = d_timecourses_by_type[ct]['b_mean'] + d_timecourses_by_type[ct]['b_std']*std_scaling
-            b_err_bottom = d_timecourses_by_type[ct]['b_mean'] - d_timecourses_by_type[ct]['b_std']*std_scaling
-            ax.plot(time_vals, d_timecourses_by_type[ct]['b_mean'], '-b')
-            ax.fill_between(time_vals, b_err_bottom, b_err_top, alpha = 0.4, color = 'b') 
+            b_err_top = (
+                d_timecourses_by_type[ct]["b_mean"]
+                + d_timecourses_by_type[ct]["b_std"] * std_scaling
+            )
+            b_err_bottom = (
+                d_timecourses_by_type[ct]["b_mean"]
+                - d_timecourses_by_type[ct]["b_std"] * std_scaling
+            )
+            ax.plot(time_vals, d_timecourses_by_type[ct]["b_mean"], "-b")
+            ax.fill_between(time_vals, b_err_bottom, b_err_top, alpha=0.4, color="b")
 
             ax.set_xlim([time_vals[0], time_vals[-1]])
 
             ax.set_ylabel(f"STA (arb. units)")
             ax.set_xlabel(f"Time ({units})")
-            
-            ax.set_title(f"{ct}, (n = {d_timecourses_by_type[ct]['r_timecourses'].shape[0]})")
 
-        # Remove any empty axes 
-        num_axes = rows*cols
+            ax.set_title(
+                f"{ct}, (n = {d_timecourses_by_type[ct]['r_timecourses'].shape[0]})"
+            )
+
+        # Remove any empty axes
+        num_axes = rows * cols
         empty_axes = num_axes - len(cell_types)
 
         for i in range(empty_axes):
             fig.delaxes(cast(Axes, axs[num_axes - 1 - i]))
 
-        fig.suptitle("Timecourse by Cell Type", fontsize = 15)
+        fig.suptitle("Timecourse by Cell Type", fontsize=15)
 
         return axs
 
-    
-    def get_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
-                  typing_file: Optional[str] = None, padded: bool = True, units: str = 'stixels') -> dict:
+    def get_stas(
+        self,
+        noise_ids: int | List[int] | None = None,
+        cell_types: str | List[str] | None = None,
+        typing_file: str | None = None,
+        padded: bool = True,
+        units: str = "stixels",
+    ) -> dict:
         """
         Function for loading the STAs of a given list of cell types and/or noise ids. If both are given, will only
         pull the union of the two.
-        
+
         Parameters:
             noise_ids (int or List[int]): list of cell ids, optional, default is None
 
             cell_types (str or List[str]): list of cell types, optional, default is None
-            
+
             typing_file (str): name of a typing file to use for cell type classification
 
             padded (bool): Boolean value to indicate if any crop should be removed relative to the actual size of the
@@ -687,75 +876,89 @@ class AnalysisChunk:
 
             units (str): Either 'stixels', 'pixels', or 'microns'. This will scale the STAs to the appropriate units
             using nearest neighbor scaling.
-            
+
         Returns:
-            all_stas (numpy array or dict of numpy arrays): numpy array that contains all STAs. If a typing file is given and/or 
-            cell type info is available, the output will have cell type information. Otherwise it 
-            will not. 
+            all_stas (numpy array or dict of numpy arrays): numpy array that contains all STAs. If a typing file is given and/or
+            cell type info is available, the output will have cell type information. Otherwise it
+            will not.
         """
 
         # Convert individual Cell ID or Cell Type into a list
-        if isinstance(noise_ids, int):
-            noise_ids = [noise_ids]
+        if isinstance(noise_ids, int) or isinstance(noise_ids, float):
+            noise_ids = [int(noise_ids)]
 
         if isinstance(cell_types, str):
             cell_types = [cell_types]
 
+
         # Parse units to make sure they're valid
-        if 'pixels' in units.lower():
+        if "pixels" in units.lower():
             unit_scaling = self.pixels_per_stixel
-        elif 'microns' in units.lower():
+        elif "microns" in units.lower():
             unit_scaling = self.microns_per_stixel
-        elif 'stixels' in units.lower():
+        elif "stixels" in units.lower():
             unit_scaling = 1
         else:
             raise Exception("Units must be 'pixels', 'microns' or 'stixels'")
 
-        
         # Combined parsing of noise_ids, cell_types, and typing_file... a bit hard to follow
         # may split this up like it is in plot_rfs() and plot_timecourses()
         if noise_ids is None:
             # Neither noise IDs nor cell types provided
             if cell_types is None:
                 if not self.typing_files:
-                    print('WARNING: No typing files exist for this chunk, will not organize cells by type')
+                    print(
+                        "WARNING: No typing files exist for this chunk, will not organize cells by type"
+                    )
                     filtered_df = self.df_cell_params
-                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    cell_ids = filtered_df["cell_id"].to_numpy()
                     available_types = None
                     typing_file_idx = None
                 else:
-                    print('WARNING: Loading all STAs... this will take up a huge amount of memory')
+                    print(
+                        "WARNING: Loading all STAs... this will take up a huge amount of memory"
+                    )
                     if typing_file is None:
                         typing_file = self.typing_files[0]
 
                     typing_file_idx = self.typing_files.index(typing_file)
 
                     filtered_df = self.df_cell_params
-                    cell_ids = filtered_df['cell_id'].to_numpy()
-                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+                    cell_ids = filtered_df["cell_id"].to_numpy()
+                    available_types = sorted(
+                        filtered_df[f"typing_file_{typing_file_idx}"].unique()
+                    )
 
             # Cell types provided, no IDs provided
             else:
                 if not self.typing_files:
-                    raise ValueError('No typing files exist for this chunk, try again without cell type argument')
+                    raise ValueError(
+                        "No typing files exist for this chunk, try again without cell type argument"
+                    )
                 else:
                     if typing_file is None:
                         typing_file = self.typing_files[0]
-                    
+
                     typing_file_idx = self.typing_files.index(typing_file)
 
-                    filtered_df = self.df_cell_params.query(f'typing_file_{typing_file_idx} in @cell_types')
-                    cell_ids = filtered_df['cell_id'].to_numpy()
-                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
-        
+                    filtered_df = self.df_cell_params.query(
+                        f"typing_file_{typing_file_idx} in @cell_types"
+                    )
+                    cell_ids = filtered_df["cell_id"].to_numpy()
+                    available_types = sorted(
+                        filtered_df[f"typing_file_{typing_file_idx}"].unique()
+                    )
+
         else:
             # Noise IDs provided but no cell types provided
             if cell_types is None:
                 if not self.typing_files:
-                    print('WARNING: No typing files exist for this chunk, will not organize cells by type')
+                    print(
+                        "WARNING: No typing files exist for this chunk, will not organize cells by type"
+                    )
 
-                    filtered_df = self.df_cell_params.query('cell_id in @noise_ids')
-                    cell_ids = filtered_df['cell_id'].to_numpy()
+                    filtered_df = self.df_cell_params.query("cell_id in @noise_ids")
+                    cell_ids = filtered_df["cell_id"].to_numpy()
                     available_types = None
                     typing_file_idx = None
                 else:
@@ -764,25 +967,36 @@ class AnalysisChunk:
 
                     typing_file_idx = self.typing_files.index(typing_file)
 
-                    filtered_df = self.df_cell_params.query('cell_id in @noise_ids')
-                    cell_ids = filtered_df['cell_id'].to_numpy()
-                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique())
+                    filtered_df = self.df_cell_params.query("cell_id in @noise_ids")
+                    cell_ids = filtered_df["cell_id"].to_numpy()
+                    available_types = sorted(
+                        filtered_df[f"typing_file_{typing_file_idx}"].unique()
+                    )
             else:
                 # Noise IDs and Cell Types provided
                 if not self.typing_files:
-                    raise ValueError('No typing files exist for this chunk, try again without the cell type')
+                    raise ValueError(
+                        "No typing files exist for this chunk, try again without the cell type"
+                    )
                 else:
                     if typing_file is None:
                         typing_file = self.typing_files[0]
-                    
+
                     typing_file_idx = self.typing_files.index(typing_file)
 
-                    filtered_df = self.df_cell_params.query(f'cell_id in @noise_ids and typing_file_{typing_file_idx} in @cell_types')
-                    cell_ids = filtered_df['cell_id'].to_numpy()
-                    available_types = sorted(filtered_df[f'typing_file_{typing_file_idx}'].unique()) 
+                    filtered_df = self.df_cell_params.query(
+                        f"cell_id in @noise_ids and typing_file_{typing_file_idx} in @cell_types"
+                    )
+                    cell_ids = filtered_df["cell_id"].to_numpy()
+                    available_types = sorted(
+                        filtered_df[f"typing_file_{typing_file_idx}"].unique()
+                    )
 
         # Pull STAs and organize by cell id alone, or nested inside a dictionary organized by cell id
-        sta_reader = vl.STAReader(os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version), self.ss_version)
+        sta_reader = vl.STAReader(
+            os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version),
+            self.ss_version,
+        )
 
         if available_types is None:
             id_dict = dict()
@@ -790,45 +1004,67 @@ class AnalysisChunk:
                 # Pull Raw STA
                 data = sta_reader.get_sta_for_cell_id(cell_id)
                 sta = np.stack([data.red, data.green, data.blue])
-                sta = np.transpose(sta, (3,1,2,0))
+                sta = np.transpose(sta, (3, 1, 2, 0))
                 if unit_scaling > 1:
-                    sta = zoom(sta, zoom = [1.0, unit_scaling, unit_scaling, 1.0], order = 0)
+                    sta = zoom(
+                        sta, zoom=[1.0, unit_scaling, unit_scaling, 1.0], order=0
+                    )
                 id_dict[cell_id] = sta
 
             d_stas = id_dict
         else:
             ct_dict = dict()
             for ct in available_types:
-                ct_ids = filtered_df.query(f'typing_file_{typing_file_idx} == @ct')['cell_id'].to_numpy()
+                ct_ids = filtered_df.query(f"typing_file_{typing_file_idx} == @ct")[
+                    "cell_id"
+                ].to_numpy()
                 id_dict = dict()
                 for cell_id in ct_ids:
                     data = sta_reader.get_sta_for_cell_id(cell_id)
                     sta = np.stack([data.red, data.green, data.blue])
-                    sta = np.transpose(sta, (3,1,2,0))
+                    sta = np.transpose(sta, (3, 1, 2, 0))
 
                     if padded:
                         left_pad = int(self.deltaXChecks)
-                        right_pad = int(self.numXChecks - self.staXChecks - self.deltaXChecks)
+                        right_pad = int(
+                            self.numXChecks - self.staXChecks - self.deltaXChecks
+                        )
                         top_pad = int(self.deltaYChecks)
-                        bottom_pad = int(self.numYChecks - self.staYChecks - self.deltaYChecks)
+                        bottom_pad = int(
+                            self.numYChecks - self.staYChecks - self.deltaYChecks
+                        )
 
-                        pad_width_config = [(0, 0), (bottom_pad, top_pad), (left_pad, right_pad), (0, 0)]
-                        sta = np.pad(sta, pad_width_config, mode = 'constant', constant_values = 0)
+                        pad_width_config = [
+                            (0, 0),
+                            (bottom_pad, top_pad),
+                            (left_pad, right_pad),
+                            (0, 0),
+                        ]
+                        sta = np.pad(
+                            sta, pad_width_config, mode="constant", constant_values=0
+                        )
 
                     if unit_scaling > 1:
-                        sta = zoom(sta, zoom = [1.0, unit_scaling, unit_scaling, 1.0], order = 0)
+                        sta = zoom(
+                            sta, zoom=[1.0, unit_scaling, unit_scaling, 1.0], order=0
+                        )
                     id_dict[cell_id] = sta
 
                 ct_dict[ct] = id_dict
 
             d_stas = ct_dict
-                    
 
         return d_stas
 
-    def plot_stas(self, noise_ids: Optional[int | List[int]] = None, cell_types: Optional[str | List[str]] = None,
-                  typing_file: Optional[str] = None, cols: int = 4, padded: bool = False,
-                  units: str = 'stixels') -> List[np.ndarray] | List[Axes]:
+    def plot_stas(
+        self,
+        noise_ids: Optional[int | List[int]] = None,
+        cell_types: Optional[str | List[str]] = None,
+        typing_file: Optional[str] = None,
+        cols: int = 4,
+        padded: bool = False,
+        units: str = "stixels",
+    ) -> List[np.ndarray] | List[Axes]:
         """
         Method for plotting STAs for a list of cell ids, a list of cell types, or the union of the two. The
         user also has the option of providing a typing file to use. If there exists a typing file or one
@@ -838,7 +1074,7 @@ class AnalysisChunk:
         Parameters:
             noise_ids (int or List[int]) a single cell id or list of cell ids to be plotted. Optional, default None.
 
-            cell_types (str or List[str]) a single cell type or list of cell types to be plotted. Optional, default None. 
+            cell_types (str or List[str]) a single cell type or list of cell types to be plotted. Optional, default None.
 
             typing_file (str): The name of a typing file to use for linking cell types to cell ids. If no typing file is given
             typing file [0] from the analysis chunk is used. If there are no typing files, only one figure is plotted, with no
@@ -851,115 +1087,127 @@ class AnalysisChunk:
             stimulus. Default value for plotting purposes is False.
 
             units (str): units to plot the STAs in. Must be stixels, pixels, or microns. Default is stixels. If other units
-            are used, the STA is scaled using nearest neighbor interpolation. 
+            are used, the STA is scaled using nearest neighbor interpolation.
 
         Returns:
             sta_axes: will return a list of Axes objects (multiple single cells of different types) or a list of numpy arrays
-            of axes (multiple cells of multiple types). 
+            of axes (multiple cells of multiple types).
 
             The function will also plot the results automatically if you're in a jupyter notebook, but it does not call
             plt.show() on the figure. You need to call plt.show() manually if running as part of a REPL or script.
         """
 
         # All unit parsing and checking of data types done in get_stas()
-        d_stas = self.get_stas(noise_ids = noise_ids, cell_types = cell_types,
-                                typing_file = typing_file, padded = padded, units = units)
+        d_stas = self.get_stas(
+            noise_ids=noise_ids,
+            cell_types=cell_types,
+            typing_file=typing_file,
+            padded=padded,
+            units=units,
+        )
 
         all_axes = []
         # Plot STAs organized by one figure per cell type
         if isinstance(list(d_stas.keys())[0], str):
             # This indicates that the dictionary is organized by cell type
             available_types: List[str] = sorted(list(d_stas.keys()))
-            
+
             for ct_idx, ct in enumerate(available_types):
                 cell_ids = list(d_stas[ct].keys())
-                
-                rows = np.ceil(len(cell_ids)/cols).astype(int)
+
+                rows = np.ceil(len(cell_ids) / cols).astype(int)
                 if len(cell_ids) > 1:
-                    fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = (5*cols, 3.5*rows),
-                                           layout = 'constrained')
+                    fig, ax = plt.subplots(
+                        nrows=rows,
+                        ncols=cols,
+                        figsize=(5 * cols, 3.5 * rows),
+                        layout="constrained",
+                    )
                     ax = ax.flatten()
                 else:
-                    fig, ax = plt.subplots(figsize = (5, 3.5), layout = 'constrained')
+                    fig, ax = plt.subplots(figsize=(5, 3.5), layout="constrained")
                     ax = [ax]
 
                 for c_idx, cell_id in enumerate(cell_ids):
                     sta = d_stas[ct][cell_id]
-                    min_index = np.unravel_index(np.argmin(sta), sta.shape) 
-                    max_index = np.unravel_index(np.argmax(sta), sta.shape) 
+                    min_index = np.unravel_index(np.argmin(sta), sta.shape)
+                    max_index = np.unravel_index(np.argmax(sta), sta.shape)
 
                     if np.abs(np.min(sta)) > np.abs(np.max(sta)):
                         timebin_to_plot = min_index[0]
                     else:
                         timebin_to_plot = max_index[0]
 
-                    sta_img = (sta[timebin_to_plot, :, :, :]+1)/2
+                    sta_img = (sta[timebin_to_plot, :, :, :] + 1) / 2
                     ax[c_idx].imshow(sta_img)
-                    ax[c_idx].set_title(f'Cell ID #{cell_id}')
-                    ax[c_idx].set_xlabel(f'{units}')
-                    ax[c_idx].set_ylabel(f'{units}')
-
+                    ax[c_idx].set_title(f"Cell ID #{cell_id}")
+                    ax[c_idx].set_xlabel(f"{units}")
+                    ax[c_idx].set_ylabel(f"{units}")
 
                 if self.deltaXChecks > 0 and not padded:
-                    fig.suptitle(f'Cropped {ct} STAs')
+                    fig.suptitle(f"Cropped {ct} STAs")
                 else:
-                    fig.suptitle(f'{ct} STAs')
+                    fig.suptitle(f"{ct} STAs")
 
                 if len(cell_ids) > 1:
                     # Delete unused axes
-                    num_axes = rows*cols
+                    num_axes = rows * cols
                     empty_axes = num_axes - len(cell_ids)
 
                     for i in range(empty_axes):
-                        fig.delaxes(ax[num_axes-1-i])
+                        fig.delaxes(ax[num_axes - 1 - i])
 
                 all_axes.append(ax)
 
         # No cell types, plot all STAs in a single figure
         else:
-            assert (isinstance(list(d_stas.keys())[0], int)),\
-            (f'The keys in the sta dict should either be ints or strs, yours is a {type(list(d_stas.keys())[0])}')
+            assert isinstance(list(d_stas.keys())[0], int), (
+                f"The keys in the sta dict should either be ints or strs, yours is a {type(list(d_stas.keys())[0])}"
+            )
             # This indicates the sta dictionary is organized by cell id and has no types associated with it.
             cell_ids = list(d_stas.keys())
 
-            rows = np.ceil(len(cell_ids)/cols).astype(int)
-            fig, ax = plt.subplots(nrows = rows, ncols = cols, figsize = (5*cols, 3.5*rows),
-                                   layout = 'constrained')
-            
-            if rows*cols > 1:
+            rows = np.ceil(len(cell_ids) / cols).astype(int)
+            fig, ax = plt.subplots(
+                nrows=rows,
+                ncols=cols,
+                figsize=(5 * cols, 3.5 * rows),
+                layout="constrained",
+            )
+
+            if rows * cols > 1:
                 ax = ax.flatten()
             else:
                 ax = [ax]
 
             for c_idx, cell_id in enumerate(cell_ids):
                 sta = d_stas[cell_id]
-                min_index = np.unravel_index(np.argmin(sta), sta.shape) 
-                max_index = np.unravel_index(np.argmax(sta), sta.shape) 
+                min_index = np.unravel_index(np.argmin(sta), sta.shape)
+                max_index = np.unravel_index(np.argmax(sta), sta.shape)
 
                 if np.abs(np.min(sta)) > np.abs(np.max(sta)):
                     timebin_to_plot = min_index[0]
                 else:
                     timebin_to_plot = max_index[0]
 
-                sta_img = (sta[timebin_to_plot, :, :, :]+1)/2
+                sta_img = (sta[timebin_to_plot, :, :, :] + 1) / 2
                 ax[c_idx].imshow(sta_img)
-                ax[c_idx].set_title(f'Cell ID #{cell_id}')
-                ax[c_idx].set_xlabel('Stixels X')
-                ax[c_idx].set_ylabel('Stixels Y')
-
+                ax[c_idx].set_title(f"Cell ID #{cell_id}")
+                ax[c_idx].set_xlabel("Stixels X")
+                ax[c_idx].set_ylabel("Stixels Y")
 
             if self.deltaXChecks > 0 and not padded:
-                fig.suptitle(f'Cropped STAs by Cell ID')
+                fig.suptitle(f"Cropped STAs by Cell ID")
             else:
-                fig.suptitle(f'STAs by Cell ID')
+                fig.suptitle(f"STAs by Cell ID")
 
-            if len(cell_ids)>1:
+            if len(cell_ids) > 1:
                 # Delete unused axes
-                num_axes = rows*cols
+                num_axes = rows * cols
                 empty_axes = num_axes - len(cell_ids)
 
                 for i in range(empty_axes):
-                    fig.delaxes(ax[num_axes-1-i])
+                    fig.delaxes(ax[num_axes - 1 - i])
 
             all_axes.append(ax)
 
@@ -968,10 +1216,10 @@ class AnalysisChunk:
     def export_to_pkl(self, file_path: str):
         d_out = self.__dict__.copy()
         # Pop out vcd
-        d_out.pop('vcd')
-        with open(file_path, 'wb') as f:
+        d_out.pop("vcd")
+        with open(file_path, "wb") as f:
             pickle.dump(d_out, f)
-        
+
         if self.verbose:
             print(f"AnalysisChunk exported to {file_path}")
 
@@ -984,8 +1232,12 @@ class AnalysisChunk:
         str_self += f"  data_files: {self.data_files}\n"
         str_self += f"  typing_files: {self.typing_files}\n"
         str_self += f"  vcd: {self.vcd}\n"
-        str_self += f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
-        str_self += f"  d_ISIs dictionary containing ISIs for {len(self.cell_ids)} cell IDs\n"
+        str_self += (
+            f"  d_EIs dictionary containing EIs for {len(self.cell_ids)} cell IDs\n"
+        )
+        str_self += (
+            f"  d_ISIs dictionary containing ISIs for {len(self.cell_ids)} cell IDs\n"
+        )
         str_self += f"  d_timecourses dictionary containing dictionary with 'red' 'green' and 'blue' timecourses for {len(self.cell_ids)} cell IDs\n"
         str_self += f"  numXChecks: {self.numXChecks}\n"
         str_self += f"  numYChecks: {self.numYChecks}\n"
@@ -997,7 +1249,7 @@ class AnalysisChunk:
         str_self += f"  rf_params with fields: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
         str_self += f"  df_cell_params of shape: {self.df_cell_params.shape}\n"
 
-        if hasattr(self, 'd_spatial_maps'):
+        if hasattr(self, "d_spatial_maps"):
             str_self += f"  d_spatial_maps with {len(self.d_spatial_maps)} cells\n"
         else:
             str_self += "  d_spatial_maps not loaded\n"

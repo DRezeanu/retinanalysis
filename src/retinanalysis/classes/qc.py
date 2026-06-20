@@ -1,23 +1,37 @@
 import numpy as np
 import pandas as pd
-from retinanalysis.classes.response import (MEAResponseBlock,
-                                            MEAResponseGroup,
-                                            create_mea_response_group)
+from retinanalysis.classes.response import (
+    MEAResponseBlock,
+    MEAResponseGroup,
+    create_mea_response_group,
+)
 from retinanalysis.classes.analysis_chunk import AnalysisChunk
 
-def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids: list | np.ndarray):
+
+def get_nsps(
+    resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk,
+    cell_ids: list | np.ndarray,
+):
     ls_nsps = []
 
     if isinstance(resp, AnalysisChunk):
         if len(resp.data_files) > 1:
-            resp = create_mea_response_group(resp.exp_name, resp.data_files, verbose = False)
+            resp = create_mea_response_group(
+                resp.exp_name, resp.data_files, verbose=False
+            )
         else:
-            resp = MEAResponseBlock(resp.exp_name, resp.data_files[0], include_ei = False, b_load_fd = False, verbose = False)
+            resp = MEAResponseBlock(
+                resp.exp_name,
+                resp.data_files[0],
+                include_ei=False,
+                b_load_fd=False,
+                verbose=False,
+            )
 
         df_spike_times = resp.df_spike_times
 
         for n_ID in cell_ids:
-            ls_spike_times = df_spike_times.query('cell_id == @n_ID')['spike_times']
+            ls_spike_times = df_spike_times.query("cell_id == @n_ID")["spike_times"]
             if len(ls_spike_times) > 0:
                 ls_spike_times = ls_spike_times.item()
                 num_spikes = sum([len(arr) for arr in ls_spike_times])
@@ -26,13 +40,13 @@ def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids
 
             ls_nsps.append(num_spikes)
             if num_spikes == 0:
-                print(f'WARNING: No spikes for Analysis Chunk cell id {n_ID}.')
-        
+                print(f"WARNING: No spikes for Analysis Chunk cell id {n_ID}.")
+
     else:
         df_spike_times = resp.df_spike_times
 
         for n_ID in cell_ids:
-            ls_spike_times = df_spike_times.query('cell_id == @n_ID')['spike_times']
+            ls_spike_times = df_spike_times.query("cell_id == @n_ID")["spike_times"]
             if len(ls_spike_times) > 0:
                 ls_spike_times = ls_spike_times.item()
                 num_spikes = sum([len(arr) for arr in ls_spike_times])
@@ -41,54 +55,70 @@ def get_nsps(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids
 
             ls_nsps.append(num_spikes)
             if num_spikes == 0:
-                print(f'WARNING: No spikes for Protocol cell id {n_ID}.')
+                print(f"WARNING: No spikes for Protocol cell id {n_ID}.")
 
     return ls_nsps
 
 
-def get_isi(resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk, cell_ids: list | np.ndarray, bin_edges: np.ndarray):
+def get_isi(
+    resp: MEAResponseBlock | MEAResponseGroup | AnalysisChunk,
+    cell_ids: list | np.ndarray,
+    bin_edges: np.ndarray,
+):
 
-    #TODO: Pull ISIs from actual spike times instead of vcd for Analysis Chunk
-    isi_dict = dict() 
+    # TODO: Pull ISIs from actual spike times instead of vcd for Analysis Chunk
+    isi_dict = dict()
     if isinstance(resp, AnalysisChunk):
         for n_ID in cell_ids:
             isi_dict[n_ID] = resp.d_ISIs[n_ID]
 
     else:
         for n_ID in cell_ids:
-            ls_spike_times = resp.df_spike_times.query('cell_id == @n_ID')['spike_times']
+            ls_spike_times = resp.df_spike_times.query("cell_id == @n_ID")[
+                "spike_times"
+            ]
             if len(ls_spike_times) > 0:
                 ls_spike_times = ls_spike_times.item()
             else:
                 ls_spike_times = []
 
-
             ls_spike_diffs = [np.diff(arr) for arr in ls_spike_times]
-            ls_isi_hist = [np.histogram(arr, bins = bin_edges)[0].astype(float) for arr in ls_spike_diffs]
-            isi_dict[n_ID] = np.mean(ls_isi_hist, axis = 0)
+            ls_isi_hist = [
+                np.histogram(arr, bins=bin_edges)[0].astype(float)
+                for arr in ls_spike_diffs
+            ]
+            isi_dict[n_ID] = np.mean(ls_isi_hist, axis=0)
 
             if np.sum(isi_dict[n_ID]) == 0:
-                isi_dict[n_ID] = np.zeros((len(bin_edges)-1,)).astype(float)
+                isi_dict[n_ID] = np.zeros((len(bin_edges) - 1,)).astype(float)
             # Normalize by sum
             else:
                 isi_dict[n_ID] /= np.sum(isi_dict[n_ID])
 
-
     for id in cell_ids:
         if id not in list(isi_dict.keys()):
-            print(f'Cell {id} not in isi_dict')
+            print(f"Cell {id} not in isi_dict")
 
     return isi_dict
+
 
 def get_pct_refractory(isi_dict, n_bin_max):
     # Make array of [cells, bins]
     isi = np.array(list(isi_dict.values()))
-    pct_refractory = np.sum(isi[:,:n_bin_max], axis=1) * 100
+    pct_refractory = np.sum(isi[:, :n_bin_max], axis=1) * 100
     return pct_refractory
 
-class MEAQC():
-    def __init__(self, rb: MEAResponseBlock | MEAResponseGroup, ac: AnalysisChunk, match_dict: dict,
-                 corr_dict: dict, refractory_period_ms: float=1.5, verbose: bool = False):
+
+class MEAQC:
+    def __init__(
+        self,
+        rb: MEAResponseBlock | MEAResponseGroup,
+        ac: AnalysisChunk,
+        match_dict: dict,
+        corr_dict: dict,
+        refractory_period_ms: float = 1.5,
+        verbose: bool = False,
+    ):
         self.rb = rb
         self.ac = ac
         self.match_dict = match_dict
@@ -96,54 +126,73 @@ class MEAQC():
         # Assuming different sorting chunks for now
         # And assuming rb is not for noise protocol
         self.refractory_period_ms = refractory_period_ms
-        
-        isi_bin_edges = np.linspace(0,300,601)
-        isi_bins = np.array([(isi_bin_edges[i], isi_bin_edges[i+1]) for i in range(len(isi_bin_edges)-1)])
-        isi_bin_max = np.argwhere(isi_bins[:,1] <= refractory_period_ms)[-1][0] + 1
+
+        isi_bin_edges = np.linspace(0, 300, 601)
+        isi_bins = np.array(
+            [
+                (isi_bin_edges[i], isi_bin_edges[i + 1])
+                for i in range(len(isi_bin_edges) - 1)
+            ]
+        )
+        isi_bin_max = np.argwhere(isi_bins[:, 1] <= refractory_period_ms)[-1][0] + 1
         if verbose:
-            print(f'Using {refractory_period_ms} ms refractory period.')
-            print(f'Using first {isi_bin_max} bins for refractory period calculation.')
+            print(f"Using {refractory_period_ms} ms refractory period.")
+            print(f"Using first {isi_bin_max} bins for refractory period calculation.")
         self.isi_bin_edges = isi_bin_edges
         self.isi_bin_max = isi_bin_max
-        
+
         self.df_qc = self.get_df_qc()
 
     def get_df_qc(self):
-        ls_cols = ['cell_id', 'cell_type', 'noise_spikes',
-                    'noise_isi_violations', 'ei_corr',
-                    'protocol_spikes', 'protocol_isi_violations',
-                    'noise_id']
+        ls_cols = [
+            "cell_id",
+            "cell_type",
+            "noise_spikes",
+            "noise_isi_violations",
+            "ei_corr",
+            "protocol_spikes",
+            "protocol_isi_violations",
+            "noise_id",
+        ]
         df_qc = pd.DataFrame(columns=ls_cols)
         ls_cell_ids = []
         ls_noise_ids = []
         ls_cell_types = []
         for key, val in self.match_dict.items():
             ls_cell_ids.append(val)
-            ls_cell_types.append(self.rb.df_spike_times.query('cell_id == @val')['cell_type'].item())
+            ls_cell_types.append(
+                self.rb.df_spike_times.query("cell_id == @val")["cell_type"].item()
+            )
             ls_noise_ids.append(key)
-        
+
         ls_ei_corr = []
         for key, val in self.corr_dict.items():
             ls_ei_corr.append(val)
 
-        df_qc['cell_id'] = ls_cell_ids
-        df_qc['noise_id'] = ls_noise_ids
+        df_qc["cell_id"] = ls_cell_ids
+        df_qc["noise_id"] = ls_noise_ids
 
-        df_qc['cell_type'] = ls_cell_types
+        df_qc["cell_type"] = ls_cell_types
         # df_qc['cell_type'] = self.rb.df_spike_times.query('cell_id in @ls_cell_ids')['cell_type'].values
         # df_qc['cell_type'] = self.rb.df_spike_times.loc[df_qc['cell_id'].index, 'cell_type']
-        
-        df_qc['protocol_spikes'] = get_nsps(self.rb, df_qc['cell_id'].to_numpy())
-        df_qc['noise_spikes'] = get_nsps(self.ac, df_qc['noise_id'].to_numpy())
 
-        self.protocol_isi = get_isi(self.rb, df_qc['cell_id'].to_numpy(), self.isi_bin_edges) 
-        self.noise_isi = get_isi(self.ac, df_qc['noise_id'].to_numpy(), self.isi_bin_edges)
+        df_qc["protocol_spikes"] = get_nsps(self.rb, df_qc["cell_id"].to_numpy())
+        df_qc["noise_spikes"] = get_nsps(self.ac, df_qc["noise_id"].to_numpy())
 
-        df_qc['noise_isi_violations'] = get_pct_refractory(self.noise_isi, self.isi_bin_max)
-        df_qc['protocol_isi_violations'] = get_pct_refractory(self.protocol_isi, self.isi_bin_max)
+        self.protocol_isi = get_isi(
+            self.rb, df_qc["cell_id"].to_numpy(), self.isi_bin_edges
+        )
+        self.noise_isi = get_isi(
+            self.ac, df_qc["noise_id"].to_numpy(), self.isi_bin_edges
+        )
 
-        df_qc['ei_corr'] = ls_ei_corr
-        
+        df_qc["noise_isi_violations"] = get_pct_refractory(
+            self.noise_isi, self.isi_bin_max
+        )
+        df_qc["protocol_isi_violations"] = get_pct_refractory(
+            self.protocol_isi, self.isi_bin_max
+        )
+
+        df_qc["ei_corr"] = ls_ei_corr
 
         return df_qc
-
