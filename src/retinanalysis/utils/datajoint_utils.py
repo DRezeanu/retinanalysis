@@ -425,8 +425,8 @@ def get_datasets_from_protocol_names(
     experiment_ids = np.unique(experiment_ids)
 
     # Join Experiment, EpochGroup, Protocol
-    experiment_query = schema.Experiment() & [f"id={ex_id}" for ex_id in experiment_ids]
-    experiment_query = experiment_query.proj("exp_name", "is_mea", experiment_id="id")
+    exp_query = schema.Experiment() & [f"id={ex_id}" for ex_id in experiment_ids]
+    exp_query = exp_query.proj("exp_name", "is_mea", experiment_id="id")
     epoch_group_query = schema.EpochGroup() & [
         f"experiment_id={ex_id}" for ex_id in experiment_ids
     ]
@@ -434,7 +434,7 @@ def get_datasets_from_protocol_names(
         "experiment_id", group_label="label", group_id="id"
     )
     epoch_group_query = protocol_query * epoch_group_query
-    epoch_group_query = epoch_group_query * experiment_query
+    epoch_group_query = epoch_group_query * exp_query
 
     # Join with EpochBlock
     epoch_block_query = epoch_group_query * schema.EpochBlock.proj(
@@ -606,13 +606,13 @@ def get_noise_name_by_exp(exp_name: str) -> str:
 
 
 def get_stage_frame_rate_by_exp(exp_name: str, verbose: bool = True) -> float:
-    exp_q = schema.Experiment() & f'exp_name="{exp_name}"'
-    exp_id = exp_q.fetch1("id")
-    eb_q = schema.EpochBlock() & f"experiment_id={exp_id}"
+    exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
+    exp_id = exp_query.fetch1("id")
+    epochblock_query = schema.EpochBlock() & f"experiment_id={exp_id}"
     # Get epochs for all these epoch blocks based on id (parent_id)
-    e_q = schema.Epoch() & [f"parent_id={eb_id}" for eb_id in eb_q.to_arrays("id")]
-    e_q = e_q.proj(stage_frame_rate="parameters->>'$.frameRate'")
-    stage_frame_rates = e_q.to_arrays("stage_frame_rate")
+    epoch_query = schema.Epoch() & [f"parent_id={eb_id}" for eb_id in epochblock_query.to_arrays("id")]
+    epoch_query = epoch_query.proj(stage_frame_rate="parameters->>'$.frameRate'")
+    stage_frame_rates = epoch_query.to_arrays("stage_frame_rate")
     stage_frame_rates = stage_frame_rates.astype(float)
     # Remove NaN values if any
     stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
@@ -662,7 +662,10 @@ def get_display_params_by_exp(exp_name: str, verbose: bool = True):
             # As saved in sta_analysis.py. Rig Config indicates 3.37 so not sure what's best...
             # I figure sta_analysis.py value is better as that's used to generate STAs
             # and will be useful to convert regen stim from pixel to stixel space.
-            mu_per_pixel = 3.34
+            if int(exp_name[:8]) < 20260312:
+                mu_per_pixel = 3.34
+            else:
+                mu_per_pixel = 3.07
             n_ht = 1140
             n_wt = 1824
             mean_frame_rate = 59.941548817817917
@@ -941,41 +944,41 @@ def get_epoch_data_from_exp(
     stim_time_name: str = "stimTime",
 ) -> pd.DataFrame:
     # Filter Experiment by exp_name, EpochBlock by block_id, then join down to Epoch
-    ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
-    is_mea = ex_q.fetch1("is_mea") == 1
-    eg_q = schema.EpochGroup() * ex_q.proj("exp_name", experiment_id="id")
-    eg_q = eg_q.proj("exp_name", "experiment_id", group_label="label", group_id="id")
+    exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
+    is_mea = exp_query.fetch1("is_mea") == 1
+    epochgroup_query = schema.EpochGroup() * exp_query.proj("exp_name", experiment_id="id")
+    epochgroup_query = epochgroup_query.proj("exp_name", "experiment_id", group_label="label", group_id="id")
 
     ls_eb_cols = ["protocol_id"]
     if is_mea:
         ls_eb_cols += ["data_dir"]
-    eb_q = schema.EpochBlock.proj(
+    epochblock_query = schema.EpochBlock.proj(
         *ls_eb_cols,
         group_id="parent_id",
         block_properties="properties",
         block_id="id",  # type: ignore
     )
 
-    eb_q = eg_q * eb_q
-    eb_q = eb_q & f"block_id={block_id}"
+    epochblock_query = epochgroup_query * epochblock_query
+    epochblock_query = epochblock_query & f"block_id={block_id}"
 
     if is_mea:
         # Check num epoch ends matches num epoch starts
-        eb_df = eb_q.to_pandas().reset_index()
+        eb_df = epochblock_query.to_pandas().reset_index()
         d_data = eb_df.loc[0].to_dict()
         epoch_starts = d_data["block_properties"]["epochStarts"]
         epoch_ends = d_data["block_properties"]["epochEnds"]
 
-    p_q = eb_q * schema.Protocol.proj(protocol_name="name")  # type: ignore
+    protocol_query = epochblock_query * schema.Protocol.proj(protocol_name="name")  # type: ignore
 
-    e_q = p_q * schema.Epoch.proj(
+    epoch_query = protocol_query * schema.Epoch.proj(
         epoch_parameters="parameters",
         block_id="parent_id",
         epoch_id="id",
         frame_times_ms="properties->>'$.frameTimesMs'",
     )  # type: ignore
 
-    df = e_q.to_pandas()
+    df = epoch_query.to_pandas()
     df = df.reset_index()
 
     if is_mea:
@@ -1043,24 +1046,24 @@ def get_epoch_data_from_exp(
 
 
 def get_epochblock_query(exp_name: str, block_id: int):
-    ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
-    eg_q = schema.EpochGroup() * ex_q.proj("exp_name", "is_mea", experiment_id="id")
-    eg_q = eg_q.proj("exp_name", "is_mea", group_label="label", group_id="id")
-    eb_q = schema.EpochBlock.proj(
+    exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
+    epochgroup_query = schema.EpochGroup() * exp_query.proj("exp_name", "is_mea", experiment_id="id")
+    epochgroup_query = epochgroup_query.proj("exp_name", "is_mea", group_label="label", group_id="id")
+    epochblock_query = schema.EpochBlock.proj(
         "protocol_id",
         "data_dir",
         block_properties="properties",  # type: ignore
         group_id="parent_id",
         block_id="id",
     )
-    eb_q = eg_q * eb_q
-    eb_q = eb_q & f"block_id={block_id}"
-    return eb_q
+    epochblock_query = epochgroup_query * epochblock_query
+    epochblock_query = epochblock_query & f"block_id={block_id}"
+    return epochblock_query
 
 
 def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> dict:
-    eb_q = get_epochblock_query(exp_name, block_id)
-    df = eb_q.to_pandas().reset_index()
+    epochblock_query = get_epochblock_query(exp_name, block_id)
+    df = epochblock_query.to_pandas().reset_index()
     if len(df) > 1:
         raise ValueError(
             f"Expected only one EpochBlock for {exp_name} {block_id}, but found {len(df)}"
@@ -1147,8 +1150,8 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
         d_timing["n_samples"] = d_data["block_properties"]["n_samples"]
 
     # Get stim timing and frame rate
-    e_q = schema.Epoch() & f"parent_id={block_id}"
-    n_epochs = len(e_q)
+    epoch_query = schema.Epoch() & f"parent_id={block_id}"
+    n_epochs = len(epoch_query)
 
     # If mea, check for inequality with number of epochStarts and epochs of metadata
     if is_mea:
@@ -1173,14 +1176,14 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
 
     d_timing["n_epochs"] = n_epochs
 
-    e_q = e_q.proj(
+    epoch_query = epoch_query.proj(
         pre_time="parameters->>'$.preTime'",
         stim_time="parameters->>'$.stimTime'",
         tail_time="parameters->>'$.tailTime'",
         stage_frame_rate="parameters->>'$.frameRate'",
     )
 
-    df_transitions = e_q.to_pandas().drop_duplicates().reset_index()
+    df_transitions = epoch_query.to_pandas().drop_duplicates().reset_index()
 
     if len(df_transitions) != 1:
         display(df_transitions)
@@ -1263,13 +1266,13 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
 
 
 def get_epochblock_response_query(exp_name: str, block_id: int):
-    eb_q = get_epochblock_query(exp_name, block_id)
-    p_q = eb_q * schema.Protocol.proj(protocol_name="name")  # type: ignore
-    e_q = p_q * schema.Epoch.proj(
+    epochblock_query = get_epochblock_query(exp_name, block_id)
+    protocol_query = epochblock_query * schema.Protocol.proj(protocol_name="name")  # type: ignore
+    epoch_query = protocol_query * schema.Epoch.proj(
         epoch_parameters="parameters", block_id="parent_id", epoch_id="id"
     )  # type: ignore
-    r_q = e_q * schema.Response.proj(..., epoch_id="parent_id", response_id="id")  # type: ignore
-    return r_q
+    response_query = epoch_query * schema.Response.proj(..., epoch_id="parent_id", response_id="id")  # type: ignore
+    return response_query
 
 
 def get_h5_file(exp_name: str) -> str:
@@ -1279,8 +1282,8 @@ def get_h5_file(exp_name: str) -> str:
         return str_h5_in_config
 
     # Otherwise try path from database
-    ex_q = schema.Experiment() & f'exp_name="{exp_name}"'
-    str_h5_from_db = ex_q.fetch1("data_file")
+    exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
+    str_h5_from_db = exp_query.fetch1("data_file")
     if os.path.exists(str_h5_from_db):
         return str_h5_from_db
     else:
@@ -1299,8 +1302,8 @@ def get_epochblock_frame_data(
     if verbose:
         print(f"Loading frame monitor data from {str_h5} ...")
 
-    r_q = get_epochblock_response_query(exp_name, block_id)
-    df = r_q.to_pandas().reset_index()
+    response_query = get_epochblock_response_query(exp_name, block_id)
+    df = response_query.to_pandas().reset_index()
 
     df_frame = df.query('device_name == "Frame Monitor"')
     df_frame = df_frame.reset_index(drop=True)
@@ -1343,8 +1346,8 @@ def get_epochblock_amp_data(
     if verbose:
         print(f"Loading Amp1 data from {str_h5} ...")
 
-    r_q = get_epochblock_response_query(exp_name, block_id)
-    df = r_q.to_pandas().reset_index()
+    response_query = get_epochblock_response_query(exp_name, block_id)
+    df = response_query.to_pandas().reset_index()
 
     df_amp = df[df["device_name"] == "Amp1"]
     df_amp = df_amp.reset_index(drop=True)
