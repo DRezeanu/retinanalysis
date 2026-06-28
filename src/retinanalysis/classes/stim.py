@@ -90,7 +90,7 @@ class StimBlock:
         self.parameter_names = list(df_e.at[0, "epoch_parameters"].keys())
 
         self.d_display = get_display_params_by_exp(self.exp_name, verbose=self.verbose)
-        self.stim_data = None
+        self.stim_data: dict | None = None
 
     def regenerate_stimulus(self, ls_epochs: Optional[int | list] = None, **kwargs):
         """
@@ -370,6 +370,7 @@ class MEAStimGroup:
         self.df_epochs = self.df_epochs.rename(
             columns={"epoch_index": "datafile_epoch_index"}
         )
+        self.d_display = ls_blocks[0].d_display
         self.df_epochs.insert(0, "epoch_index", self.df_epochs.index.values)
         self.parameter_names = list(self.df_epochs.at[0, "epoch_parameters"].keys())
         self.noise_protocol_name = get_noise_name_by_exp(self.exp_name)

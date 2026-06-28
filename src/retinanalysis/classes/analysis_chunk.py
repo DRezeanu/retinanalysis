@@ -853,7 +853,7 @@ class AnalysisChunk:
 
     def get_stas(
         self,
-        noise_ids: int | List[int] | None = None,
+        noise_ids: int | List[int] | np.ndarray | None = None,
         cell_types: str | List[str] | None = None,
         typing_file: str | None = None,
         padded: bool = True,
