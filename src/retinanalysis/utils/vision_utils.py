@@ -778,7 +778,7 @@ def ei_corr(
     ref_eis = [ref_object.d_EIs[id] for id in ref_ids]
 
     if n_removed_channels > 0:
-        max_ref_vals = [np.array(np.max(ei, axis=1)) for ei in ref_eis]
+        max_ref_vals = [np.array(np.max(np.abs(ei), axis=1)) for ei in ref_eis]
         ref_to_remove = [np.argsort(val)[-n_removed_channels:] for val in max_ref_vals]
 
         # New ei channel removal implementation, replace removed channel with mean value
@@ -823,7 +823,7 @@ def ei_corr(
     test_eis = [target_object.d_EIs[id] for id in test_ids]
 
     if n_removed_channels > 0:
-        max_test_vals = [np.array(np.max(ei, axis=1)) for ei in test_eis]
+        max_test_vals = [np.array(np.max(np.abs(ei), axis=1)) for ei in test_eis]
         test_to_remove = [
             np.argsort(val)[-n_removed_channels:] for val in max_test_vals
         ]
