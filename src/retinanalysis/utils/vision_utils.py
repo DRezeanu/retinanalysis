@@ -775,36 +775,44 @@ def ei_corr(
     ref_ids = ref_object.cell_ids
 
     # New code ensures cells with no or broken EIs don't break cluster matching
-    ref_eis = []
-    for id in ref_ids:
-        ref_eis.append(ref_object.d_EIs[id])
+    ref_eis = [ref_object.d_EIs[id] for id in ref_ids]
 
     if n_removed_channels > 0:
         max_ref_vals = [np.array(np.max(ei, axis=1)) for ei in ref_eis]
         ref_to_remove = [np.argsort(val)[-n_removed_channels:] for val in max_ref_vals]
-        ref_eis = [
-            np.delete(ei, ref_to_remove[idx], axis=0) for idx, ei in enumerate(ref_eis)
-        ]
+
+        # New ei channel removal implementation, replace removed channel with mean value
+        fixed_ref_eis = []
+        for ei, channels in zip(ref_eis, ref_to_remove):
+            ei_fixed = ei.copy()
+            keep = np.ones(ei.shape[0], dtype=bool)
+            keep[channels] = False
+            fill_value = ei_fixed[keep, :].mean()
+            ei_fixed[channels, :] = fill_value
+            fixed_ref_eis.append(ei_fixed)
+
+    else:
+        fixed_ref_eis = [ei.copy() for ei in ref_eis]
 
     # Set any EI value where the ei is less than 1.5* its standard deviation to 0
-    for idx, ei in enumerate(ref_eis):
-        ref_eis[idx][abs(ei) < (ei.std() * 1.5)] = 0
+    for idx, ei in enumerate(fixed_ref_eis):
+        fixed_ref_eis[idx][abs(ei) < (ei.std() * 1.5)] = 0
 
     # For 'full' method: flatten each 512 x 201 ei array into a vector
     # and stack flattened eis into a numpy array
     if "full" in method:
-        ref_eis_flat = [ei.flatten() for ei in ref_eis]
-        ref_eis = np.array(ref_eis_flat)
+        ref_eis_flat = [ei.flatten() for ei in fixed_ref_eis]
+        fixed_ref_eis = np.array(ref_eis_flat)
     # For 'time' method, take max of absolute value over time and
     # stack the resulting 512 x 1 vectors into a numpy array
     elif "space" in method:
-        ref_eis_mean = [np.max(np.abs(ei), axis=1) for ei in ref_eis]
-        ref_eis = np.array(ref_eis_mean)
+        ref_eis_mean = [np.max(np.abs(ei), axis=1) for ei in fixed_ref_eis]
+        fixed_ref_eis = np.array(ref_eis_mean)
     # For 'power' method, square each 512 x 201 ei array, take the mean over time,
     # and stack the resulting 512 x 1 vectors into a numpy array
     elif "power" in method:
-        ref_eis_mean = [np.mean(ei**2, axis=1) for ei in ref_eis]
-        ref_eis = np.array(ref_eis_mean)
+        ref_eis_mean = [np.mean(ei**2, axis=1) for ei in fixed_ref_eis]
+        fixed_ref_eis = np.array(ref_eis_mean)
     else:
         raise NameError("Method poperty must be 'full', 'space', or 'power'.")
 
@@ -812,53 +820,61 @@ def ei_corr(
     test_ids = target_object.cell_ids
 
     # New code makes sure that cells with broken or no EIs don't break cluster matching
-    test_eis = []
-    for id in test_ids:
-        test_eis.append(target_object.d_EIs[id])
+    test_eis = [target_object.d_EIs[id] for id in test_ids]
 
     if n_removed_channels > 0:
         max_test_vals = [np.array(np.max(ei, axis=1)) for ei in test_eis]
         test_to_remove = [
             np.argsort(val)[-n_removed_channels:] for val in max_test_vals
         ]
-        test_eis = [
-            np.delete(ei, test_to_remove[idx], axis=0)
-            for idx, ei in enumerate(test_eis)
-        ]
+
+        # New ei channel removal implementation, replace removed channel with mean value
+        fixed_test_eis = []
+        for ei, channels in zip(test_eis, test_to_remove):
+            ei_fixed = ei.copy()
+            keep = np.ones(ei.shape[0], dtype=bool)
+            keep[channels] = False
+            fill_value = ei_fixed[keep, :].mean()
+            ei_fixed[channels, :] = fill_value
+            fixed_test_eis.append(ei_fixed)
+
+    else:
+        fixed_test_eis = [ei.copy() for ei in test_eis]
 
     # Set the EI value where the EI is less than 1.5* its standard deviation to 0
-    for idx, ei in enumerate(test_eis):
-        test_eis[idx][abs(ei) < (ei.std() * 1.5)] = 0
+    for idx, ei in enumerate(fixed_test_eis):
+        fixed_test_eis[idx][abs(ei) < (ei.std() * 1.5)] = 0
 
     # For 'full' method: flatten each 512 x 201 ei array into a vector
     # and stack flattened eis into a numpy array
     if "full" in method:
-        test_eis_flat = [ei.flatten() for ei in test_eis]
-        test_eis = np.array(test_eis_flat)
+        test_eis_flat = [ei.flatten() for ei in fixed_test_eis]
+        fixed_test_eis = np.array(test_eis_flat)
     # For 'time' method, take max of absolute value over time and
     # stack the resulting 512 x 1 vectors into a numpy array
     elif "space" in method:
-        test_eis_mean = [np.max(np.abs(ei), axis=1) for ei in test_eis]
-        test_eis = np.array(test_eis_mean)
+        test_eis_mean = [np.max(np.abs(ei), axis=1) for ei in fixed_test_eis]
+        fixed_test_eis = np.array(test_eis_mean)
     # For 'power' method, square each 512 x 201 ei array, take the mean over time,
     # and stack the resulting 512 x 1 vectors into a numpy array
     elif "power" in method:
-        test_eis_mean = [np.mean(ei**2, axis=1) for ei in test_eis]
-        test_eis = np.array(test_eis_mean)
+        test_eis_mean = [np.mean(ei**2, axis=1) for ei in fixed_test_eis]
+        fixed_test_eis = np.array(test_eis_mean)
     else:
         raise NameError("Method poperty must be 'full', 'space', or 'power'.")
 
-    num_pts = ref_eis.shape[1]
+    num_pts = fixed_ref_eis.shape[1]
 
     # Calculate covariance and correlation
     # TEMP FIX FOR NUMPY BUG that shows erroneous warnings Macs running
     # M4 and M5 chips. See Numpy bug 29820:
     with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-        c = test_eis @ ref_eis.T / num_pts
-    d = np.mean(test_eis, axis=1)[:, None] * np.mean(ref_eis, axis=1)[:, None].T
+        c = fixed_test_eis @ fixed_ref_eis.T / num_pts
+
+    d = np.mean(fixed_test_eis, axis=1)[:, None] * np.mean(fixed_ref_eis, axis=1)[:, None].T
     covs = c - d
 
-    std_calc = np.std(test_eis, axis=1)[:, None] * np.std(ref_eis, axis=1)[:, None].T
+    std_calc = np.std(fixed_test_eis, axis=1)[:, None] * np.std(fixed_ref_eis, axis=1)[:, None].T
     corr = covs / std_calc
 
     # Set nan values and infinite values to 0
