@@ -9,26 +9,27 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 
 
-
 def sort_electrode_map(electrode_map: np.ndarray) -> np.ndarray:
     """
     Sort electrodes by their x, y locations.
 
     This uses lexsort to sort electrodes by their x, y locations
-    First sort by rows, break ties by columns. 
+    First sort by rows, break ties by columns.
     As each row is jittered but within row the electrodes have exact same y location.
 
     Parameters:
     electrode_map (numpy.ndarray): The electrode locations of shape (512, 2).
 
     Returns:
-    numpy.ndarray: Sorted indices of the electrodes (512,). 
+    numpy.ndarray: Sorted indices of the electrodes (512,).
     """
     sorted_indices = np.lexsort((electrode_map[:, 0], electrode_map[:, 1]))
     return sorted_indices
 
-def reshape_ei(ei: np.ndarray, sorted_electrodes: np.ndarray,
-               n_rows: int=16) -> np.ndarray:
+
+def reshape_ei(
+    ei: np.ndarray, sorted_electrodes: np.ndarray, n_rows: int = 16
+) -> np.ndarray:
     """
     Reshape the EI matrix from 512 x 201 to 16 x 32 x 201 based on electrode locations.
 
@@ -41,13 +42,15 @@ def reshape_ei(ei: np.ndarray, sorted_electrodes: np.ndarray,
     numpy.ndarray: The reshaped EI matrix of shape (16, 32, 201).
     """
     if ei.shape[0] != 512:
-        print(f'Warning: Expected EI shape (512, 201), got {ei.shape}')
+        print(f"Warning: Expected EI shape (512, 201), got {ei.shape}")
     n_electrodes = ei.shape[0]
     n_frames = ei.shape[1]
     n_cols = n_electrodes // n_rows  # Assuming 512 electrodes and 16 rows
 
     if n_cols * n_rows != n_electrodes:
-        raise ValueError(f"Number of electrodes {n_electrodes} is not compatible with {n_rows} rows and {n_cols} columns.")
+        raise ValueError(
+            f"Number of electrodes {n_electrodes} is not compatible with {n_rows} rows and {n_cols} columns."
+        )
 
     sorted_ei = ei[sorted_electrodes]
 

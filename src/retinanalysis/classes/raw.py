@@ -14,10 +14,12 @@ except:
 # Constants
 RW_BLOCKSIZE = 100000  # Block size for reading data
 TTL_THRESHOLD = 1000
-SAMPLE_RATE = 20000 # Hz
 D_ELECTRODE_MAPS = {
     '60um': np.loadtxt(ir.files(retinanalysis) / "assets/electrode_maps/60um_electrode_map.txt", dtype=int)
 }
+SAMPLE_RATE = 20000  # Hz
+
+
 class RawTraces:
     def __init__(self, rb: MEAResponseBlock=None, binpath=None):
         if rb is None and binpath is None:
@@ -83,7 +85,9 @@ class RawTraces:
         Returns:
             np.ndarray: Loaded data as a NumPy array of shape [electrodes, samples].
         """
-        with bin2py.PyBinFileReader(self.binpath, chunk_samples=RW_BLOCKSIZE, is_row_major=True) as pbfr:
+        with bin2py.PyBinFileReader(
+            self.binpath, chunk_samples=RW_BLOCKSIZE, is_row_major=True
+        ) as pbfr:
             # Determine the number of electrodes and total samples
             if channels is None:
                 n_channels = pbfr.num_electrodes
@@ -95,9 +99,11 @@ class RawTraces:
                 
             
             total_samples = pbfr.length
-            
+
             if verbose:
-                print(f"Querying number of electrodes: {n_channels}, Total samples: {total_samples}.")
+                print(
+                    f"Number of electrodes: {n_channels}, Total samples: {total_samples}."
+                )
                 print(f"Total time: {total_samples / SAMPLE_RATE} seconds")
                 print(f"Sample rate: {SAMPLE_RATE} Hz")
 
@@ -106,7 +112,11 @@ class RawTraces:
                 end_sample = total_samples
 
             # Validate sample range
-            if start_sample < 0 or end_sample > total_samples or start_sample >= end_sample:
+            if (
+                start_sample < 0
+                or end_sample > total_samples
+                or start_sample >= end_sample
+            ):
                 raise ValueError("Invalid start_sample or end_sample range.")
 
             query_samples = end_sample - start_sample
@@ -144,12 +154,11 @@ class RawTraces:
 
                 # Extract TTL data (channel 0) and compute TTL times
                 ttl_samples = chunk[0, :]
-                below_threshold = (ttl_samples < -TTL_THRESHOLD)
+                below_threshold = ttl_samples < -TTL_THRESHOLD
                 above_threshold = np.logical_not(below_threshold)
-                below_to_above = np.logical_and.reduce([
-                    below_threshold[:-1],
-                    above_threshold[1:]
-                ])
+                below_to_above = np.logical_and.reduce(
+                    [below_threshold[:-1], above_threshold[1:]]
+                )
                 trigger_indices = np.argwhere(below_to_above) + start_idx
                 ttl_times_buffer.append(trigger_indices[:, 0])
 
@@ -159,9 +168,9 @@ class RawTraces:
 
             # Concatenate TTL times
             ttl_times = np.concatenate(ttl_times_buffer, axis=0)
-        
+
         if verbose:
-            print(f'Data shape: {data.shape}')
+            print(f"Data shape: {data.shape}")
         # print(f'TTL times shape: {ttl_times.shape}')
         self.data = data
         self.r_data = data
@@ -170,7 +179,7 @@ class RawTraces:
         self.d_meta['channels'] = channels
         self.ttl_times = ttl_times
         self.ttl_samples = ttl_samples
-        
+
     def load_epoch_index(self, epoch_idx, verbose=True):
         # Raise error if d_timing empty
         if not self.d_timing:
@@ -186,18 +195,18 @@ def plot_sts_over_trace(rt: RawTraces, rb: MEAResponseBlock,
     # Load epoch_idx if needed
     if rt.epoch_idx != epoch_idx:
         rt.load_epoch_index(epoch_idx, verbose=True)
-    
+
     # Get max amplitude channel for this cell_id
     if channel_idx is None:
         top_idx = eiu.get_top_electrodes(cell_id, rb.vcd, n_markers=1, b_sort=False)[0]
         channel_idx = rt.sorted_electrodes[top_idx]
 
     raw_ts = rt.data[channel_idx, :]
-    time = np.arange(len(raw_ts)) / rt.sample_rate # in seconds
-    
+    time = np.arange(len(raw_ts)) / rt.sample_rate  # in seconds
+
     if end_time is None:
         end_time = time[-1]
-    
+
     mask = np.where((time >= start_time) & (time <= end_time))[0]
     time = time[mask]
     raw_ts = raw_ts[mask]
@@ -206,27 +215,29 @@ def plot_sts_over_trace(rt: RawTraces, rb: MEAResponseBlock,
     # print(f'Time range: {start_time} to {end_time} seconds, Mask shape: {mask.shape}')
     # return
     if ax is None:
-        f, ax = plt.subplots(figsize=(12,6))
+        f, ax = plt.subplots(figsize=(12, 6))
     ax.plot(time, raw_ts)
-    ax.set_title(f'Cell {cell_id}, Channel {channel_idx}, Epoch {epoch_idx}')
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Raw Signal')
-    
+    ax.set_title(f"Cell {cell_id}, Channel {channel_idx}, Epoch {epoch_idx}")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Raw Signal")
+
     df_st = rb.df_spike_times
-    cell_idx = np.where(df_st['cell_id'] == cell_id)[0]
+    cell_idx = np.where(df_st["cell_id"] == cell_id)[0]
     if len(cell_idx) == 0:
-        raise ValueError(f'Cell ID {cell_id} not found in response block {rb.exp_name}.')
+        raise ValueError(
+            f"Cell ID {cell_id} not found in response block {rb.exp_name}."
+        )
     cell_idx = cell_idx[0]
-    sts = df_st.at[cell_idx, 'spike_times'][epoch_idx]
+    sts = df_st.at[cell_idx, "spike_times"][epoch_idx]
     if len(sts) == 0:
-        print(f'No spikes found for cell {cell_id} in epoch {epoch_idx}.')
+        print(f"No spikes found for cell {cell_id} in epoch {epoch_idx}.")
         return
     # Convert from ms back to samples
     sts = np.round(sts * rt.sample_rate / 1000).astype(int)
     # Keep only spike times in time range given by sample index
-    sts = sts[(sts>=mask[0]) & (sts<=mask[-1])]
+    sts = sts[(sts >= mask[0]) & (sts <= mask[-1])]
     sts -= mask[0]  # Adjust spike times to the new time range
-    ax.scatter(time[sts], raw_ts[sts], color='red', zorder=10)
+    ax.scatter(time[sts], raw_ts[sts], color="red", zorder=10)
     for st in sts:
         ax.plot(time[st:st+n_highlight_width],
                 raw_ts[st:st+n_highlight_width], color='red', lw=2, alpha=0.5)

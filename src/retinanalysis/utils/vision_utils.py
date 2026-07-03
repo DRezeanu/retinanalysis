@@ -1,23 +1,17 @@
 from __future__ import annotations
-from typing import (Union,
-                    List,
-                    Dict,
-                    Tuple,
-                    Optional,
-                    TYPE_CHECKING)
+from typing import Union, List, Dict, Tuple, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
     from retinanalysis.classes.response import MEAResponseBlock, MEAResponseGroup
     from visionloader import VisionCellDataTable
-    
-from retinanalysis.utils import (DATA_DIR,
-                                 ANALYSIS_DIR,
-                                 get_exp_summary)
+
+from retinanalysis.utils import DATA_DIR, ANALYSIS_DIR, get_exp_summary
 
 import os
 import numpy as np
 from pandas import DataFrame
+
 # from retinanalysis.utils.datajoint_utils import get_exp_summary
 from visionloader import load_vision_data
 
@@ -25,368 +19,516 @@ from matplotlib.patches import Ellipse
 import xarray as xr
 from collections import Counter
 
-def get_analysis_vcd(exp_name: str, chunk_name: str, ss_version: str,
-                    include_ei: bool = True, include_neurons: bool = True,
-                    include_sta: bool=False,
-                    verbose: bool = True) -> VisionCellDataTable:
 
-        data_path = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version)
-        
-        if verbose:
-            print(f'Loading VCD from {data_path} ...')
+def get_analysis_vcd(
+    exp_name: str,
+    chunk_name: str,
+    ss_version: str,
+    include_ei: bool = True,
+    include_neurons: bool = True,
+    verbose: bool = True,
+) -> VisionCellDataTable:
 
-        vcd = load_vision_data(data_path, ss_version, include_ei = include_ei,
-                                  include_noise = False, include_sta = include_sta,
-                                  include_params = True, include_runtimemovie_params = True,
-                                  include_neurons = include_neurons)
-        
-        if verbose:
-            print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
+    data_path = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version)
 
-        return vcd
+    if verbose:
+        print(f"Loading VCD from {data_path} ...")
 
-def get_protocol_vcd(exp_name: str, datafile_name: str, ss_version: str,
-                     include_ei: bool=True, verbose: bool = True) -> VisionCellDataTable:
-        
-        data_path = os.path.join(DATA_DIR, exp_name, datafile_name, ss_version)
-        
-        if verbose:
-            print(f'Loading VCD from {data_path} ...')
-            
-        vcd = load_vision_data(
-            data_path, datafile_name, 
-            include_ei = include_ei, include_neurons = True
-            )
-        if verbose:
-            print(f'VCD loaded with {len(vcd.get_cell_ids())} cells.\n')
+    vcd = load_vision_data(
+        data_path,
+        ss_version,
+        include_ei=include_ei,
+        include_noise=False,
+        include_sta=False,
+        include_params=True,
+        include_runtimemovie_params=True,
+        include_neurons=include_neurons,
+    )
 
-        return vcd
+    if verbose:
+        print(f"VCD loaded with {len(vcd.get_cell_ids())} cells.\n")
+
+    return vcd
+
+
+def get_protocol_vcd(
+    exp_name: str,
+    datafile_name: str,
+    ss_version: str,
+    include_ei: bool = True,
+    verbose: bool = True,
+) -> VisionCellDataTable:
+
+    data_path = os.path.join(DATA_DIR, exp_name, datafile_name, ss_version)
+
+    if verbose:
+        print(f"Loading VCD from {data_path} ...")
+
+    vcd = load_vision_data(
+        data_path, datafile_name, include_ei=include_ei, include_neurons=True
+    )
+    if verbose:
+        print(f"VCD loaded with {len(vcd.get_cell_ids())} cells.\n")
+
+    return vcd
+
 
 def get_roi_dict(location: List[float], distance_x: float, distance_y: float):
-    
+
     roi = dict()
-    roi['x_min'] = location[0] - distance_x
-    roi['x_max'] = location[0] + distance_x
-    roi['y_min'] = location[1] - distance_y
-    roi['y_max'] = location[1] + distance_y
-    
+    roi["x_min"] = location[0] - distance_x
+    roi["x_max"] = location[0] + distance_x
+    roi["y_min"] = location[1] - distance_y
+    roi["y_max"] = location[1] + distance_y
+
     return roi
 
-def cluster_match(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
-                  test_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
-                corr_cutoff: float = 0.8, method: str = 'all', use_isi: bool = False,
-                use_timecourse: bool = False, n_removed_channels: int = 1, verbose: bool = True):
 
-        ref_ids = ref_object.cell_ids
-        test_ids = test_object.cell_ids
-        
-        if 'all' in method:
-            arr_full_corr: np.ndarray = ei_corr(ref_object, test_object, method = 'full', n_removed_channels = n_removed_channels)
-            arr_space_corr: np.ndarray = ei_corr(ref_object, test_object, method = 'space', n_removed_channels = n_removed_channels)
-            arr_power_corr: np.ndarray = ei_corr(ref_object, test_object, method = 'power', n_removed_channels = n_removed_channels)
-        elif 'full' in method:
-            arr_full_corr: np.ndarray = ei_corr(ref_object, test_object, method = method, n_removed_channels = n_removed_channels)
-            arr_space_corr: np.ndarray = np.zeros(arr_full_corr.shape)
-            arr_power_corr: np.ndarray = np.zeros(arr_full_corr.shape)
-        elif 'space' in method:
-            arr_space_corr: np.ndarray = ei_corr(ref_object, test_object, method = method, n_removed_channels = n_removed_channels)
-            arr_full_corr: np.ndarray = np.zeros(arr_space_corr.shape)
-            arr_power_corr: np.ndarray = np.zeros(arr_space_corr.shape)
-        elif 'power' in method:
-            arr_power_corr: np.ndarray = ei_corr(ref_object, test_object, method = method, n_removed_channels = n_removed_channels)
-            arr_space_corr: np.ndarray = np.zeros(arr_power_corr.shape)
-            arr_full_corr: np.ndarray = np.zeros(arr_power_corr.shape)
+def cluster_match(
+    ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
+    test_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
+    corr_cutoff: float = 0.8,
+    method: str = "all",
+    use_isi: bool = False,
+    use_timecourse: bool = False,
+    n_removed_channels: int = 1,
+    verbose: bool = True,
+):
+
+    ref_ids = ref_object.cell_ids
+    test_ids = test_object.cell_ids
+
+    if "all" in method:
+        arr_full_corr: np.ndarray = ei_corr(
+            ref_object,
+            test_object,
+            method="full",
+            n_removed_channels=n_removed_channels,
+        )
+        arr_space_corr: np.ndarray = ei_corr(
+            ref_object,
+            test_object,
+            method="space",
+            n_removed_channels=n_removed_channels,
+        )
+        arr_power_corr: np.ndarray = ei_corr(
+            ref_object,
+            test_object,
+            method="power",
+            n_removed_channels=n_removed_channels,
+        )
+    elif "full" in method:
+        arr_full_corr: np.ndarray = ei_corr(
+            ref_object,
+            test_object,
+            method=method,
+            n_removed_channels=n_removed_channels,
+        )
+        arr_space_corr: np.ndarray = np.zeros(arr_full_corr.shape)
+        arr_power_corr: np.ndarray = np.zeros(arr_full_corr.shape)
+    elif "space" in method:
+        arr_space_corr: np.ndarray = ei_corr(
+            ref_object,
+            test_object,
+            method=method,
+            n_removed_channels=n_removed_channels,
+        )
+        arr_full_corr: np.ndarray = np.zeros(arr_space_corr.shape)
+        arr_power_corr: np.ndarray = np.zeros(arr_space_corr.shape)
+    elif "power" in method:
+        arr_power_corr: np.ndarray = ei_corr(
+            ref_object,
+            test_object,
+            method=method,
+            n_removed_channels=n_removed_channels,
+        )
+        arr_space_corr: np.ndarray = np.zeros(arr_power_corr.shape)
+        arr_full_corr: np.ndarray = np.zeros(arr_power_corr.shape)
+    else:
+        raise NameError("Method property must be 'all', 'full', 'space', or 'power'")
+
+    match_dict = dict()
+    corr_dict = dict()
+    match_count = 0
+    bad_match_count = 0
+    isi_corr = 1
+    rgb_corr = 1
+
+    if verbose:
+        # to avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but
+        # this is just an issue with python
+        from retinanalysis.classes.analysis_chunk import AnalysisChunk
+
+        if isinstance(ref_object, AnalysisChunk):
+            if isinstance(test_object, AnalysisChunk):
+                ref_name = ref_object.chunk_name
+                test_name = test_object.chunk_name
+                print(
+                    f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ..."
+                )
+            else:
+                ref_name = ref_object.chunk_name
+                test_name = os.path.splitext(test_object.protocol_name)[1][1:]
+                print(
+                    f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ..."
+                )
         else:
-            raise NameError("Method property must be 'all', 'full', 'space', or 'power'")
-
-
-        match_dict = dict()
-        corr_dict = dict()
-        match_count = 0
-        bad_match_count = 0
-        isi_corr = 1
-        rgb_corr = 1
-
-        if verbose:
-            # to avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
-            # this is just an issue with python
-            from retinanalysis.classes.analysis_chunk import AnalysisChunk
-            if isinstance(ref_object, AnalysisChunk):
-                if isinstance(test_object, AnalysisChunk):
-                    ref_name = ref_object.chunk_name
-                    test_name = test_object.chunk_name
-                    print(f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ...")
-                else:
-                    ref_name = ref_object.chunk_name
-                    test_name = os.path.splitext(test_object.protocol_name)[1][1:]
-                    print(f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ...")
-            else:
-                if isinstance(test_object, AnalysisChunk):
-                    ref_name = os.path.splitext(ref_object.protocol_name)[1][1:]
-                    test_name = test_object.chunk_name
-                    print(f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ...")
-
-                else:
-                    ref_name = os.path.splitext(ref_object.protocol_name)[1][1:]
-                    test_name = os.path.splitext(test_object.protocol_name)[1][1:]
-                    print(f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ...")
-
-        # Loop through all of the reference cells, comparing correlations against the test cells to find the best one
-        for idx, ref_cell in enumerate(ref_ids):
-            # Sort this cell's correlations for all three methods
-            sorted_full_corr = np.sort(arr_full_corr[idx,:])
-            sorted_full_corr = np.flip(sorted_full_corr)
-
-            sorted_space_corr = np.sort(arr_space_corr[idx,:])
-            sorted_space_corr = np.flip(sorted_space_corr)
-
-            sorted_power_corr = np.sort(arr_power_corr[idx,:])
-            sorted_power_corr = np.flip(sorted_power_corr)
-
-            # Pull the max and next max correlations from the sorted correlation vectors
-            max_corrs = np.array([sorted_full_corr[0], sorted_space_corr[0], sorted_power_corr[0]])
-            next_max_corrs = np.array([sorted_full_corr[1], sorted_space_corr[1], sorted_power_corr[1]])
-            corr_filter = next_max_corrs < max_corrs*0.9
-
-            # Pull the indices corresponding of the maximum values (the three values in max_corrs above) in each vector
-            max_inds = np.array([np.argmax(arr_full_corr[idx,:]),
-                                 np.argmax(arr_space_corr[idx,:]),
-                                 np.argmax(arr_power_corr[idx,:])])
-                        
-            # Eliminate correlations where the next best correlation is within 90% (currently hard-coded...)
-            if any(corr_filter):
-                max_corrs = max_corrs[corr_filter]
-                max_inds = max_inds[corr_filter]
-            else:
-                # If all correlations have been eliminated using this technique, the call cannot be matched
-                bad_match_count += 1
-                continue
-                
-            # Pull the index of the highest remaing correlation
-            best_match = np.argmax(max_corrs)
-
-            # Pull that correlation value
-            max_corr = max_corrs[best_match]
-
-            # Pull the index of that correlation value
-            max_ind = max_inds[best_match]     
-
-            # Using the index of the best correlation value, pull the vector corresponding to 
-            # all of the correlations for the current reference cell's "best match" test cell.
-            # Then do the same process as above, but for the vector of correlations belonging to the
-            # best matched test cell. This ensures that if reference_cell 1's best match is test_cell 2,
-            # test_cell 2's best match is ALSO reference_cell 1... otherwise it's a bad match.
-            sorted_rev_full_corr = np.sort(arr_full_corr[:, max_ind])
-            sorted_rev_full_corr = np.flip(sorted_rev_full_corr)
-
-            sorted_rev_space_corr = np.sort(arr_space_corr[:, max_ind])
-            sorted_rev_space_corr = np.flip(sorted_rev_space_corr)
-
-            sorted_rev_power_corr = np.sort(arr_power_corr[:, max_ind])
-            sorted_rev_power_corr = np.flip(sorted_rev_power_corr)       
-
-            max_rev_corrs = np.array([sorted_rev_full_corr[0], sorted_rev_space_corr[0], sorted_rev_power_corr[0]])
-            next_max_rev_corrs = np.array([sorted_rev_full_corr[1], sorted_rev_space_corr[1], sorted_rev_power_corr[1]])
-            rev_corr_filter = next_max_rev_corrs < max_rev_corrs*0.9
-
-            max_rev_inds = np.array([np.argmax(arr_full_corr[:, max_ind]),
-                                     np.argmax(arr_space_corr[:, max_ind]),
-                                     np.argmax(arr_power_corr[:, max_ind])])
-            
-            if any(rev_corr_filter):
-                max_rev_corrs = max_rev_corrs[rev_corr_filter]
-                max_rev_inds = max_rev_inds[rev_corr_filter] 
-            else:
-                bad_match_count += 1
-                continue
-            
-            best_rev_match = np.argmax(max_rev_corrs)
-            max_rev_ind = max_rev_inds[best_rev_match]
-            max_rev_corr = max_rev_corrs[best_rev_match]
-
-            # Kick out the cell if the best reverse correlation is higher
-            if max_rev_corr > max_corr:
-                bad_match_count += 1
-                continue
-
-            # If maximum correlation is above the cutoff set in the function, proceed
-            if max_corr > corr_cutoff:
-                # if use timecourses is true, pull timecourses for the ref and test cell, and 
-                # calculate the correlation.
-                if use_timecourse:
-                    from retinanalysis.classes.analysis_chunk import AnalysisChunk
-                    if isinstance(ref_object, AnalysisChunk) and isinstance(test_object, AnalysisChunk):
-                        ref_r = ref_object.d_timecourses[ref_cell]['red']
-                        ref_g = ref_object.d_timecourses[ref_cell]['green']
-                        ref_b = ref_object.d_timecourses[ref_cell]['blue']
-
-                        test_r = test_object.d_timecourses[test_ids[max_ind]]['red']
-                        test_g = test_object.d_timecourses[test_ids[max_ind]]['green']
-                        test_b = test_object.d_timecourses[test_ids[max_ind]]['blue']
-
-                        ref_rgb = np.concatenate([ref_r, ref_g, ref_b])
-                        test_rgb = np.concatenate([test_r, ref_g, test_b])
-                        np.nan_to_num(ref_rgb, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
-                        np.nan_to_num(test_rgb, copy = False, nan=0.001, neginf=0.001, posinf=0.001)
-
-                        rgb_corr = np.corrcoef(ref_rgb, test_rgb)[0,1]
-                    else:
-                        raise ValueError("To use timecourses, ref and test object must both be AnalysisChunks")
-
-                # If use_isi is true, pull isi's for the ref and test cells, and calculate the
-                # correlation
-                if use_isi:
-                    from retinanalysis.classes.analysis_chunk import AnalysisChunk
-                    if isinstance(ref_object, AnalysisChunk) and isinstance(test_object, AnalysisChunk):
-                        ref_isi = ref_object.d_ISIs[ref_cell]
-                        match_isi = test_object.d_ISIs[test_ids[max_ind]]
-
-                        # ref_isi = ref_vcd.get_acf_numpairs_for_cell(ref_cell)
-                        # match_isi = test_vcd.get_acf_numpairs_for_cell(test_ids[max_ind])
-                        # np.nan_to_num(ref_isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
-                        # np.nan_to_num(match_isi, copy = False, nan=0.001, neginf=0.001, posinf=0.001)
-
-                        isi_corr = np.corrcoef(ref_isi, match_isi)[0,1]
-                    else:
-                        raise ValueError("To use ISIs, ref and test objects must both be AnalysisChunks")
-
-                # If the isi_correlation or the rgb_correlation is below 0.3, throw out the cell
-                if  isi_corr < 0.3 or rgb_corr < 0.3:
-                    bad_match_count += 1
-                
-                # Kick out the cell if the best reverse correlation cell isn't the reference cell
-                # This isn't redundant with the max_rev_corr > max_corr check above... it's possible
-                # that the max_rev_corr is actually lower, because the reverse correlation was kicked
-                # out by the 90% rule only when that rule was applied backwards (i.e. The second best
-                # correlation for the test cell was within 90% of the best correlation (with our reference
-                # cell), and so that correlation was kicked out when we ran the process in reverse).
-                elif ref_ids[max_rev_ind] != ref_cell:
-                    bad_match_count += 1
-                else:
-                    match_dict[ref_cell] = test_ids[max_ind]
-                    match_count += 1    
-                    corr_dict[ref_cell] = max_corr
+            if isinstance(test_object, AnalysisChunk):
+                ref_name = os.path.splitext(ref_object.protocol_name)[1][1:]
+                test_name = test_object.chunk_name
+                print(
+                    f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ..."
+                )
 
             else:
-                bad_match_count += 1
+                ref_name = os.path.splitext(ref_object.protocol_name)[1][1:]
+                test_name = os.path.splitext(test_object.protocol_name)[1][1:]
+                print(
+                    f"Cluster matching {ref_object.exp_name} {ref_name} with {test_name} ..."
+                )
 
-        if verbose:        
-            percent_good = match_count/len(ref_ids)
-            percent_bad = bad_match_count/len(ref_ids)
-            print(f"{np.round(percent_good*100, 2)}% matched, {np.round(percent_bad*100, 2)}% unmatched.\n")
+    # Loop through all of the reference cells, comparing correlations against the test cells to find the best one
+    for idx, ref_cell in enumerate(ref_ids):
+        # Sort this cell's correlations for all three methods
+        sorted_full_corr = np.sort(arr_full_corr[idx, :])
+        sorted_full_corr = np.flip(sorted_full_corr)
 
-        match_dict = dict(sorted(match_dict.items()))
-        corr_dict = dict(sorted(corr_dict.items()))
+        sorted_space_corr = np.sort(arr_space_corr[idx, :])
+        sorted_space_corr = np.flip(sorted_space_corr)
 
-        # Check for duplicate matches
-        counts = Counter(match_dict.values())
-        duplicate_dict = {k: (v, corr_dict[k]) for k, v in match_dict.items() if counts[v] > 1}
+        sorted_power_corr = np.sort(arr_power_corr[idx, :])
+        sorted_power_corr = np.flip(sorted_power_corr)
 
-        if not duplicate_dict:
-            pass
+        # Pull the max and next max correlations from the sorted correlation vectors
+        max_corrs = np.array(
+            [sorted_full_corr[0], sorted_space_corr[0], sorted_power_corr[0]]
+        )
+        next_max_corrs = np.array(
+            [sorted_full_corr[1], sorted_space_corr[1], sorted_power_corr[1]]
+        )
+        corr_filter = next_max_corrs < max_corrs * 0.9
+
+        # Pull the indices corresponding of the maximum values (the three values in max_corrs above) in each vector
+        max_inds = np.array(
+            [
+                np.argmax(arr_full_corr[idx, :]),
+                np.argmax(arr_space_corr[idx, :]),
+                np.argmax(arr_power_corr[idx, :]),
+            ]
+        )
+
+        # Eliminate correlations where the next best correlation is within 90% (currently hard-coded...)
+        if any(corr_filter):
+            max_corrs = max_corrs[corr_filter]
+            max_inds = max_inds[corr_filter]
         else:
-            print(f"WARNING: Duplicate matches detected. Keys {[key for key, value in duplicate_dict.items()]} have duplicate values")
+            # If all correlations have been eliminated using this technique, the call cannot be matched
+            bad_match_count += 1
+            continue
 
-        return match_dict, corr_dict
+        # Pull the index of the highest remaing correlation
+        best_match = np.argmax(max_corrs)
+
+        # Pull that correlation value
+        max_corr = max_corrs[best_match]
+
+        # Pull the index of that correlation value
+        max_ind = max_inds[best_match]
+
+        # Using the index of the best correlation value, pull the vector corresponding to
+        # all of the correlations for the current reference cell's "best match" test cell.
+        # Then do the same process as above, but for the vector of correlations belonging to the
+        # best matched test cell. This ensures that if reference_cell 1's best match is test_cell 2,
+        # test_cell 2's best match is ALSO reference_cell 1... otherwise it's a bad match.
+        sorted_rev_full_corr = np.sort(arr_full_corr[:, max_ind])
+        sorted_rev_full_corr = np.flip(sorted_rev_full_corr)
+
+        sorted_rev_space_corr = np.sort(arr_space_corr[:, max_ind])
+        sorted_rev_space_corr = np.flip(sorted_rev_space_corr)
+
+        sorted_rev_power_corr = np.sort(arr_power_corr[:, max_ind])
+        sorted_rev_power_corr = np.flip(sorted_rev_power_corr)
+
+        max_rev_corrs = np.array(
+            [
+                sorted_rev_full_corr[0],
+                sorted_rev_space_corr[0],
+                sorted_rev_power_corr[0],
+            ]
+        )
+        next_max_rev_corrs = np.array(
+            [
+                sorted_rev_full_corr[1],
+                sorted_rev_space_corr[1],
+                sorted_rev_power_corr[1],
+            ]
+        )
+        rev_corr_filter = next_max_rev_corrs < max_rev_corrs * 0.9
+
+        max_rev_inds = np.array(
+            [
+                np.argmax(arr_full_corr[:, max_ind]),
+                np.argmax(arr_space_corr[:, max_ind]),
+                np.argmax(arr_power_corr[:, max_ind]),
+            ]
+        )
+
+        if any(rev_corr_filter):
+            max_rev_corrs = max_rev_corrs[rev_corr_filter]
+            max_rev_inds = max_rev_inds[rev_corr_filter]
+        else:
+            bad_match_count += 1
+            continue
+
+        best_rev_match = np.argmax(max_rev_corrs)
+        max_rev_ind = max_rev_inds[best_rev_match]
+        max_rev_corr = max_rev_corrs[best_rev_match]
+
+        # Kick out the cell if the best reverse correlation is higher
+        if max_rev_corr > max_corr:
+            bad_match_count += 1
+            continue
+
+        # If maximum correlation is above the cutoff set in the function, proceed
+        if max_corr > corr_cutoff:
+            # if use timecourses is true, pull timecourses for the ref and test cell, and
+            # calculate the correlation.
+            if use_timecourse:
+                from retinanalysis.classes.analysis_chunk import AnalysisChunk
+
+                if isinstance(ref_object, AnalysisChunk) and isinstance(
+                    test_object, AnalysisChunk
+                ):
+                    ref_r = ref_object.d_timecourses[ref_cell]["red"]
+                    ref_g = ref_object.d_timecourses[ref_cell]["green"]
+                    ref_b = ref_object.d_timecourses[ref_cell]["blue"]
+
+                    test_r = test_object.d_timecourses[test_ids[max_ind]]["red"]
+                    test_g = test_object.d_timecourses[test_ids[max_ind]]["green"]
+                    test_b = test_object.d_timecourses[test_ids[max_ind]]["blue"]
+
+                    ref_rgb = np.concatenate([ref_r, ref_g, ref_b])
+                    test_rgb = np.concatenate([test_r, ref_g, test_b])
+                    np.nan_to_num(
+                        ref_rgb, copy=False, nan=0.001, neginf=0.001, posinf=0.001
+                    )
+                    np.nan_to_num(
+                        test_rgb, copy=False, nan=0.001, neginf=0.001, posinf=0.001
+                    )
+
+                    rgb_corr = np.corrcoef(ref_rgb, test_rgb)[0, 1]
+                else:
+                    raise ValueError(
+                        "To use timecourses, ref and test object must both be AnalysisChunks"
+                    )
+
+            # If use_isi is true, pull isi's for the ref and test cells, and calculate the
+            # correlation
+            if use_isi:
+                from retinanalysis.classes.analysis_chunk import AnalysisChunk
+
+                if isinstance(ref_object, AnalysisChunk) and isinstance(
+                    test_object, AnalysisChunk
+                ):
+                    ref_isi = ref_object.d_ISIs[ref_cell]
+                    match_isi = test_object.d_ISIs[test_ids[max_ind]]
+
+                    # ref_isi = ref_vcd.get_acf_numpairs_for_cell(ref_cell)
+                    # match_isi = test_vcd.get_acf_numpairs_for_cell(test_ids[max_ind])
+                    # np.nan_to_num(ref_isi, copy=False, nan=0.001, neginf=0.001, posinf=0.001)
+                    # np.nan_to_num(match_isi, copy = False, nan=0.001, neginf=0.001, posinf=0.001)
+
+                    isi_corr = np.corrcoef(ref_isi, match_isi)[0, 1]
+                else:
+                    raise ValueError(
+                        "To use ISIs, ref and test objects must both be AnalysisChunks"
+                    )
+
+            # If the isi_correlation or the rgb_correlation is below 0.3, throw out the cell
+            if isi_corr < 0.3 or rgb_corr < 0.3:
+                bad_match_count += 1
+
+            # Kick out the cell if the best reverse correlation cell isn't the reference cell
+            # This isn't redundant with the max_rev_corr > max_corr check above... it's possible
+            # that the max_rev_corr is actually lower, because the reverse correlation was kicked
+            # out by the 90% rule only when that rule was applied backwards (i.e. The second best
+            # correlation for the test cell was within 90% of the best correlation (with our reference
+            # cell), and so that correlation was kicked out when we ran the process in reverse).
+            elif ref_ids[max_rev_ind] != ref_cell:
+                bad_match_count += 1
+            else:
+                match_dict[ref_cell] = test_ids[max_ind]
+                match_count += 1
+                corr_dict[ref_cell] = max_corr
+
+        else:
+            bad_match_count += 1
+
+    if verbose:
+        percent_good = match_count / len(ref_ids)
+        percent_bad = bad_match_count / len(ref_ids)
+        print(
+            f"{np.round(percent_good * 100, 2)}% matched, {np.round(percent_bad * 100, 2)}% unmatched.\n"
+        )
+
+    match_dict = dict(sorted(match_dict.items()))
+    corr_dict = dict(sorted(corr_dict.items()))
+
+    # Check for duplicate matches
+    counts = Counter(match_dict.values())
+    duplicate_dict = {
+        k: (v, corr_dict[k]) for k, v in match_dict.items() if counts[v] > 1
+    }
+
+    if not duplicate_dict:
+        pass
+    else:
+        print(
+            f"WARNING: Duplicate matches detected. Keys {[key for key, value in duplicate_dict.items()]} have duplicate values"
+        )
+
+    return match_dict, corr_dict
+
 
 def get_protocol_from_datafile(exp_name: str, datafile_name: str) -> str:
     exp_summary = get_exp_summary(exp_name)
 
-    assert exp_summary is not None, f"Experiment summary failed to generate for {exp_name}, {datafile_name}"
-    protocol_name = exp_summary.query('datafile_name == @datafile_name').reset_index(drop = True)
+    assert exp_summary is not None, (
+        f"Experiment summary failed to generate for {exp_name}, {datafile_name}"
+    )
+    protocol_name = exp_summary.query("datafile_name == @datafile_name").reset_index(
+        drop=True
+    )
 
-    return protocol_name.loc[0,'protocol_name']
+    return protocol_name.loc[0, "protocol_name"]
 
-def get_classification_file_path(classification_file_name: str, exp_name: str, chunk_name: str, 
-                                 ss_version: str = 'kilosort2.5') -> str:
-    
-    classification_file_path = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name)
-    
+
+def get_classification_file_path(
+    classification_file_name: str,
+    exp_name: str,
+    chunk_name: str,
+    ss_version: str = "kilosort2.5",
+) -> str:
+
+    classification_file_path = os.path.join(
+        ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name
+    )
+
     return classification_file_path
 
-def get_ells(analysis_chunk: AnalysisChunk, d_cells_by_type: Dict[str,List[int]],
-              std_scaling: float = 1.6, units: str = 'pixels') -> Tuple[Dict[str, dict], int]:
-    
-    if 'microns' in units.lower():
+
+def get_ells(
+    analysis_chunk: AnalysisChunk,
+    d_cells_by_type: Dict[str, List[int]],
+    std_scaling: float = 1.6,
+    units: str = "pixels",
+) -> Tuple[Dict[str, dict], int]:
+
+    if "microns" in units.lower():
         scale_factor = analysis_chunk.microns_per_stixel
-    elif 'pixels' in units.lower():
+    elif "pixels" in units.lower():
         scale_factor = analysis_chunk.pixels_per_stixel
-    elif 'stixels' in units.lower():
+    elif "stixels" in units.lower():
         scale_factor = 1
     else:
         raise NameError("Units string must be 'microns', 'pixels' or 'stixels'.")
-    
+
     rf_params = analysis_chunk.rf_params
 
     d_ells_by_type = dict()
     for idx, ct in enumerate(d_cells_by_type.keys()):
         d_ells_by_id = dict()
         for id in d_cells_by_type[ct]:
-            d_ells_by_id[id] = Ellipse(xy=(rf_params[id]['center_x']*scale_factor,
-                                    rf_params[id]['center_y']*scale_factor),
-                                    width = rf_params[id]['std_x']*std_scaling*scale_factor,
-                                    height = rf_params[id]['std_y']*std_scaling*scale_factor,
-                                    angle = rf_params[id]['rot'],
-                                    facecolor= f'C{idx}', edgecolor= f'C{idx}',
-                                    alpha = 0.7)
+            d_ells_by_id[id] = Ellipse(
+                xy=(
+                    rf_params[id]["center_x"] * scale_factor,
+                    rf_params[id]["center_y"] * scale_factor,
+                ),
+                width=rf_params[id]["std_x"] * std_scaling * scale_factor,
+                height=rf_params[id]["std_y"] * std_scaling * scale_factor,
+                angle=rf_params[id]["rot"],
+                facecolor=f"C{idx}",
+                edgecolor=f"C{idx}",
+                alpha=0.7,
+            )
 
         d_ells_by_type[ct] = d_ells_by_id
-    
+
     return d_ells_by_type, scale_factor
 
-def get_timecourses(analysis_chunk: AnalysisChunk, d_cells_by_type: dict) -> Dict[str, dict]: 
+
+def get_timecourses(
+    analysis_chunk: AnalysisChunk, d_cells_by_type: dict
+) -> Dict[str, dict]:
 
     d_timecourses_by_type = dict()
 
     for ct in d_cells_by_type.keys():
-        r_timecourses = [analysis_chunk.d_timecourses[cell]['red'] for cell in d_cells_by_type[ct]]
-        g_timecourses = [analysis_chunk.d_timecourses[cell]['green'] for cell in d_cells_by_type[ct]]
-        b_timecourses = [analysis_chunk.d_timecourses[cell]['blue'] for cell in d_cells_by_type[ct]]
+        r_timecourses = [
+            analysis_chunk.d_timecourses[cell]["red"] for cell in d_cells_by_type[ct]
+        ]
+        g_timecourses = [
+            analysis_chunk.d_timecourses[cell]["green"] for cell in d_cells_by_type[ct]
+        ]
+        b_timecourses = [
+            analysis_chunk.d_timecourses[cell]["blue"] for cell in d_cells_by_type[ct]
+        ]
 
         r_timecourses = np.array(r_timecourses)
         g_timecourses = np.array(g_timecourses)
         b_timecourses = np.array(b_timecourses)
 
         if r_timecourses.shape[0] > 1:
-            r_mean = np.mean(r_timecourses, axis = 0)
-            r_std = np.std(r_timecourses, axis = 0)
+            r_mean = np.mean(r_timecourses, axis=0)
+            r_std = np.std(r_timecourses, axis=0)
         else:
             r_mean = r_timecourses.squeeze()
             r_std = 0
 
         if g_timecourses.shape[0] > 1:
-            g_mean = np.mean(g_timecourses, axis = 0)
-            g_std = np.std(g_timecourses, axis = 0)
+            g_mean = np.mean(g_timecourses, axis=0)
+            g_std = np.std(g_timecourses, axis=0)
         else:
             g_mean = g_timecourses.squeeze()
             g_std = 0
 
         if b_timecourses.shape[0] > 1:
-            b_mean = np.mean(b_timecourses, axis = 0)
-            b_std = np.std(b_timecourses, axis = 0)
+            b_mean = np.mean(b_timecourses, axis=0)
+            b_std = np.std(b_timecourses, axis=0)
         else:
             b_mean = b_timecourses.squeeze()
             b_std = 0
 
-        d_timecourses_by_type[ct] = {'r_timecourses' : r_timecourses, 'r_mean' : r_mean, 'r_std' : r_std,
-                                     'g_timecourses' : g_timecourses, 'g_mean' : g_mean, 'g_std' : g_std,
-                            'b_timecourses' : b_timecourses, 'b_mean' : b_mean, 'b_std' : b_std}
+        d_timecourses_by_type[ct] = {
+            "r_timecourses": r_timecourses,
+            "r_mean": r_mean,
+            "r_std": r_std,
+            "g_timecourses": g_timecourses,
+            "g_mean": g_mean,
+            "g_std": g_std,
+            "b_timecourses": b_timecourses,
+            "b_mean": b_mean,
+            "b_std": b_std,
+        }
 
     return d_timecourses_by_type
 
-def get_spike_xarr(response_block: MEAResponseBlock | MEAResponseGroup,
-                   protocol_ids: Optional[List[int] | int] = None,
-                   cell_types: Optional[List[str] | str] = None, minimum_n: int = 1) -> xr.DataArray:
-    
+
+def get_spike_xarr(
+    response_block: MEAResponseBlock | MEAResponseGroup,
+    protocol_ids: Optional[List[int] | int] = None,
+    cell_types: Optional[List[str] | str] = None,
+    minimum_n: int = 1,
+) -> xr.DataArray:
+
     if isinstance(cell_types, str):
         cell_types = [cell_types]
-    
+
     if isinstance(protocol_ids, int):
         protocol_ids = [protocol_ids]
 
-    
     # Check that cell_type data included in spike times dataframe, if not, add it
-    if 'cell_type' not in response_block.df_spike_times.columns:
+    if "cell_type" not in response_block.df_spike_times.columns:
         response_block.add_cell_types()
         spike_time_df = response_block.df_spike_times
     else:
@@ -394,92 +536,122 @@ def get_spike_xarr(response_block: MEAResponseBlock | MEAResponseGroup,
 
     if protocol_ids is None and cell_types is None:
         filtered_df = spike_time_df
-        cell_types = sorted(filtered_df['cell_type'].unique())
-        
+        cell_types = sorted(filtered_df["cell_type"].unique())
+
     elif protocol_ids is None:
-        filtered_df = spike_time_df.query('cell_type in @cell_types').reset_index(drop = True)
-        cell_types = sorted(filtered_df['cell_type'].unique())
+        filtered_df = spike_time_df.query("cell_type in @cell_types").reset_index(
+            drop=True
+        )
+        cell_types = sorted(filtered_df["cell_type"].unique())
 
     elif cell_types is None:
-        filtered_df = spike_time_df.query('cell_id in @protocol_ids').reset_index(drop = True)
-        cell_types = sorted(filtered_df['cell_type'].unique())
-        
+        filtered_df = spike_time_df.query("cell_id in @protocol_ids").reset_index(
+            drop=True
+        )
+        cell_types = sorted(filtered_df["cell_type"].unique())
+
     else:
-        filtered_df = spike_time_df.query('cell_id in @protocol_ids and cell_type in @cell_types').reset_index(drop = True)
-        cell_types = sorted(filtered_df['cell_type'].unique())
-    
+        filtered_df = spike_time_df.query(
+            "cell_id in @protocol_ids and cell_type in @cell_types"
+        ).reset_index(drop=True)
+        cell_types = sorted(filtered_df["cell_type"].unique())
+
     for ct in cell_types:
-        if len(filtered_df.query('cell_type == @ct').values) < minimum_n:
-            print(f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})...")
-            indices = filtered_df.query('cell_type == @ct').index
-            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True) #type: ignore 
+        if len(filtered_df.query("cell_type == @ct").values) < minimum_n:
+            print(
+                f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})..."
+            )
+            indices = filtered_df.query("cell_type == @ct").index
+            filtered_df = filtered_df.drop(index=indices).reset_index(drop=True)  # type: ignore
 
+    spike_time_arr = [
+        filtered_df.loc[cell_idx, "spike_times"] for cell_idx in filtered_df.index
+    ]
 
-    spike_time_arr = [filtered_df.loc[cell_idx, 'spike_times'] for cell_idx in filtered_df.index]
+    spike_time_arr = np.array(spike_time_arr, dtype=object)
+    dims = ["cell_id", "epoch"]
 
-    spike_time_arr = np.array(spike_time_arr, dtype = object)
-    dims = ['cell_id', 'epoch']
+    coords = {
+        "epoch": np.arange(response_block.n_epochs),
+        "cell_id": filtered_df["cell_id"].values,
+        "cell_type": (
+            "cell_id",
+            np.asarray(filtered_df["cell_type"].values, dtype="U"),
+        ),
+        "noise_id": ("cell_id", filtered_df["noise_id"].values),
+    }
 
-    coords = {'epoch' : np.arange(response_block.n_epochs),
-            'cell_id' : filtered_df['cell_id'].values,
-            'cell_type' : ('cell_id', np.asarray(filtered_df['cell_type'].values, dtype = 'U')),
-            'noise_id' : ('cell_id', filtered_df['noise_id'].values)}
-
-    spike_time_xarr = xr.DataArray(spike_time_arr, dims = dims, coords = coords)
+    spike_time_xarr = xr.DataArray(spike_time_arr, dims=dims, coords=coords)
 
     return spike_time_xarr
 
-def get_spike_dict(response_block: MEAResponseBlock | MEAResponseGroup,
-                   protocol_ids: Optional[List[int] | int] = None, 
-                   cell_types: Optional[List[str] | str] = None, minimum_n:int = 1) -> dict:
-    
+
+def get_spike_dict(
+    response_block: MEAResponseBlock | MEAResponseGroup,
+    protocol_ids: Optional[List[int] | int] = None,
+    cell_types: Optional[List[str] | str] = None,
+    minimum_n: int = 1,
+) -> dict:
+
     # Check that cell_type data included in spike times dataframe, if not, add it
-    if 'cell_type' not in response_block.df_spike_times.columns:
+    if "cell_type" not in response_block.df_spike_times.columns:
         response_block.add_cell_types()
         spike_time_df = response_block.df_spike_times
     else:
         spike_time_df = response_block.df_spike_times
-    
+
     if protocol_ids is None and cell_types is None:
         filtered_df = spike_time_df
-        cell_types = sorted(filtered_df['cell_type'].unique())
-    
+        cell_types = sorted(filtered_df["cell_type"].unique())
+
     elif protocol_ids is None:
-        filtered_df = spike_time_df.query('cell_type in @cell_types')
-        cell_types = sorted(filtered_df['cell_type'].unique())
+        filtered_df = spike_time_df.query("cell_type in @cell_types")
+        cell_types = sorted(filtered_df["cell_type"].unique())
 
     elif cell_types is None:
-        filtered_df = spike_time_df.query('cell_id in @protocol_ids')
-        cell_types = sorted(filtered_df['cell_type'].unique())
-        
+        filtered_df = spike_time_df.query("cell_id in @protocol_ids")
+        cell_types = sorted(filtered_df["cell_type"].unique())
+
     else:
-        filtered_df = spike_time_df.query('cell_id in @protocol_ids and cell_type in @cell_types')
-        cell_types = sorted(filtered_df['cell_type'].unique())
+        filtered_df = spike_time_df.query(
+            "cell_id in @protocol_ids and cell_type in @cell_types"
+        )
+        cell_types = sorted(filtered_df["cell_type"].unique())
 
     for ct in cell_types:
-        if len(filtered_df.query('cell_type == @ct').values) < minimum_n:
-            print(f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})...")
-            indices = filtered_df.query('cell_type == @ct').index
-            filtered_df = filtered_df.drop(index=indices).reset_index(drop = True) #type: ignore
+        if len(filtered_df.query("cell_type == @ct").values) < minimum_n:
+            print(
+                f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})..."
+            )
+            indices = filtered_df.query("cell_type == @ct").index
+            filtered_df = filtered_df.drop(index=indices).reset_index(drop=True)  # type: ignore
 
     d_spike_times = dict()
     for ct in cell_types:
         d_times_and_ids = dict()
-        df_type = filtered_df.query('cell_type == @ct').reset_index(drop = True)
-        type_ids = df_type['cell_id'].values
-        arr_spike_times = [df_type.loc[idx, 'spike_times'] for idx, id in enumerate(type_ids)]
-        arr_spike_times = np.array(arr_spike_times, dtype = object)
-        d_times_and_ids['spike_times'] = arr_spike_times
-        d_times_and_ids['cell_ids'] = type_ids
+        df_type = filtered_df.query("cell_type == @ct").reset_index(drop=True)
+        type_ids = df_type["cell_id"].values
+        arr_spike_times = [
+            df_type.loc[idx, "spike_times"] for idx, id in enumerate(type_ids)
+        ]
+        arr_spike_times = np.array(arr_spike_times, dtype=object)
+        d_times_and_ids["spike_times"] = arr_spike_times
+        d_times_and_ids["cell_ids"] = type_ids
 
         d_spike_times[ct] = d_times_and_ids
 
     return d_spike_times
 
-def classification_transfer(analysis_chunk: AnalysisChunk, target_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
-                                 ss_version: Optional[str] = None, input_typing_file: Optional[str] = None, 
-                            output_typing_file: str = 'RA_autoClassification.txt', verbose: bool = True, **kwargs):
 
+def classification_transfer(
+    analysis_chunk: AnalysisChunk,
+    target_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
+    ss_version: Optional[str] = None,
+    input_typing_file: Optional[str] = None,
+    output_typing_file: str = "RA_autoClassification.txt",
+    verbose: bool = True,
+    **kwargs,
+):
     """Transfer classification between an analysis chunk and another analysis chunk or a response block
     Inputs:
         analysis_chunk: AnalysisChunk
@@ -496,24 +668,27 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Analys
         corr_cutoff: float, default = 0.8
         method: str, default = 'full'
         n_removed_channels: int, default = 1
-        """
+    """
 
     if len(analysis_chunk.typing_files) == 0:
-            raise FileNotFoundError("No typing files available for this analysis chunk")
+        raise FileNotFoundError("No typing files available for this analysis chunk")
 
-    # To avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but 
+    # To avoid circular imports, we're only importing classes inside the utils when needed for checking. Annoying but
     # this is just an issue with python
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
+
     if isinstance(target_object, AnalysisChunk) and target_object == analysis_chunk:
-        raise Exception(f"Target chunk ({target_object.chunk_name}) cannot be the same as analysis chunk {analysis_chunk.chunk_name}")
+        raise Exception(
+            f"Target chunk ({target_object.chunk_name}) cannot be the same as analysis chunk {analysis_chunk.chunk_name}"
+        )
 
     # If no input typing file is specified, use typing_file_0
     if input_typing_file is None:
-        input_typing_file = analysis_chunk.typing_files[0] 
+        input_typing_file = analysis_chunk.typing_files[0]
 
     # Flag if input typing file is not actually part of the current analysis chunk
     if input_typing_file not in analysis_chunk.typing_files:
-        raise FileNotFoundError("Input typing file not found in current chunk")         
+        raise FileNotFoundError("Input typing file not found in current chunk")
 
     # If no spike sorting version is given, use same ss_version as analysis chunk
     if ss_version is None:
@@ -521,161 +696,214 @@ def classification_transfer(analysis_chunk: AnalysisChunk, target_object: Analys
 
     if isinstance(target_object, AnalysisChunk):
         if verbose:
-            print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n")
-        destination_file_path = os.path.join(ANALYSIS_DIR, analysis_chunk.exp_name,
-                                                target_object.chunk_name, ss_version, output_typing_file)
-        
+            print(
+                f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n"
+            )
+        destination_file_path = os.path.join(
+            ANALYSIS_DIR,
+            analysis_chunk.exp_name,
+            target_object.chunk_name,
+            ss_version,
+            output_typing_file,
+        )
+
     else:
         if verbose:
-            print(f"Cluster matching {analysis_chunk.chunk_name} with {target_object.protocol_name}\n")
+            print(
+                f"Cluster matching {analysis_chunk.chunk_name} with {target_object.protocol_name}\n"
+            )
         destination_file_path = os.path.join(os.getcwd(), output_typing_file)
-        if 'use_timecourse' in kwargs:
-            if kwargs['use_timecourse']:
-                raise FileNotFoundError("Response blocks don't have a .params file, can't use timecourse for cluster matching")
+        if "use_timecourse" in kwargs:
+            if kwargs["use_timecourse"]:
+                raise FileNotFoundError(
+                    "Response blocks don't have a .params file, can't use timecourse for cluster matching"
+                )
 
     # Cluster Match
     target_ids = target_object.cell_ids
 
     match_dict, _ = cluster_match(analysis_chunk, target_object, **kwargs)
-    
+
     # Create classification file and drop it in the destination path
-    input_file_path = os.path.join(ANALYSIS_DIR, analysis_chunk.exp_name,
-                                    analysis_chunk.chunk_name, analysis_chunk.ss_version,
-                                    input_typing_file)
-    
+    input_file_path = os.path.join(
+        ANALYSIS_DIR,
+        analysis_chunk.exp_name,
+        analysis_chunk.chunk_name,
+        analysis_chunk.ss_version,
+        input_typing_file,
+    )
+
     matched_count = 0
     unmatched_count = 0
-    input_classification_dict = create_dictionary_from_file(input_file_path, delimiter = ' ')
+    input_classification_dict = create_dictionary_from_file(
+        input_file_path, delimiter=" "
+    )
 
-    with open(destination_file_path, mode='w') as output_file:
+    with open(destination_file_path, mode="w") as output_file:
         for key in match_dict.keys():
             matched_count += 1
-            print(match_dict[key], input_classification_dict[key], file = output_file)
+            print(match_dict[key], input_classification_dict[key], file=output_file)
 
-    partial_output = create_dictionary_from_file(destination_file_path, delimiter = ' ')
+    partial_output = create_dictionary_from_file(destination_file_path, delimiter=" ")
 
-    with open(destination_file_path, mode = 'a') as output_file:
+    with open(destination_file_path, mode="a") as output_file:
         for id in target_ids:
             if id in partial_output:
                 pass
             else:
-                print(id, 'All/Unknown', file = output_file)
+                print(id, "All/Unknown", file=output_file)
                 unmatched_count += 1
 
-    print(f"\nTarget clusters matched: {matched_count}\nTarget clusters unmatched: {unmatched_count}\n")
-    print(f"Classification file {output_typing_file} created at: {destination_file_path}")
+    print(
+        f"\nTarget clusters matched: {matched_count}\nTarget clusters unmatched: {unmatched_count}\n"
+    )
+    print(
+        f"Classification file {output_typing_file} created at: {destination_file_path}"
+    )
 
     return match_dict
 
-def ei_corr(ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
-            target_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
-            method: str = 'full', n_removed_channels: int = 1) -> np.ndarray:
+
+def ei_corr(
+    ref_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
+    target_object: AnalysisChunk | MEAResponseBlock | MEAResponseGroup,
+    method: str = "full",
+    n_removed_channels: int = 1,
+) -> np.ndarray:
+
+    # Pull reference eis
+    ref_ids = ref_object.cell_ids
+
+    # New code ensures cells with no or broken EIs don't break cluster matching
+    ref_eis = [ref_object.d_EIs[id] for id in ref_ids]
+
+    if n_removed_channels > 0:
+        max_ref_vals = [np.array(np.max(np.abs(ei), axis=1)) for ei in ref_eis]
+        ref_to_remove = [np.argsort(val)[-n_removed_channels:] for val in max_ref_vals]
+
+        # New ei channel removal implementation, replace removed channel with mean value
+        fixed_ref_eis = []
+        for ei, channels in zip(ref_eis, ref_to_remove):
+            ei_fixed = ei.copy()
+            keep = np.ones(ei.shape[0], dtype=bool)
+            keep[channels] = False
+            fill_value = ei_fixed[keep, :].mean()
+            ei_fixed[channels, :] = fill_value
+            fixed_ref_eis.append(ei_fixed)
+
+    else:
+        fixed_ref_eis = [ei.copy() for ei in ref_eis]
+
+    # Set any EI value where the ei is less than 1.5* its standard deviation to 0
+    for idx, ei in enumerate(fixed_ref_eis):
+        fixed_ref_eis[idx][abs(ei) < (ei.std() * 1.5)] = 0
+
+    # For 'full' method: flatten each 512 x 201 ei array into a vector
+    # and stack flattened eis into a numpy array
+    if "full" in method:
+        ref_eis_flat = [ei.flatten() for ei in fixed_ref_eis]
+        fixed_ref_eis = np.array(ref_eis_flat)
+    # For 'time' method, take max of absolute value over time and
+    # stack the resulting 512 x 1 vectors into a numpy array
+    elif "space" in method:
+        ref_eis_mean = [np.max(np.abs(ei), axis=1) for ei in fixed_ref_eis]
+        fixed_ref_eis = np.array(ref_eis_mean)
+    # For 'power' method, square each 512 x 201 ei array, take the mean over time,
+    # and stack the resulting 512 x 1 vectors into a numpy array
+    elif "power" in method:
+        ref_eis_mean = [np.mean(ei**2, axis=1) for ei in fixed_ref_eis]
+        fixed_ref_eis = np.array(ref_eis_mean)
+    else:
+        raise NameError("Method poperty must be 'full', 'space', or 'power'.")
+
+    # Pull test eis
+    test_ids = target_object.cell_ids
+
+    # New code makes sure that cells with broken or no EIs don't break cluster matching
+    test_eis = [target_object.d_EIs[id] for id in test_ids]
+
+    if n_removed_channels > 0:
+        max_test_vals = [np.array(np.max(np.abs(ei), axis=1)) for ei in test_eis]
+        test_to_remove = [
+            np.argsort(val)[-n_removed_channels:] for val in max_test_vals
+        ]
+
+        # New ei channel removal implementation, replace removed channel with mean value
+        fixed_test_eis = []
+        for ei, channels in zip(test_eis, test_to_remove):
+            ei_fixed = ei.copy()
+            keep = np.ones(ei.shape[0], dtype=bool)
+            keep[channels] = False
+            fill_value = ei_fixed[keep, :].mean()
+            ei_fixed[channels, :] = fill_value
+            fixed_test_eis.append(ei_fixed)
+
+    else:
+        fixed_test_eis = [ei.copy() for ei in test_eis]
+
+    # Set the EI value where the EI is less than 1.5* its standard deviation to 0
+    for idx, ei in enumerate(fixed_test_eis):
+        fixed_test_eis[idx][abs(ei) < (ei.std() * 1.5)] = 0
+
+    # For 'full' method: flatten each 512 x 201 ei array into a vector
+    # and stack flattened eis into a numpy array
+    if "full" in method:
+        test_eis_flat = [ei.flatten() for ei in fixed_test_eis]
+        fixed_test_eis = np.array(test_eis_flat)
+    # For 'time' method, take max of absolute value over time and
+    # stack the resulting 512 x 1 vectors into a numpy array
+    elif "space" in method:
+        test_eis_mean = [np.max(np.abs(ei), axis=1) for ei in fixed_test_eis]
+        fixed_test_eis = np.array(test_eis_mean)
+    # For 'power' method, square each 512 x 201 ei array, take the mean over time,
+    # and stack the resulting 512 x 1 vectors into a numpy array
+    elif "power" in method:
+        test_eis_mean = [np.mean(ei**2, axis=1) for ei in fixed_test_eis]
+        fixed_test_eis = np.array(test_eis_mean)
+    else:
+        raise NameError("Method poperty must be 'full', 'space', or 'power'.")
+
+    num_pts = fixed_ref_eis.shape[1]
+
+    # Calculate covariance and correlation
+    # TEMP FIX FOR NUMPY BUG that shows erroneous warnings Macs running
+    # M4 and M5 chips. See Numpy bug 29820:
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        c = fixed_test_eis @ fixed_ref_eis.T / num_pts
+
+    d = np.mean(fixed_test_eis, axis=1)[:, None] * np.mean(fixed_ref_eis, axis=1)[:, None].T
+    covs = c - d
+
+    std_calc = np.std(fixed_test_eis, axis=1)[:, None] * np.std(fixed_ref_eis, axis=1)[:, None].T
+    corr = covs / std_calc
+
+    # Set nan values and infinite values to 0
+    np.nan_to_num(corr, copy=False, nan=0, posinf=0, neginf=0)
+
+    return corr.T
 
 
-        # Pull reference eis
-        ref_ids = ref_object.cell_ids
-
-        # New code ensures cells with no or broken EIs don't break cluster matching
-        ref_eis = []
-        for id in ref_ids:
-            ref_eis.append(ref_object.d_EIs[id])
-
-        if n_removed_channels > 0:
-            max_ref_vals = [np.array(np.max(ei, axis = 1)) for ei in ref_eis]
-            ref_to_remove = [np.argsort(val)[-n_removed_channels:] for val in max_ref_vals]
-            ref_eis = [np.delete(ei, ref_to_remove[idx], axis = 0) for idx, ei in enumerate(ref_eis)]
-
-        # Set any EI value where the ei is less than 1.5* its standard deviation to 0
-        for idx, ei in enumerate(ref_eis):
-            ref_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
-
-        # For 'full' method: flatten each 512 x 201 ei array into a vector
-        # and stack flattened eis into a numpy array
-        if 'full' in method:
-            ref_eis_flat = [ei.flatten() for ei in ref_eis]
-            ref_eis = np.array(ref_eis_flat)
-        # For 'time' method, take max of absolute value over time and
-        # stack the resulting 512 x 1 vectors into a numpy array 
-        elif 'space' in method:
-            ref_eis_mean = [np.max(np.abs(ei), axis = 1) for ei in ref_eis]
-            ref_eis = np.array(ref_eis_mean)
-        # For 'power' method, square each 512 x 201 ei array, take the mean over time,
-        # and stack the resulting 512 x 1 vectors into a numpy array
-        elif 'power' in method:
-            ref_eis_mean = [np.mean(ei**2, axis = 1) for ei in ref_eis]
-            ref_eis = np.array(ref_eis_mean)
-        else:
-            raise NameError("Method poperty must be 'full', 'space', or 'power'.")
-        
-        # Pull test eis
-        test_ids = target_object.cell_ids
-
-        # New code makes sure that cells with broken or no EIs don't break cluster matching
-        test_eis = []
-        for id in test_ids:
-            test_eis.append(target_object.d_EIs[id])
-
-        if n_removed_channels > 0:
-            max_test_vals = [np.array(np.max(ei, axis = 1)) for ei in test_eis]
-            test_to_remove = [np.argsort(val)[-n_removed_channels:] for val in max_test_vals]
-            test_eis = [np.delete(ei, test_to_remove[idx], axis = 0) for idx, ei in enumerate(test_eis)]
-
-        # Set the EI value where the EI is less than 1.5* its standard deviation to 0
-        for idx, ei in enumerate(test_eis):
-            test_eis[idx][abs(ei) < (ei.std()*1.5)] = 0
-
-        # For 'full' method: flatten each 512 x 201 ei array into a vector
-        # and stack flattened eis into a numpy array
-        if 'full' in method:
-            test_eis_flat = [ei.flatten() for ei in test_eis]
-            test_eis = np.array(test_eis_flat)
-        # For 'time' method, take max of absolute value over time and
-        # stack the resulting 512 x 1 vectors into a numpy array 
-        elif 'space' in method:
-            test_eis_mean = [np.max(np.abs(ei), axis = 1) for ei in test_eis]
-            test_eis = np.array(test_eis_mean)
-        # For 'power' method, square each 512 x 201 ei array, take the mean over time,
-        # and stack the resulting 512 x 1 vectors into a numpy array
-        elif 'power' in method:
-            test_eis_mean = [np.mean(ei**2, axis = 1) for ei in test_eis]
-            test_eis = np.array(test_eis_mean)
-        else:
-            raise NameError("Method poperty must be 'full', 'space', or 'power'.")
-
-        num_pts = ref_eis.shape[1]
-
-
-        # Calculate covariance and correlation
-        # TEMP FIX FOR NUMPY BUG that shows erroneous warnings Macs running
-        # M4 and M5 chips. See Numpy bug 29820:
-        with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
-            c = test_eis @ ref_eis.T / num_pts
-        d = np.mean(test_eis, axis = 1)[:,None] * np.mean(ref_eis, axis = 1)[:,None].T
-        covs = c - d
-
-        std_calc = np.std(test_eis, axis = 1)[:,None] * np.std(ref_eis, axis = 1)[:, None].T
-        corr = covs / std_calc
-
-        # Set nan values and infinite values to 0
-        np.nan_to_num(corr, copy=False, nan = 0, posinf = 0, neginf = 0)
-
-        return corr.T
-
-def create_dictionary_from_file(file_path, delimiter=' '):
+def create_dictionary_from_file(file_path, delimiter=" "):
     result_dict = {}
-    
-    with open(file_path, 'r') as file:
+
+    with open(file_path, "r") as file:
         for line in file:
             # Split each line into key and value using the specified delimiter
             key, value = map(str.strip, line.split(delimiter, 1))
-                        
+
             # Add key-value pair to the dictionary
             result_dict[int(key)] = value
-    
+
     return result_dict
 
-def get_presentation_times(frame_times: np.ndarray, preFrames:int, flashFrames: int,
-                           gapFrames: int, images_per_epoch: int):
+
+def get_presentation_times(
+    frame_times: np.ndarray,
+    preFrames: int,
+    flashFrames: int,
+    gapFrames: int,
+    images_per_epoch: int,
+):
 
     # Ensure frame times are in integers
     preFrames = int(preFrames)
@@ -683,15 +911,26 @@ def get_presentation_times(frame_times: np.ndarray, preFrames:int, flashFrames: 
     gapFrames = int(gapFrames)
     images_per_epoch = int(images_per_epoch)
 
-
     flash_times = []
     gap_times = []
 
     for epoch in range(frame_times.shape[0]):
-        flash_times.append([frame_times[epoch, preFrames + flashFrames*idx+gapFrames*idx] for idx in range(images_per_epoch)])
-        gap_times.append([frame_times[epoch, preFrames + flashFrames*(idx+1)+gapFrames*idx] for idx in range(images_per_epoch)])
+        flash_times.append(
+            [
+                frame_times[epoch, preFrames + flashFrames * idx + gapFrames * idx]
+                for idx in range(images_per_epoch)
+            ]
+        )
+        gap_times.append(
+            [
+                frame_times[
+                    epoch, preFrames + flashFrames * (idx + 1) + gapFrames * idx
+                ]
+                for idx in range(images_per_epoch)
+            ]
+        )
 
-    pre_times = [frame_times[epoch,preFrames] for epoch in range(frame_times.shape[0])]
+    pre_times = [frame_times[epoch, preFrames] for epoch in range(frame_times.shape[0])]
     pre_times = np.array(pre_times)
     flash_times = np.array(flash_times)
     gap_times = np.array(gap_times)

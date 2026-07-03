@@ -1,11 +1,13 @@
-from retinanalysis.config.settings import (ANALYSIS_DIR,
-                                           DATA_DIR,
-                                           RAW_DIR,
-                                           H5_DIR,
-                                           META_DIR,
-                                           TAGS_DIR,
-                                           QUERY_DIR,
-                                           USER)
+from retinanalysis.config.settings import (
+    ANALYSIS_DIR,
+    DATA_DIR,
+    RAW_DIR,
+    H5_DIR,
+    META_DIR,
+    TAGS_DIR,
+    QUERY_DIR,
+    USER,
+)
 
 from retinanalysis._database import schema
 from . import database_pop
