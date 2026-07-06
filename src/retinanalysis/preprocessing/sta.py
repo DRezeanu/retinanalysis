@@ -454,8 +454,6 @@ def compute_stas_for_chunk(
     peaks[peaks==0] = 1
     stas = stas / peaks
 
-    grid_size = sb.df_epochs.at[0, 'epoch_parameters']['gridSize']
-
     grid_size = sb.df_epochs.at[0, "epoch_parameters"]["gridSize"]
 
     d_output = {
