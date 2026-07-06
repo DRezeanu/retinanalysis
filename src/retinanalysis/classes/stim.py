@@ -73,21 +73,21 @@ class StimBlock:
         self.exp_name = exp_name
         self.block_id = block_id
 
-        df = get_exp_summary(exp_name)
-        assert df is not None, "Failed to load experiment summary"
+        exp_summary = get_exp_summary(exp_name)
+        assert exp_summary is not None, "Failed to load experiment summary"
 
-        self.d_block_summary = df.query("block_id == @block_id").iloc[0].to_dict()
+        self.d_block_summary = exp_summary.query("block_id == @block_id").iloc[0].to_dict()
         self.protocol_name = self.d_block_summary["protocol_name"]
         self.prep_label = self.d_block_summary["prep_label"]
 
         epoch_block = schema.EpochBlock() & {"id": block_id}
         self.d_epoch_block_params = epoch_block.fetch1("parameters")
 
-        df_e = get_epoch_data_from_exp(
+        df_epochs = get_epoch_data_from_exp(
             exp_name, block_id, b_LED=self.b_LED, ls_params=ls_params
         )
-        self.df_epochs = df_e
-        self.parameter_names = list(df_e.at[0, "epoch_parameters"].keys())
+        self.df_epochs = df_epochs
+        self.parameter_names = list(df_epochs.at[0, "epoch_parameters"].keys())
 
         self.d_display = get_display_params_by_exp(self.exp_name, verbose=self.verbose)
         self.stim_data: dict | None = None
@@ -137,6 +137,9 @@ class StimBlock:
         str_self += f"  d_epoch_block_params of length {len(self.d_epoch_block_params.keys())}\n"
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         str_self += f"  d_display with keys: {self.d_display.keys()}\n"
+        if self.stim_data is not None:
+            str_self += f"  stim_data with keys: {self.stim_data.keys()}\n"
+
         return str_self
 
     def export_to_pkl(self, file_path: str):
@@ -317,7 +320,11 @@ class MEAStimBlock(StimBlock):
             f"  d_epoch_block_params with keys: {self.d_epoch_block_params.keys()}\n"
         )
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
+        if self.stim_data is not None:
+            str_self += f"  stim_data with keys: {self.stim_data.keys()}\n"
+
         return str_self
+
 
 
 class MEAStimGroup:
@@ -377,6 +384,43 @@ class MEAStimGroup:
         self.protocol_name = self.ls_blocks[0].protocol_name
         self.chunk_name = self.ls_blocks[0].d_block_summary["chunk_name"]
         self.prep_label = self.ls_blocks[0].prep_label
+        self.block_ids = [block.block_id for block in ls_blocks]
+        self.stim_data: dict | None = None
+
+    def regenerate_stimulus(self, ls_epochs: Optional[int | list] = None, **kwargs):
+        """
+        Regenerate the stimulus for the block based on the epochs provided.
+        If no epochs are provided, it regenerates for all epochs in the block.
+        """
+        if ls_epochs is None:
+            ls_epochs = self.df_epochs.index.tolist()
+
+        # Convert single values into a list since the function doesn't know what to do with an int
+        if isinstance(ls_epochs, int):
+            ls_epochs = [ls_epochs]
+
+        if self.protocol_name in D_REGEN_FXNS.keys():
+            print(
+                f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.block_ids}"
+            )
+            f_regen = D_REGEN_FXNS[self.protocol_name]
+            print(f"Using regeneration function: {f_regen.__name__}")
+            stim_data = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
+            self.stim_data = stim_data
+            if isinstance(stim_data, dict):
+                print(f"Regenerated stimulus with keys: {list(stim_data.keys())}")
+            elif isinstance(stim_data, np.ndarray):
+                print(f"Regenerated stimulus with shape: {stim_data.shape}")
+            return
+        else:
+            print(
+                f"Method for regenerating {self.protocol_name} is not implemented yet!"
+            )
+            print(
+                "Please do so at your convenience in regen.py, and add function name to D_REGEN_FXNS.\n"
+            )
+            return
+
 
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
@@ -396,6 +440,10 @@ class MEAStimGroup:
         )
         str_self += f"  df_epochs for {self.df_epochs.shape[0]} epochs\n"
         str_self += f"  d_display with keys: {self.ls_blocks[0].d_display.keys()}\n"
+        
+        if self.stim_data is not None:
+            str_self += f"  stim_data with keys {self.stim_data.keys()}\n"
+
         return str_self
 
     def export_to_pkl(self, file_path: str):

@@ -68,10 +68,10 @@ def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
 
 def make_spatial_noise(
     df_epochs: pd.DataFrame,
-    center_row: Optional[int] = None,
-    center_col: Optional[int] = None,
-    n_pad: Optional[int] = None,
-    canvas_size: tuple = None,
+    center_row: int | None = None,
+    center_col: int | None = None,
+    n_pad: int | None = None,
+    canvas_size: tuple | None = None,
 ):
     # Create noise movies by epochs
     ls_frames = []
@@ -159,9 +159,9 @@ def get_spatial_noise_frames(
     frameDwell: int,
     gaussianFilter: bool = False,
     filterSdStixels: float = 1.0,
-    canvasSize: tuple = None,
-    micronsPerPixel: float = None,
-    repeating_seed: int = None,
+    canvasSize: tuple | None = None,
+    micronsPerPixel: float | None = None,
+    repeating_seed: int | None = None,
 ):
     """
     Get the frame sequence for the FastNoiseStimulus.
@@ -797,7 +797,7 @@ def get_present_images_transitions(
 def load_all_present_images(
     df_epochs: pd.DataFrame,
     rb: MEAResponseBlock | SCResponseBlock,
-    str_parent_path: str = None,
+    str_parent_path: str | None = None,
     ds_mu: float = 10.0,
     b_only_timing: bool = False,
 ) -> dict:
@@ -897,7 +897,7 @@ def make_variable_mean_bars(
     df_epochs: pd.DataFrame,
     exp_name: str,
     str_pkg_dir: str,
-    b_lines_only: True,
+    b_lines_only: bool = True,
     b_noise_only: bool = True,
     str_generator_dir=None,
 ):
