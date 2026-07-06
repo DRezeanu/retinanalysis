@@ -220,12 +220,6 @@ def compute_stas(
     # Reshape back to full stim dims
     stas = stas.reshape(n_cells, depth, *stim_dims)
     stas = stas.numpy()
-
-    # Normalize by abs max for each cell
-    peaks = np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
-    # Avoid div by 0
-    peaks[peaks==0] = 1
-    stas = stas / peaks
     
     # Final clean up
     if device.type == "cuda":
@@ -434,19 +428,6 @@ def compute_stas_for_chunk(
 
             del stim_frames, resp_data, sb.stim_data
             gc.collect()
-
-    #     # Divide by total sps for each cell
-    #     if total_sps is None:
-    #         total_sps = bs.sum(axis=(0, 2)) # [K]
-    #     else:
-    #         total_sps += bs.sum(axis=(0, 2))
-    
-    
-    # # avoid div by 0
-    # total_sps[total_sps==0] = 1 
-    # # Make [K, 1, 1, 1, 1] for [K, D, H, W, C] stas
-    # total_sps = total_sps.reshape(-1, 1, 1, 1, 1)
-    # stas = stas / total_sps
 
     # Final normalize by abs max for each cell
     peaks = np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
