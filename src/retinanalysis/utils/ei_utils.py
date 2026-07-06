@@ -7,6 +7,7 @@ if TYPE_CHECKING:
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
+import matplotlib.colors as mcolors
 
 
 def sort_electrode_map(electrode_map: np.ndarray) -> np.ndarray:
@@ -274,8 +275,6 @@ def plot_ei_map(n_ID: int, vcd: VisionCellDataTable, top_idx=None,
     return axs
 
 def plot_test(n_ID, vcd):
-    import matplotlib.colors as mcolors
-    
     sorted_electrodes = sort_electrode_map(vcd.get_electrode_map())
 
     ei, ei_map, ei_map_intrp = get_ei_and_map(n_ID, vcd)

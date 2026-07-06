@@ -949,6 +949,95 @@ class MEAResponseGroup:
         self.df_spike_times["noise_id"] = noise_ids
         self.df_spike_times["cell_type"] = classification
 
+    def get_max_bins_for_rate(self, bin_rate: float):
+        # bin_rate: float, in Hz
+        # Returns the maximum number of bins for the given bin rate across all epochs.
+        epoch_starts = self.d_timing["epochStarts"]
+        epoch_ends = self.d_timing["epochEnds"]
+        ls_bins = []
+        for i in range(self.n_epochs):
+            n_epoch_samples = epoch_ends[i] - epoch_starts[i]
+            n_bins = np.ceil(n_epoch_samples / (SAMPLE_RATE / bin_rate))
+            ls_bins.append(n_bins)
+        n_max_bins = int(np.max(ls_bins))
+        return n_max_bins
+
+    def bin_spike_times_by_frames(self, stride: int = 1):
+        if self.b_LED:
+            raise ValueError(
+                "Cannot bin spike times by frames for LED blocks, no frame data."
+            )
+
+        frame_times_ms = self.d_timing["frameTimesMs"]
+        if int(self.exp_name[:8]) < 20230926:
+            marginal_frame_rate = 60.31807657  # Upper bound on the frame rate to make sure that we don't miss any frames.
+        else:
+            marginal_frame_rate = 59.941548817817917  # Upper bound on the frame rate to make sure that we don't miss any frames.
+        bin_rate = marginal_frame_rate * stride  # in Hz
+
+        n_max_bins = self.get_max_bins_for_rate(bin_rate)
+        n_cells = len(self.cell_ids)
+
+        binned_spikes = np.zeros((n_cells, self.n_epochs, n_max_bins))
+        ls_diff_frames = []
+        for i_cell in tqdm(self.df_spike_times.index, desc="Binning spikes for cells"):
+            sts = self.df_spike_times.at[i_cell, "spike_times"]
+            for j_epoch in range(self.n_epochs):
+                e_sts = sts[j_epoch]
+
+                fts = frame_times_ms[j_epoch]
+                fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
+                ls_diff_frames.append(np.diff(fts))
+
+                # Interpolate by stride
+                n_frames = len(fts)
+                stride_idxs = np.linspace(0, n_frames, n_frames * stride)
+                bin_edges = np.interp(stride_idxs, np.arange(n_frames), fts)
+
+                bs = np.histogram(e_sts, bins=bin_edges)[0]
+                if len(bs) > n_max_bins:
+                    bs = bs[:n_max_bins]
+                binned_spikes[i_cell, j_epoch, : len(bs)] = bs
+        self.df_spike_times["binned_spikes"] = [
+            binned_spikes[i_cell, :, :] for i_cell in range(n_cells)
+        ]
+
+        self.binned_spikes = binned_spikes
+
+        # Taken from SD. Compute the mean frame rate.
+        ls_diff_frames = np.concatenate(ls_diff_frames)
+        ls_diff_frames = ls_diff_frames[ls_diff_frames < 20.0]
+        mean_frame_rate = 1000.0 / np.mean(ls_diff_frames)
+        print(f"Mean frame rate: {mean_frame_rate:.2f} Hz\n")
+        self.mean_frame_rate = mean_frame_rate
+        self.bin_rate = bin_rate
+        self.time_bins_ms = np.arange(0, n_max_bins) / self.bin_rate * 1000  # in ms
+
+    def bin_spike_times_at_rate(self, bin_rate: float, b_count: bool = True):
+        n_bins = self.get_max_bins_for_rate(bin_rate)
+        time_bins = np.arange(n_bins + 1) / bin_rate * 1000  # in ms
+        n_cells = len(self.cell_ids)
+
+        binned_spikes = np.zeros((n_cells, self.n_epochs, n_bins))
+        for i_cell in tqdm(self.df_spike_times.index, desc="Binning spikes for cells"):
+            sts = self.df_spike_times.at[i_cell, "spike_times"]
+            for j_epoch in range(self.n_epochs):
+                e_sts = sts[j_epoch]
+
+                bs = np.histogram(e_sts, bins=time_bins)[0]
+                binned_spikes[i_cell, j_epoch, :] = bs
+
+        if not b_count:
+            binned_spikes *= bin_rate
+
+        self.df_spike_times["binned_spikes"] = [
+            binned_spikes[i_cell, :, :] for i_cell in range(n_cells)
+        ]
+
+        self.binned_spikes = binned_spikes
+        self.bin_rate = bin_rate
+        self.time_bins_ms = time_bins[:-1]
+    
     def __repr__(self):
         str_self = f"{self.__class__.__name__} with properties:\n"
         str_self += f"  ls_blocks containg {len(self.ls_blocks)} MEAResponseBlocks\n"

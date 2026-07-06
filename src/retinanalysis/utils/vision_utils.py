@@ -26,6 +26,7 @@ def get_analysis_vcd(
     ss_version: str,
     include_ei: bool = True,
     include_neurons: bool = True,
+    include_sta: bool = False,
     verbose: bool = True,
 ) -> VisionCellDataTable:
 
@@ -39,7 +40,7 @@ def get_analysis_vcd(
         ss_version,
         include_ei=include_ei,
         include_noise=False,
-        include_sta=False,
+        include_sta=include_sta,
         include_params=True,
         include_runtimemovie_params=True,
         include_neurons=include_neurons,
