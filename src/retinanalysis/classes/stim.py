@@ -401,7 +401,7 @@ class MEAStimGroup:
 
         if self.protocol_name in D_REGEN_FXNS.keys():
             print(
-                f"Regenerating stimulus for epochs: {ls_epochs} in block: {self.block_ids}"
+                f"Regenerating stimulus for epochs: {ls_epochs} in Stim Group with blocks: {self.block_ids}"
             )
             f_regen = D_REGEN_FXNS[self.protocol_name]
             print(f"Using regeneration function: {f_regen.__name__}")
