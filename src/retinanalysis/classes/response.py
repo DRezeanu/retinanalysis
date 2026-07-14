@@ -269,7 +269,7 @@ class MEAResponseBlock(ResponseBlock):
         h5_file: Optional[str] = None,
         include_ei: bool = True,
         b_load_fd: bool = False,
-        b_LED: Optional[bool] = False,
+        b_LED: bool = False,
         b_load_vcd: bool = True,
         verbose: bool = True,
     ):
