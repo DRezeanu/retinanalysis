@@ -65,7 +65,9 @@ def _get_n_splits_memory(
     if method == "conv":
         # Conv uses more memory, so adding some buffer splits
         n_splits *= 2
-
+    elif method == 'matmul':
+        n_splits += 1
+    
     if verbose:
         print(
             f"Total data size: {total_data_gb:.1f}GB, max available: {max_memory_gb:.1f}GB"
@@ -150,11 +152,6 @@ def compute_stas(
                 # binned spikes [N, K, T] @ stim [N, T, S] = [N, K, S]
                 epoch_stas = batched_matmul(br_lag, sd_lag)
 
-                # Normalize by spikecount
-                scs = br_lag.sum(dim=2, keepdims=True)  # [N, K, 1]
-                scs[scs == 0] = 1
-                epoch_stas = epoch_stas / scs
-
                 # Avg across epochs for [K, S]
                 stas[:, lag, s_start:s_end] += epoch_stas.mean(axis=0).cpu()
 
@@ -223,7 +220,7 @@ def compute_stas(
     # Reshape back to full stim dims
     stas = stas.reshape(n_cells, depth, *stim_dims)
     stas = stas.numpy()
-
+    
     # Final clean up
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -256,6 +253,18 @@ def get_noise_datafiles(exp_name: str, chunk_name: str) -> list:
 
     noise_data_dirs = epoch_blocks.to_arrays("data_dir")
     datafile_name = [os.path.basename(path) for path in noise_data_dirs]
+    print(f'Found noise datafiles: {datafile_name}')
+    
+    # Filter out zero contrast datafiles
+    eb_contrasts = epoch_blocks.proj(contrast="parameters->>'$.contrast'").fetch('contrast').astype(float)
+    non_zero_contrast = np.where(eb_contrasts != 0)[0]
+    
+    if len(non_zero_contrast) == 0:
+        raise ValueError("No non-zero contrast datafiles found for given exp and chunk!")
+    elif len(non_zero_contrast) < len(datafile_name):
+        datafile_name = [datafile_name[i] for i in non_zero_contrast]
+        print(f'Filtered out zero contrast datafiles, remaining: {datafile_name}')
+
     return datafile_name
 
 
@@ -337,6 +346,7 @@ def compute_stas_for_chunk(
         )
 
     # STA input gen and calc loop
+    # TODO initialize stas with max n_cells across blocks, and keep track of cell idx to add for each block.
     stas = None
     total_sps = None
     # Number of epochs to process in batch
@@ -419,20 +429,11 @@ def compute_stas_for_chunk(
             del stim_frames, resp_data, sb.stim_data
             gc.collect()
 
-        # Divide by total sps for each cell
-        if total_sps is None:
-            total_sps = bs.sum(axis=(0, 2))  # [K]
-        else:
-            total_sps += bs.sum(axis=(0, 2))
-
-    # avoid div by 0
-    total_sps[total_sps == 0] = 1
-    # Make [K, 1, 1, 1, 1] for [K, D, H, W, C] stas
-    total_sps = total_sps.reshape(-1, 1, 1, 1, 1)
-    stas = stas / total_sps
-
-    # Normalize by abs max for each cell
-    stas = stas / np.abs(stas).max(axis=(1, 2, 3, 4), keepdims=True)
+    # Final normalize by abs max for each cell
+    peaks = np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
+    # Avoid div by 0
+    peaks[peaks==0] = 1
+    stas = stas / peaks
 
     grid_size = sb.df_epochs.at[0, "epoch_parameters"]["gridSize"]
 
@@ -696,11 +697,11 @@ if __name__ == "__main__":
         print(f"Saving STAs in .sta format for {len(d_stas['cell_ids'])} cells...")
         with STAWriter(filepath=save_vcd_sta) as wr:
             wr.write(
-                sta=d_stas["stas"],
-                ste=None,
-                cluster_id=d_stas["cell_ids"],
-                stixel_size=d_stas["grid_size"],
-            )
+                # Reverse time to match vision convention
+                sta=d_stas['stas'][:, ::-1], 
+                ste=None, cluster_id=d_stas['cell_ids'], 
+                stixel_size=d_stas['grid_size']
+                )
         print(f"STAs saved to {save_vcd_sta}")
 
         stas = d_stas["stas"]
