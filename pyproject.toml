@@ -22,6 +22,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
+
 dependencies = [
   "hdf5storage",
   "h5py",
@@ -50,6 +51,7 @@ dependencies = [
   "netCDF4",
   "bottleneck",
   "scikit-image",
+  "platformdirs>=4.9.6",
 ]
 
 [project.urls]

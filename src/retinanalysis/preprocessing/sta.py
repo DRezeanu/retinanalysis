@@ -19,6 +19,7 @@ from visionwriter import STAWriter, ParamsWriter, GlobalsFileWriter
 import visionloader as vl
 from retinanalysis.utils import ANALYSIS_DIR
 from retinanalysis.preprocessing import rfs
+import psutil
 
 
 def _get_n_splits_memory(
@@ -48,12 +49,9 @@ def _get_n_splits_memory(
         # Get max memory GB from available GPU
         max_memory_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
 
-    elif device.type == "mps":
-        max_memory_gb = torch.mps.recommended_max_memory() / 1e9
-
     else:
         # cpu
-        return 1
+        max_memory_gb = psutil.virtual_memory().available / 1e9
 
     max_memory_gb *= n_max_usage
 
@@ -105,9 +103,9 @@ def compute_stas(
             For EI, [C]
     """
     # [N epochs, T frames, H, W, C]
-    stim_data = torch.tensor(stim_data_np, dtype=torch.float32)
+    stim_data = torch.from_numpy(stim_data_np).float()
     # [N epochs, K cells, T frames]
-    binned_responses = torch.tensor(binned_responses_np, dtype=torch.float32)
+    binned_responses = torch.from_numpy(binned_responses_np).float()
 
     stim_dims = stim_data.shape[2:]
     n_stim_dims = np.prod(stim_dims)
@@ -118,10 +116,13 @@ def compute_stas(
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
     else:
         device = torch.device("cpu")
+
+    if device.type == 'cpu' and method == 'conv':
+        if verbose:
+            print("Conv method is optimized for GPU. Falling back to matmul for CPU.")
+        method = 'matmul'
 
     n_splits = _get_n_splits_memory(
         stim_data, binned_responses, stride, device, method=method, verbose=verbose
@@ -132,7 +133,6 @@ def compute_stas(
     binned_responses = binned_responses.to(device)
 
     if method == "matmul":
-        batched_matmul = torch.vmap(torch.matmul)
         lags = np.arange(depth)
         for i in tqdm.tqdm(np.arange(n_splits), desc="STA compute chunk"):
             s_start = i * n_split_sz
@@ -145,22 +145,21 @@ def compute_stas(
             # Upsample by stride
             sd = torch.repeat_interleave(sd, stride, dim=1)
 
-            for lag in tqdm.tqdm(lags, desc="STA depth"):
-                br_lag = binned_responses[:, :, lag:]
-                sd_lag = sd[:, : n_bins - lag, :]
+            with torch.no_grad():
+                for lag in tqdm.tqdm(lags, desc="STA depth"):
+                    br_lag = binned_responses[:, :, lag:]
+                    sd_lag = sd[:, : n_bins - lag, :]
 
-                # binned spikes [N, K, T] @ stim [N, T, S] = [N, K, S]
-                epoch_stas = batched_matmul(br_lag, sd_lag)
+                    # binned spikes [N, K, T] @ stim [N, T, S] = [N, K, S]
+                    epoch_stas = torch.bmm(br_lag, sd_lag)
 
-                # Avg across epochs for [K, S]
-                stas[:, lag, s_start:s_end] += epoch_stas.mean(axis=0).cpu()
+                    # Avg across epochs for [K, S]
+                    stas[:, lag, s_start:s_end] += epoch_stas.mean(axis=0).cpu()
 
             # Clear memory
             del sd, br_lag, sd_lag, epoch_stas
             if device.type == "cuda":
                 torch.cuda.empty_cache()
-            elif device.type == "mps":
-                torch.mps.empty_cache()
             gc.collect()
 
         # Reverse time dim for standard convention
@@ -210,8 +209,6 @@ def compute_stas(
             del sd, epoch_stas
             if device.type == "cuda":
                 torch.cuda.empty_cache()
-            elif device.type == "mps":
-                torch.mps.empty_cache()
             gc.collect()
 
     else:
@@ -224,8 +221,6 @@ def compute_stas(
     # Final clean up
     if device.type == "cuda":
         torch.cuda.empty_cache()
-    elif device.type == "mps":
-        torch.mps.empty_cache()
     gc.collect()
 
     return stas
@@ -327,6 +322,12 @@ def get_data_for_chunk(
 
     return d_output
 
+def compute_stas_from_scratch(
+    exp_name: str,
+    datafile_names: str | list[str],
+    ss_version: str = 'kilosort2.5',
+):
+    return
 
 def compute_stas_for_chunk(
     sg: Optional[MEAStimGroup] = None,
@@ -377,7 +378,12 @@ def compute_stas_for_chunk(
 
         stage_frame_rate = rb.d_timing["stage_frame_rate"]
         # Count n frames where state.time (1/fr steps) is < pre_time_s
-        pre_frames = len(np.arange(0, pre_time_s, 1 / stage_frame_rate))
+        # pre_frames = len(np.arange(0, pre_time_s, 1 / stage_frame_rate))
+
+        # MM sets visibility using state.time, but the actual checkerboard is shown using
+        # state.frame and a pre_frame offset (preF) calculated by taking floor(pre_time/1000 * 60)
+        pre_frames = np.floor(pre_time_s * 60).astype(int)
+
         # LCR CORRECTION
         pre_frames -= 1
         t_start = pre_frames * stride
@@ -523,8 +529,9 @@ def write_params_file(sta_height, d_data, d_rf_params, save_dir, ss_version):
             x0=d_rf_params["col_coords"],
             # Flip y0 to match vision convention of top left origin
             y0=sta_height - d_rf_params["row_coords"],
-            sigma_x=d_rf_params["c_row_sigmas"],
-            sigma_y=d_rf_params["c_col_sigmas"],
+            # matlab_style_gauss2D applies sigma_r along rows (y) and sigma_c along cols (x)
+            sigma_x=d_rf_params["c_col_sigmas"],
+            sigma_y=d_rf_params["c_row_sigmas"],
             theta=d_rf_params["thetas"],
             isi_binning=d_data["isi_dt"],
         )
@@ -621,12 +628,16 @@ if __name__ == "__main__":
     chunk_save_dir = os.path.join(
         SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version
     )
-    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
-        os.mkdir(os.path.join(SAVE_DIR, args.exp_name))
-    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name)):
-        os.mkdir(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name))
+
+    # if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
+    #     os.mkdir(os.path.join(SAVE_DIR, args.exp_name))
+    # if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name)):
+    #     os.mkdir(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name))
+    # if not os.path.exists(chunk_save_dir):
+    #     os.mkdir(chunk_save_dir)
+
     if not os.path.exists(chunk_save_dir):
-        os.mkdir(chunk_save_dir)
+        os.makedirs(chunk_save_dir)
 
     save_prefix = os.path.join(chunk_save_dir, args.ss_version)
     save_np = save_prefix + f"_{args.method}_stas.npy"
