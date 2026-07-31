@@ -322,6 +322,12 @@ def get_data_for_chunk(
 
     return d_output
 
+def compute_stas_from_scratch(
+    exp_name: str,
+    datafile_names: str | list[str],
+    ss_version: str = 'kilosort2.5',
+):
+    return
 
 def compute_stas_for_chunk(
     sg: Optional[MEAStimGroup] = None,
@@ -372,7 +378,12 @@ def compute_stas_for_chunk(
 
         stage_frame_rate = rb.d_timing["stage_frame_rate"]
         # Count n frames where state.time (1/fr steps) is < pre_time_s
-        pre_frames = len(np.arange(0, pre_time_s, 1 / stage_frame_rate))
+        # pre_frames = len(np.arange(0, pre_time_s, 1 / stage_frame_rate))
+
+        # MM sets visibility using state.time, but the actual checkerboard is shown using
+        # state.frame and a pre_frame offset (preF) calculated by taking floor(pre_time/1000 * 60)
+        pre_frames = np.floor(pre_time_s * 60).astype(int)
+
         # LCR CORRECTION
         pre_frames -= 1
         t_start = pre_frames * stride
@@ -518,8 +529,9 @@ def write_params_file(sta_height, d_data, d_rf_params, save_dir, ss_version):
             x0=d_rf_params["col_coords"],
             # Flip y0 to match vision convention of top left origin
             y0=sta_height - d_rf_params["row_coords"],
-            sigma_x=d_rf_params["c_row_sigmas"],
-            sigma_y=d_rf_params["c_col_sigmas"],
+            # matlab_style_gauss2D applies sigma_r along rows (y) and sigma_c along cols (x)
+            sigma_x=d_rf_params["c_col_sigmas"],
+            sigma_y=d_rf_params["c_row_sigmas"],
             theta=d_rf_params["thetas"],
             isi_binning=d_data["isi_dt"],
         )
@@ -616,12 +628,16 @@ if __name__ == "__main__":
     chunk_save_dir = os.path.join(
         SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version
     )
-    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
-        os.mkdir(os.path.join(SAVE_DIR, args.exp_name))
-    if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name)):
-        os.mkdir(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name))
+
+    # if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
+    #     os.mkdir(os.path.join(SAVE_DIR, args.exp_name))
+    # if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name)):
+    #     os.mkdir(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name))
+    # if not os.path.exists(chunk_save_dir):
+    #     os.mkdir(chunk_save_dir)
+
     if not os.path.exists(chunk_save_dir):
-        os.mkdir(chunk_save_dir)
+        os.makedirs(chunk_save_dir)
 
     save_prefix = os.path.join(chunk_save_dir, args.ss_version)
     save_np = save_prefix + f"_{args.method}_stas.npy"
