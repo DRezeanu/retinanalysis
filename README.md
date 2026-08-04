@@ -146,7 +146,7 @@ Note: The `query` dir is used by `datajoint_utils.plot_mosaics_for_all_datasets`
 
 ## Docker Installation
 
-Retinanalysis uses a custom DataJoint MySQL database to store experiment metadata. DataJoint 2 requires MySQL 8. The DataJoint MySQL Docker image is available at <a href='https://hub.docker.com/r/datajoint/mysql'>https://hub.docker.com/r/datajoint/mysql</a>.
+Retinanalysis uses a custom DataJoint MySQL database to store experiment metadata. DataJoint 2 requires MySQL 8.
 
 We've included a modified docker-compose.yaml file for easy installation using the steps below:
 
