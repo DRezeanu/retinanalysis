@@ -25,7 +25,8 @@ D_REGEN_FXNS = {
     'edu.washington.riekelab.rachel.protocols.BarsAndGain': regen.make_bars_and_gain,
     # 'manookinlab.protocols.DovesMovie'
 
-    'manookinlab.protocols.DovesMovie': regen.make_all_doves_movies
+    'manookinlab.protocols.DovesMovie': regen.make_all_doves_movies,
+    'edu.washington.riekelab.rachel.protocols.DynamicGain':regen.make_dynamic_gain
 
 }
 

@@ -892,6 +892,74 @@ def make_variable_mean_bars(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: 
         }
     return d_output
 
+def make_dynamic_gain(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_lines_only:True):
+
+    exp_name = int(exp_name[:8])
+    import matlab.engine #type: ignore
+    print('Starting matlab engine for stim regen.')
+    eng = matlab.engine.start_matlab()
+    eng.addpath(str_pkg_dir)
+    print('Started engine and added pkg to path.')
+    preTime = matlab.double(df_epochs.loc[0,'preTime'])
+    tailTime = matlab.double(df_epochs.loc[0,'tailTime'])
+    stimTime = matlab.double(df_epochs.loc[0,'stimTime'])
+    noiseSeeds = matlab.double([df_epochs.loc[i,'noiseSeed'] for i in df_epochs.index])
+    numChecksXs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksX'] for i in df_epochs.index])
+    backgroundIntensity = matlab.double([df_epochs.loc[0, 'epoch_parameters']['backgroundIntensity']])
+    frameDwell = matlab.double([df_epochs.loc[0, 'epoch_parameters']['frameDwell']])
+    binaryNoise = matlab.double([df_epochs.loc[0, 'epoch_parameters']['binaryNoise']])
+    noiseStdv = matlab.double([df_epochs.loc[0, 'epoch_parameters']['noiseStdv']])
+    noiseMeans = matlab.double([df_epochs.loc[i, 'epoch_parameters']['noiseMean'] for i in df_epochs.index])
+
+    pairedBars = matlab.double([df_epochs.loc[0, 'epoch_parameters']['pairedBars']])
+    numChecksYs = matlab.double([df_epochs['epoch_parameters'][i]['numChecksY'] for i in df_epochs.index])
+
+
+    if b_lines_only:
+        _, line_mat = eng.util.regenerateBars(b_lines_only, noiseSeeds, numChecksXs, preTime,  stimTime, tailTime, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, noiseMeans, pairedBars, numChecksYs, nargout=2);
+    else:
+        stimulus, line_mat = eng.util.regenerateBars(b_lines_only, noiseSeeds, numChecksXs, preTime,  stimTime, tailTime, backgroundIntensity, frameDwell, binaryNoise, noiseStdv, noiseMeans, pairedBars, numChecksYs, nargout=2);
+        stimulus = np.array(stimulus);
+    line_mat = np.array(line_mat);
+    eng.quit()
+
+    gain_trace = regenerate_projector_gain(df_epochs, str_pkg_dir)
+
+    stim_transitions = []
+    increment_frames = []
+    decrement_frames = []
+
+    pre_frames = int(np.round(60 * df_epochs.at[0, 'preTime'] / 1e3))
+    tail_frames = int(np.round(60 * df_epochs.at[0, 'tailTime'] / 1e3))
+
+    for epoch_idx in range(len(df_epochs)):
+        stim_transitions.append(np.where(np.diff(gain_trace[epoch_idx,:]) != 0)[0] + 1)
+        increment_frames.append(np.where(np.diff(gain_trace[epoch_idx,:]) > 0)[0] + 1)
+        decrement_frames.append(np.where(np.diff(gain_trace[epoch_idx,:]) < 0)[0] + 1)
+
+    if b_lines_only:
+        d_output = {
+            'line_mat': line_mat,
+            'gain_trace': gain_trace,
+            'stim_transitions': stim_transitions,
+            'increment_frames': increment_frames,
+            'decrement_frames': decrement_frames,
+            'pre_frames': pre_frames,
+            'tail_frames': tail_frames,
+        }
+
+    else:
+        d_output = {
+            'stim_frames': stimulus,
+            'line_mat': line_mat,
+            'gain_trace': gain_trace,
+            'stim_transitions': stim_transitions,
+            'increment_frames': increment_frames,
+            'decrement_frames': decrement_frames,
+        }
+
+    return d_output
+
 def make_bars_and_gain(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, b_lines_only:True):
 
     exp_name = int(exp_name[:8])
@@ -939,6 +1007,9 @@ def make_bars_and_gain(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, 
     increment_frames = []
     decrement_frames = []
 
+    pre_frames = int(np.round(60 * df_epochs.at[0, 'preTime'] / 1e3))
+    tail_frames = int(np.round(60 * df_epochs.at[0, 'tailTime'] / 1e3))
+
     for epoch_idx in range(len(df_epochs)):
         stim_transitions.append(np.where(np.diff(gain_trace[epoch_idx,:]) != 0)[0] + 1)
         increment_frames.append(np.where(np.diff(gain_trace[epoch_idx,:]) > 0)[0] + 1)
@@ -951,6 +1022,8 @@ def make_bars_and_gain(df_epochs: pd.DataFrame, exp_name:str, str_pkg_dir: str, 
             'stim_transitions': stim_transitions,
             'increment_frames': increment_frames,
             'decrement_frames': decrement_frames,
+            'pre_frames': pre_frames,
+            'tail_frames': tail_frames,
         }
 
     else:
