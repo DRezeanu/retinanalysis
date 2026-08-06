@@ -90,11 +90,13 @@ def compute_stas(
 
     Args:
         stim_data_np (np.ndarray):
-            Stimulus data of shape [N epochs, T frames, *]
+            Stimulus data of shape [N epochs, Ts stim frames, *]
             For noise stim, last dims are [H, W, C]
             For EI, last dims are [C] electrodes
+            
+            Note that Ts stim frames can be >= Tr response frames, and only :Tr stim frames will be considered.
         binned_responses_np (np.ndarray):
-            Binned spikerate/spikecount of shape [N epochs, K cells, T frames]
+            Binned spikerate/spikecount of shape [N epochs, K cells, Tr frames]
         stride (int): Stride for upsampling stimulus data to match binned responses. If stim_data is already upsampled, set to 1.
         method (str): "matmul" or "conv"
 

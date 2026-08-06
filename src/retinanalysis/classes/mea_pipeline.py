@@ -718,7 +718,7 @@ def create_mea_pipeline(
     ls_params: Optional[list] = None,
     b_load_fd: bool = False,
     b_load_sta: bool = False,
-    b_load_vcd: bool = False,
+    b_load_vcd: bool = True,
     b_LED: bool = False,
     verbose: bool = True,
 ):
