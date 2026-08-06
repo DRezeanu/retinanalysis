@@ -47,6 +47,7 @@ from .utils import parse_data
 from . import preprocessing
 from .preprocessing import sta
 from .preprocessing import rfs
+from .preprocessing import ks_to_vision
 
 
 # Import classes last
@@ -82,3 +83,10 @@ from .classes.mea_pipeline import (MEAPipeline,
 from .classes import sc_pipeline
 from .classes import dedup
 from .classes.dedup import DedupBlock
+
+# datajoint installs a sys.excepthook (see datajoint/logging.py) whose formatter
+# drops exc_info, silently swallowing tracebacks for anything not caught by
+# .populate(). Restore the default hook so uncaught exceptions print normally.
+import sys as _sys
+_sys.excepthook = _sys.__excepthook__
+del _sys
