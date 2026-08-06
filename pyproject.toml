@@ -22,6 +22,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
+
 dependencies = [
   "hdf5storage",
   "h5py",
@@ -49,7 +50,9 @@ dependencies = [
   "pyqtgraph>=0.13.0",
   "QtPy>=2.4.0",
   "hdbscan",
-  "scikit-image"]
+  "scikit-image",
+  "platformdirs>=4.9.6",
+]
 
 [project.urls]
 Documentation = "https://github.com/DRezeanu/retinanalysis#readme"
