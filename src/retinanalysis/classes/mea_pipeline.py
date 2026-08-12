@@ -52,10 +52,11 @@ class MEAPipeline:
 
     def __init__(
         self,
-        stim: Optional[MEAStimBlock | MEAStimGroup] = None,
-        resp: Optional[MEAResponseBlock | MEAResponseGroup] = None,
-        analysis_chunk: Optional[AnalysisChunk] = None,
-        typing_file: Optional[str] = None,
+        stim: MEAStimBlock | MEAStimGroup | None = None,
+        resp: MEAResponseBlock | MEAResponseGroup | None = None,
+        analysis_chunk: AnalysisChunk | None = None,
+        typing_file: str | None = None,
+        corr_cutoff: float | None = None,
         verbose: bool = True,
         pkl_file: Optional[str] = None,
     ):
@@ -96,6 +97,10 @@ class MEAPipeline:
 
         self.analysis_chunk = analysis_chunk
         self.typing_file = typing_file
+        if corr_cutoff is None:
+            self.corr_cutoff = 0.8
+        else:
+            self.corr_cutoff = corr_cutoff
 
         # If datafile/datafiles in resp are all part of the same chunk as analysis_chunk, skip cluster match
         if isinstance(self.resp, MEAResponseBlock):
@@ -107,7 +112,7 @@ class MEAPipeline:
                 self.corr_dict = {id: 1.0 for id in self.analysis_chunk.cell_ids}
             else:
                 self.match_dict, self.corr_dict = cluster_match(
-                    self.analysis_chunk, self.resp, verbose=self.verbose
+                    self.analysis_chunk, self.resp, corr_cutoff = self.corr_cutoff, verbose=self.verbose
                 )
         elif isinstance(self.resp, MEAResponseGroup):
             if all(
@@ -712,10 +717,11 @@ class MEAPipeline:
 def create_mea_pipeline(
     exp_name: str,
     datafile_name: str | List[str],
-    analysis_chunk_name: Optional[str] = None,
-    typing_file: Optional[str] = None,
+    analysis_chunk_name: str | None = None,
+    typing_file: str | None = None,
+    corr_cutoff: float | None = None,
     ss_version: str = "kilosort2.5",
-    ls_params: Optional[list] = None,
+    ls_params: list | None = None,
     b_load_fd: bool = False,
     b_LED: bool = False,
     verbose: bool = True,
@@ -791,6 +797,11 @@ def create_mea_pipeline(
 
     ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version, verbose=verbose)
     pipeline = MEAPipeline(
-        stim=s, resp=r, analysis_chunk=ac, typing_file=typing_file, verbose=verbose
+        stim=s,
+        resp=r,
+        analysis_chunk=ac,
+        typing_file=typing_file,
+        corr_cutoff=corr_cutoff,
+        verbose=verbose,
     )
     return pipeline
