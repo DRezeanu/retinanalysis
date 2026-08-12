@@ -1317,6 +1317,24 @@ def get_epochblock_frame_data(
             trace = f[h5path]["data"]["quantity"]
             frame_data.append(trace)
 
+    # Check that all frame_data vectors are same length
+    # and pad with 0s if not
+    all_len = [len(fd) for fd in frame_data]
+    if len(set(all_len)) != 1:
+        max_len = np.max(all_len)
+        max_idx = np.argmax(all_len)
+        for idx, fd in enumerate(frame_data):
+            if idx == max_idx:
+                continue
+            else:
+                pad_width = (0, max_len - len(fd))
+                frame_data[idx] = np.pad(
+                    frame_data[idx],
+                    pad_width = pad_width,
+                    constant_values=0,
+                )
+
+
     frame_data = np.array(frame_data)
     if verbose:
         print(f"Loaded {frame_data.shape} frame_data.\n")
