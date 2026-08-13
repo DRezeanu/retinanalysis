@@ -33,7 +33,6 @@ Options:
 Notes:
   - This script does not run git submodule commands automatically.
   - This script does not create, populate, migrate, or modify DataJoint databases.
-  - If config.ini is missing, a placeholder template is created and must be edited.
 EOF
 }
 
@@ -166,85 +165,6 @@ EOF
   fi
 }
 
-create_config_template() {
-  local config_path="src/retinanalysis/config/config.ini"
-
-  if [[ -f "$config_path" ]]; then
-    info "Preserving existing $config_path"
-    printf 'Please verify that this file contains paths for this machine before using data/database workflows.\n'
-    return
-  fi
-
-  info "Creating placeholder $config_path"
-  mkdir -p "$(dirname "$config_path")"
-  cat > "$config_path" <<'EOF'
-[DEFAULT]
-analysis = /path/to/analysis
-data = /path/to/sorted
-raw = /path/to/raw
-h5 = /path/to/h5
-meta = /path/to/meta
-tags = /path/to/tags
-query = /path/to/query/analysis
-user = your_username
-
-[SECONDARY]
-analysis = /path/to/secondary/analysis
-data = /path/to/secondary/sorted
-raw = /path/to/secondary/raw
-h5 = /path/to/secondary/h5
-meta = /path/to/secondary/meta
-tags = /path/to/secondary/tags
-query = /path/to/secondary/query/analysis
-user = your_username
-
-[LINUX_DEFAULT]
-analysis = /path/to/linux/analysis
-data = /path/to/linux/sorted
-raw = /path/to/linux/raw
-h5 = /path/to/linux/h5
-meta = /path/to/linux/meta
-tags = /path/to/linux/tags
-query = /path/to/linux/query/analysis
-user = your_username
-
-[LINUX_SECONDARY]
-analysis = /path/to/linux/secondary/analysis
-data = /path/to/linux/secondary/sorted
-raw = /path/to/linux/secondary/raw
-h5 = /path/to/linux/secondary/h5
-meta = /path/to/linux/secondary/meta
-tags = /path/to/linux/secondary/tags
-query = /path/to/linux/secondary/query/analysis
-user = your_username
-
-[WINDOWS_DEFAULT]
-analysis = C:/path/to/analysis
-data = C:/path/to/sorted
-raw = C:/path/to/raw
-h5 = C:/path/to/h5
-meta = C:/path/to/meta
-tags = C:/path/to/tags
-query = C:/path/to/query/analysis
-user = your_username
-
-[WINDOWS_SECONDARY]
-analysis = C:/path/to/secondary/analysis
-data = C:/path/to/secondary/sorted
-raw = C:/path/to/secondary/raw
-h5 = C:/path/to/secondary/h5
-meta = C:/path/to/secondary/meta
-tags = C:/path/to/secondary/tags
-query = C:/path/to/secondary/query/analysis
-user = your_username
-EOF
-
-  cat <<EOF
-Created $config_path.
-IMPORTANT: edit this file and replace placeholder paths with real data paths before using data-loading or database-backed workflows.
-EOF
-}
-
 install_uv() {
   command -v uv >/dev/null 2>&1 || fail "uv not found on PATH. Install uv: https://docs.astral.sh/uv/getting-started/installation/"
 
@@ -333,20 +253,31 @@ case "$MODE" in
     ;;
 esac
 
-create_config_template
 
 cat <<'EOF'
 
 Installation finished.
 
 Next steps:
-  1. Edit src/retinanalysis/config/config.ini with real data paths for this machine.
-  2. Start the Docker/DataJoint database only when you need database-backed workflows.
-  3. After editing config.ini, you can test the package import from Python:
-
+  1. Import the package to make sure everything installed correctly:
+       
        import retinanalysis as ra
 
-  4. After config.ini and the database are ready, populate a fresh database from Python:
+  2. Create a config file that contains the paths to the relevant directories:
+       
+       Option 1, use the CLI setup tool:
+            ra.config.setup()
+        
+       Option 2, use the GUI setup tool:
+            ra.config.setup_gui()
+
+       Option 3, write your config file manually:
+            See config template in /assets folder
+            The directory where you should put this file is printed when you first import retinanalysis
+
+  2. Start the Docker/DataJoint database only when you need database-backed workflows.
+
+  4. After config and the database are ready, populate a fresh database from Python:
 
        import retinanalysis as ra
        ra.populate_database()

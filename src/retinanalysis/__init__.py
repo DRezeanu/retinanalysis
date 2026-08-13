@@ -5,16 +5,21 @@ from retinanalysis._database import schema
 # Import various data and analysis directories directly.
 # Settings doesn't reference any of the utils or classes so it should be
 # safe to import first without circular import issues
-from . import config
-from .config import settings
-from .config.settings import (ANALYSIS_DIR,
-                              DATA_DIR,
-                              RAW_DIR,
-                              H5_DIR,
-                              META_DIR,
-                              TAGS_DIR,
-                              QUERY_DIR,
-                              USER)
+from ._config import config
+_CONFIG_ATTRS = {
+    'ANALYSIS_DIR',
+    'DATA_DIR',
+    'RAW_DIR',
+    'H5_DIR',
+    'META_DIR',
+    'TAGS_DIR',
+    'QUERY_DIR',
+    'USER',
+}
+def __getattr__(name):
+    if name in _CONFIG_ATTRS:
+        return getattr(config, name)
+    raise AttributeError(f"module 'retinanalysis' has no attribute {name!r}")
 
 # Utilities imported first. They should NEVER reference the classes for anything
 # other than type hints, which should be done using the TYPE_CHECKING and 

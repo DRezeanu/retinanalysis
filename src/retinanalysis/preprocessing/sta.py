@@ -17,7 +17,7 @@ from retinanalysis.classes.stim import MEAStimBlock, MEAStimGroup, create_mea_st
 import gc
 from visionwriter import STAWriter, ParamsWriter, GlobalsFileWriter
 import visionloader as vl
-from retinanalysis.utils import ANALYSIS_DIR
+from retinanalysis._config import config
 from retinanalysis.preprocessing import rfs
 import psutil
 
@@ -478,7 +478,7 @@ def load_stas_from_vl(
     ss_version: str = "kilosort2.5",
     data_dir: Optional[str] = None,
     data_name: str = "kilosort2.5",
-    analysis_dir: str = ANALYSIS_DIR,
+    analysis_dir: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """_summary_
 
@@ -495,6 +495,10 @@ def load_stas_from_vl(
     Returns:
         tuple[np.ndarray, np.ndarray]: _description_
     """
+
+    if analysis_dir is None:
+        analysis_dir = config.ANALYSIS_DIR
+
     # Either exp_name and chunk_name, or data_dir must be provided
     if exp_name is not None and chunk_name is not None:
         if data_dir is not None:
@@ -644,7 +648,7 @@ if __name__ == "__main__":
     save_vcd_sta = save_prefix + ".sta"
 
     nas_vcd_sta = os.path.join(
-        ANALYSIS_DIR,
+        config.ANALYSIS_DIR,
         args.exp_name,
         args.chunk_name,
         args.ss_version,
@@ -672,7 +676,7 @@ if __name__ == "__main__":
             if os.path.exists(save_vcd_sta):
                 load_dir = SAVE_DIR
             elif os.path.exists(nas_vcd_sta):
-                load_dir = ANALYSIS_DIR
+                load_dir = config.ANALYSIS_DIR
             stas, cell_ids = load_stas_from_vl(
                 exp_name=args.exp_name,
                 chunk_name=args.chunk_name,

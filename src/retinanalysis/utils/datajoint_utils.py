@@ -1,4 +1,4 @@
-from retinanalysis.config.settings import H5_DIR, QUERY_DIR, ANALYSIS_DIR
+from retinanalysis._config import config
 from retinanalysis._database import schema
 
 import numpy as np
@@ -776,7 +776,7 @@ def get_typing_files_for_datasets(
                         ss_version = df_ct.at[i_ct, "algorithm"]
                         typing_file_name = df_ct.at[i_ct, "file_name"]
                         typing_file_path = os.path.join(
-                            QUERY_DIR,
+                            config.QUERY_DIR,
                             exp_name,
                             noise_chunk,
                             ss_version,
@@ -1277,7 +1277,7 @@ def get_epochblock_response_query(exp_name: str, block_id: int):
 
 def get_h5_file(exp_name: str) -> str:
     # First try h5 in config h5 dir
-    str_h5_in_config = os.path.join(H5_DIR, f"{exp_name}.h5")
+    str_h5_in_config = os.path.join(config.H5_DIR, f"{exp_name}.h5")
     if os.path.exists(str_h5_in_config):
         return str_h5_in_config
 

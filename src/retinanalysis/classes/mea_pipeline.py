@@ -10,7 +10,6 @@ from retinanalysis.utils.vision_utils import cluster_match, get_spike_xarr
 import os
 from typing import List, Dict, Optional, Any
 import pickle
-from matplotlib.axes import Axes
 import xarray as xr
 import matplotlib.pyplot as plt
 

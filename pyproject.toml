@@ -52,6 +52,7 @@ dependencies = [
   "bottleneck",
   "scikit-image",
   "platformdirs>=4.9.6",
+  "tomlkit>=0.15.1",
 ]
 
 [project.urls]

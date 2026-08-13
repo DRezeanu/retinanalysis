@@ -1,7 +1,7 @@
 import argparse
 import visionloader as vl
 from visionwriter import EIWriter, WriteableEIData
-from retinanalysis import DATA_DIR
+from retinanalysis._config import config
 import os
 import numpy as np
 from typing import List
@@ -31,8 +31,8 @@ def merge_eis(
     exp_name: str,
     chunk_name: str,
     datafiles: List[str],
-    sorted_dir: str = DATA_DIR,
-    output_dir: str = DATA_DIR,
+    sorted_dir: str | None = None,
+    output_dir: str | None = None,
     ss_version: str = "kilosort2.5",
     verbose: bool = True,
 ):
@@ -54,11 +54,11 @@ def merge_eis(
 
         sorted_dir (str) Optional: Path to sorted data directory where datafile EIs will be found in the
         subdirectories: sorted_dir/exp_name/datafile_name/ss_version
-        Default is the configured retinanalysis DATA_DIR
+        Default is the configured retinanalysis config.DATA_DIR
 
         output_dir (str) Optional: Path to output directory where merged EI file will be stored in the
         subdirectories: output_dir/exp_name/chunk_name/ss_version/.
-        Default is the configured retinanalysis DATA_DIR
+        Default is the configured retinanalysis config.DATA_DIR
 
         ss_version (str) Optional: The spike sorter version used to sort the data. Default is 'kilosort2.5'
 
@@ -70,6 +70,12 @@ def merge_eis(
     """
     if verbose:
         print(f"Merging EIs from {len(datafiles)} datafiles into {chunk_name} EI")
+
+    if sorted_dir is None:
+        sorted_dir = config.DATA_DIR
+
+    if output_dir is None:
+        output_dir = config.DATA_DIR
 
     # Pull sample ei for shape and default values in case a cell is missing its EI
     vision_dir = os.path.join(sorted_dir, exp_name, datafiles[0], ss_version)
@@ -189,8 +195,8 @@ if __name__ == "__main__":
         help="path to directory containing datafile eis (e.g. .../Volumes/data/sorted/)",
         type=str,
         nargs="?",
-        default=DATA_DIR,
-        const=DATA_DIR,
+        default=config.DATA_DIR,
+        const=config.DATA_DIR,
     )
 
     parser.add_argument(
@@ -198,8 +204,8 @@ if __name__ == "__main__":
         help="path to directory containing datafile eis (e.g. .../Volumes/data/sorted/)",
         type=str,
         nargs="?",
-        default=DATA_DIR,
-        const=DATA_DIR,
+        default=config.DATA_DIR,
+        const=config.DATA_DIR,
     )
 
     parser.add_argument(
