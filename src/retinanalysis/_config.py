@@ -229,7 +229,7 @@ class RAConfig:
                 with the same ``name``.
 
         Raises:
-            ConfigNotInitializedError if no config file is found.
+            ValueError if no config file is found.
             ValueError: if overwrite is set to False and ``name`` is
                 found in the list of existing profiles.
             ValueError: if a required key is missing from ``profile_paths``
@@ -237,7 +237,12 @@ class RAConfig:
                 Extra keys are ignored, per the warning message.
 
         """
-        self._check_initialized('Cannot create new profile')
+        if not self.config_path.is_file():
+            raise ValueError(
+                'No config file found. Run ra.config.setup() '
+                'or ra.config.setup_gui() to create the file and '
+                'add your first profile.'
+            )
 
         if (not overwrite) and (name in self.profiles):
             raise ValueError(
@@ -266,6 +271,8 @@ class RAConfig:
 
         with open(self.config_path, 'w') as f:
             tomlkit.dump(self.config_file, f)
+
+        self.reset()
     
     def remove_profile(self, name):
         self._check_initialized('Cannot remove profile')
@@ -298,7 +305,7 @@ class RAConfig:
 
     @property
     def profiles(self):
-        if not self._initialized:
+        if not hasattr(self, 'config_file'):
             return ()
         return tuple(self.config_file['profiles'].keys())
 
