@@ -16,8 +16,8 @@ cd "$SCRIPT_DIR"
 usage() {
   cat <<'EOF'
 Usage:
-  ./install.sh uv [--python VERSION] [--dev]
-  ./install.sh conda [--python VERSION] [--dev] [--env NAME]
+  ./install.sh uv [--python VERSION] [--dev] [--config]
+  ./install.sh conda [--python VERSION] [--dev] [--config] [--env NAME]
 
 Modes:
   uv       Create/use the repo-local .venv and install retinanalysis with uv.
@@ -246,7 +246,7 @@ install_conda() {
 
   if [[ "$CONFIG" -eq 1 ]]; then
     info "Launching config setup GUI"
-    uv run python -c "import retinanalysis as ra; ra.config.setup_gui()"
+    conda run -n "$CONDA_ENV" python -c "import retinanalysis as ra; ra.config.setup_gui()"
   fi
 
 }
