@@ -4,6 +4,7 @@ set -euo pipefail
 DEFAULT_PYTHON="3.11.13"
 DEFAULT_CONDA_ENV="retinanalysis"
 DEV=0
+CONFIG=0
 PYTHON_VERSION="$DEFAULT_PYTHON"
 CONDA_ENV="$DEFAULT_CONDA_ENV"
 MODE=""
@@ -28,6 +29,9 @@ Options:
   --dev              Install development/test dependencies.
   --env NAME         Conda environment name. Default: retinanalysis.
                      Only valid in conda mode. Note: Cannot use existing environment!
+  --config           Launch config GUI using the setup_gui() method. Do not use
+                     if running 'headless' or over SSH. The program attempts to open
+                     a window that allows you to browse for all relevant paths.
   -h, --help         Show this help message.
 
 Notes:
@@ -81,6 +85,10 @@ while [[ $# -gt 0 ]]; do
       CONDA_ENV="$2"
       ENV_FLAG_USED=1
       shift 2
+      ;;
+    --config)
+      CONFIG=1
+      shift
       ;;
     -h|--help)
       usage
@@ -193,6 +201,11 @@ PY
     uv pip install --python "$venv_python" "pytest>=9.0.3"
   fi
 
+  if [[ "$CONFIG" -eq 1 ]]; then
+    info "Launching config setup GUI"
+    uv run python -c "import retinanalysis as ra; ra.config.setup_gui()"
+  fi
+
 }
 
 conda_env_exists() {
@@ -231,6 +244,11 @@ install_conda() {
     conda run -n "$CONDA_ENV" python -m pip install "pytest>=9.0.3"
   fi
 
+  if [[ "$CONFIG" -eq 1 ]]; then
+    info "Launching config setup GUI"
+    uv run python -c "import retinanalysis as ra; ra.config.setup_gui()"
+  fi
+
 }
 
 require_repo_root
@@ -263,7 +281,8 @@ Next steps:
        
        import retinanalysis as ra
 
-  2. Create a config file that contains the paths to the relevant directories:
+  2. If you didn't use the --config flag, you must create a config file that
+     contains the paths to the relevant directories:
        
        Option 1, use the CLI setup tool:
             ra.config.setup()
@@ -277,7 +296,7 @@ Next steps:
 
   2. Start the Docker/DataJoint database only when you need database-backed workflows.
 
-  4. After config and the database are ready, populate a fresh database from Python:
+  4. After config file and the database are ready, populate a fresh database from Python:
 
        import retinanalysis as ra
        ra.populate_database()
