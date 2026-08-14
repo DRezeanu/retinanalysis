@@ -207,7 +207,7 @@ class RAConfig:
         profile_paths: dict[str, str],
         overwrite: bool = False,
     ) -> None:
-        f"""Method for creating a new config profile, which is 
+        """Method for creating a new config profile, which is 
         written to the config.toml file. Note that this does not
         set the new profile as active by default. To do so, call
         ``set_profile(name)`` or ``set_default_profile(name)``.
@@ -274,6 +274,56 @@ class RAConfig:
 
         self.reset()
     
+    def create_profile_gui(self, overwrite = False):
+        """Method for creating a new config profile interactively,
+        using a graphical user interface. The new profile is appended 
+        to the config.toml file. Note that this does not set the new
+        profile as active by default. To do so, call ``set_profile(name)``
+        or ``set_default_profile(name)`` after compleing the setup.
+
+        Args:
+            overwrite: optional, default False. If true allows 
+                create_profile_gui() to overwrite an existing profile
+                with the same name.
+
+        Raises:
+            ValueError if no config file is found.
+            ValueError: if overwrite is set to False and given ``name`` is
+                found in the list of existing profiles.
+        """
+        import subprocess
+        import tempfile
+        import json
+        import sys
+
+        if not self.config_path.is_file():
+            raise ValueError(
+                'No config file found. Run ra.config.setup() '
+                'or ra.config.setup_gui() to create the file and '
+                'add your first profile.'
+            )
+
+        fd, result_file = tempfile.mkstemp(suffix='.json')
+        os.close(fd)
+
+        gui_module = Path(__file__).parent / '_config_gui.py'
+
+        subprocess.run([sys.executable, str(gui_module), result_file])
+
+        if os.path.exists(result_file):
+            with open(result_file, 'r') as f:
+                result = json.load(f)
+
+            self.create_profile(
+                name=result['name'],
+                profile_paths=result['paths'],
+                overwrite=overwrite,
+            )
+            os.remove(result_file)
+        else:
+            warn('Profile creation cancelled - no profile created')
+
+
     def remove_profile(self, name):
         self._check_initialized('Cannot remove profile')
 
