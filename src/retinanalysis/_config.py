@@ -395,6 +395,10 @@ class RAConfig:
         self.config_file['active']['profile'] = name
         self.active_profile = name
 
+        # Write the empty scaffold so create_profile finds the file
+        with open(self.config_path, 'w') as f:
+            tomlkit.dump(self.config_file, f)
+
         # Create the profile by adding the paths
         self.create_profile(name, profile_paths)
 
