@@ -3,7 +3,7 @@ MEA and Single Cell Ephys Analysis Package
 
 ## Quickstart
 
-These steps get a fresh macOS/Linux setup running with the local DataJoint database workflow.
+These steps get a fresh macOS/Linux setup running with the local DataJoint database workflow. A Windows version is in the works. 
 
 1. Install Docker Engine. On macOS, install Docker Desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>.
 
@@ -17,19 +17,30 @@ cd retinanalysis
 ./install.sh conda
 ```
 
-The installer creates/uses the Python environment, installs `retinanalysis`, installs the local `vision-utils` package from the bundled submodule, and creates `src/retinanalysis/config/config.ini` if it is missing.
+The installer creates/uses the Python environment, installs `retinanalysis`, installs the local `vision-utils` package from the bundled submodule, and has the option of launching the config creation GUI. 
 
 Useful installer options:
 
 ```bash
-./install.sh uv --dev
-./install.sh conda --dev --env retinanalysis
-./install.sh uv --python 3.11.13
+./install.sh uv --dev --config
+./install.sh conda --dev --env custom_name
+./install.sh uv --python 3.12
 ```
 
-3. Edit `src/retinanalysis/config/config.ini` and replace the placeholder paths with real data paths for your machine or mounted drive.
+- Option 1 above installs using uv, including the developer dependencies (pytest, etc.), and launches the config creation GUI. Note: Do NOT use the --config flag is installing headless on a server/over SSH, as it will try to open a GUI window.
+- Option 2 above installs using conda, including the developer dependencies, and sets the conda environment name to 'custom_name' instead of the default 'retinanalysis'
+- Option 3 above installs using uv, without developer depencies, and overwrites the default python version 3.11.13 with 3.12. The version you give using --python must be greater than or equal to Python 3.10.
 
-4. Start the local DataJoint/MySQL database and populate it:
+3. If you did not use the --config flag, import retinanalysis and run config setup:
+
+```python
+import retinanalysis as ra
+ra.config.setup()
+# OR
+ra.config.setup_gui()
+```
+
+4. Create a database directory outside of the repo root, copy the docker compose file from retinanalysis into this new directory, cd into the database directory, and run docker compose to create the blank database:
 
 ```bash
 mkdir -p ../retinanalysis-database
@@ -38,14 +49,16 @@ cd ../retinanalysis-database
 docker compose up -d
 ```
 
-Then, from the installed Python environment:
+Then, from the installed Python environment, run:
 
 ```python
 import retinanalysis as ra
 ra.populate_database()
 ```
 
-`import retinanalysis as ra` does not require the database to be running, but database-backed calls such as queries and `ra.populate_database(...)` do.
+Note: Populating the database can take a long time the first time you do it. 
+
+`import retinanalysis as ra` does not require the database to be running, but database-backed calls such as queries and `ra.populate_database(...)` do. 
 
 ## Installation
 1. Pull retinanalysis repo (include --recursive flag to get required submodules contained in 'lib' folder):
@@ -54,7 +67,7 @@ git clone https://github.com/DRezeanu/retinanalysis.git --recursive
 ```
 ---
 ### Install with Conda
-2. Create a conda environment using python 3.11:
+2. Create a conda environment using python 3.11.13:
 ```
 conda create --name retinanalysis python=3.11.13
 ```
@@ -73,7 +86,7 @@ pip install .
 ```
 ---
 ### Install with uv
-UV is a new, very highly recommended python package and project manager written in Rust that works extremely fast. You can learn more about it here: https://docs.astral.sh/uv/
+UV is a new, highly recommended python package and project manager written in Rust that works extremely fast. You can learn more about it here: https://docs.astral.sh/uv/
 
 UV is meant to work with environments at the project level, not system-wide. So you will want to install retinanalysis at the root of every project in which you want to use it (the packages are cached so you aren't using any additional disk space). Virtual environments live in the root of the project in a .venv folder by default, and are named after the root of the project by default. 
 
@@ -105,43 +118,20 @@ pip uninstall Pillow *or* uv pip uninstall Pillow
 pip install -U Pillow *or* uv pip install -U Pillow
 ```
 ---
-5. Create a config.ini file using the sample version below as a guide and put this config file inside the retinanalysis/src/retinanalysis/config folder in the repo.
+5. Create a config file using the built-in config.setup() or config.setup_gui() methods, or manually create a config.toml file and place it in your platform-specific config directory. You can find a config template in the repo's /assets folder:
 
-## Sample config.ini file:
-Use paths that match the machine or mounted drive where your local copies of the MEA data live.
+- Mac and Linux: ~/.config/retinanalysis/
+- Windows: C:\Users\YourUsername\AppData\Local\retinanalysis
+
+To use the setup methods:
+
+```python
+import retinanalysis as ra
+ra.config.setup()
+#OR
+ra.config.setup_gui()
 ```
-[DEFAULT]
-analysis = /path/to/analysis
-data = /path/to/sorted
-raw = /path/to/raw
-h5 = /path/to/h5
-meta = /path/to/meta
-tags = /path/to/tags
-query = /path/to/query/analysis
-user = your_username
 
-[SECONDARY]
-analysis = /path/to/secondary/analysis
-data = /path/to/secondary/sorted
-raw = /path/to/secondary/raw
-h5 = /path/to/secondary/h5
-meta = /path/to/secondary/meta
-tags = /path/to/secondary/tags
-query = /path/to/secondary/query/analysis
-user = your_username
-
-[LINUX_DEFAULT]
-...
-
-[LINUX_SECONDARY]
-...
-
-[WINDOWS_DEFAULT]
-...
-
-[WINDOWS_SECONDARY]
-...
-```
 Note: The `query` dir is used by `datajoint_utils.plot_mosaics_for_all_datasets` and it's useful to have it set to the NAS analysis dir even when all other paths are SSD. This allows loading and plotting mosaics and cell typing from all the data on the NAS instead of just the data on your SSD's `analysis` dir.
 
 ## Docker Installation
@@ -181,7 +171,7 @@ import retinanalysis as ra
 ra.populate_database()
 ```
 
-If you have properly set up your config.ini file, there should be no need to give this function any input arguments.
+If you have properly set up your config, there should be no need to give this function any input arguments.
 
 ## UPDATE (Jun3 2026): DataJoint 2 migration note for existing users
 
