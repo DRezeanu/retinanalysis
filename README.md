@@ -1,6 +1,8 @@
 # RetinAnalysis
 MEA and Single Cell Ephys Analysis Package
 
+NOTE: Mac and Linux users can use their main terminal for the steps below. Windows users can use Git Bash (if using uv) or Anaconda Powershell (if using conda).
+
 ## Quickstart
 
 These steps get a fresh macOS/Linux setup running with the local DataJoint database workflow. A Windows version is in the works. 
@@ -96,8 +98,13 @@ uv venv --python 3.11.13
 ```
 
 3. Activate the uv environment, cd to the package directory, and use `uv pip` to install all required dependencies:
-```
+```bash
+# On Mac and Linux:
 source .venv/bin/activate
+# On Windows
+source .venv/Source/activate
+
+# On all systems
 cd ../*your_repositories_directory*/retinanalysis
 uv pip install -e . 
 ```
