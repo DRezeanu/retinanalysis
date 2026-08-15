@@ -64,25 +64,25 @@ Note: Populating the database can take a long time the first time you do it.
 
 ## Installation
 1. Pull retinanalysis repo (include --recursive flag to get required submodules contained in 'lib' folder):
-```
+```bash
 git clone https://github.com/DRezeanu/retinanalysis.git --recursive 
 ```
 ---
 ### Install with Conda
 2. Create a conda environment using python 3.11.13:
-```
+```bash
 conda create --name retinanalysis python=3.11.13
 ```
 
 3. Activate conda environment, cd to the package directory, and use pip and conda to install all required dependencies:
-```
+```bash
 conda activate retinanalysis
 cd repositories_dir/retinanalysis
 pip install -e . 
 ```
 
 4. Install additional requirements from artificial-retina-software-pipeline submodule:
-```
+```bash
 cd repositories_dir/retinanalysis/lib/artificial-retina-software-pipeline/utilities/ 
 pip install .
 ```
@@ -93,7 +93,7 @@ UV is a new, highly recommended python package and project manager written in Ru
 UV is meant to work with environments at the project level, not system-wide. So you will want to install retinanalysis at the root of every project in which you want to use it (the packages are cached so you aren't using any additional disk space). Virtual environments live in the root of the project in a .venv folder by default, and are named after the root of the project by default. 
 
 2. Create a uv venv in your local project directory using python 3.11.13:
-```
+```bash
 uv venv --python 3.11.13
 ```
 
@@ -110,17 +110,17 @@ uv pip install -e .
 ```
 
 4. Install additional requirements from artificial-retina-software-pipeline submodule in lib:
-```
+```bash
 cd lib/artificial-retina-software-pipeline/utilities/ 
 uv pip install .
 ```
 ---
 ### Installation Note for Windows Users
 
-The above requirements have been tested to work on both Mac and Linux (Ubuntu 24.04 LTS).
+The above requirements have been tested to work on both Mac (MacOS Tahoe, Sequoia and Sonoma), Linux (Ubuntu 24.04 LTS), and the latest Windows 11 Pro 25H2.
 
-For Windows, you may receive a DLL error when the package attempts to import matplotlib for the first time. To fix this, run:
-```
+On older Windows 11 versions, you may receive a DLL error when the package attempts to import matplotlib for the first time. To fix this, run:
+```bash
 pip uninstall Pillow *or* uv pip uninstall Pillow
 pip install -U Pillow *or* uv pip install -U Pillow
 ```
@@ -155,13 +155,13 @@ We've included a modified docker-compose.yaml file for easy installation using t
 
 8. cd into the new directory and run:
 
-```
+```bash
 docker-compose up -d
 ```
 
 If you have newer versions of Docker, the command syntax is:
 
-```
+```bash
 docker compose up -d
 ```
 
@@ -173,7 +173,7 @@ Before running database-backed calls, make sure the container is running in Dock
 
 9. Populate the database. Before you can look up anything in the database you need to fill its entries. To populate a fresh database, run:
 
-```
+```python
 import retinanalysis as ra
 ra.populate_database()
 ```
