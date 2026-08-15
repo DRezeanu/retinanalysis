@@ -188,7 +188,7 @@ We recommend doing this in a fresh conda or uv environment, and keeping the old 
 
 ## DataJoint configuration
 
-Retinanalysis provides fallback local DataJoint settings for the common lab workflow, but DataJoint 2 will warn you if it does not find a `datajoint.json` file in your project root. You can safely ignore this warning, but if you want to make the connection explicit and avoid that warning, create a `datajoint.json` file in the root of your analysis project using the values below:
+Retinanalysis provides fallback local DataJoint settings for the common lab workflow, but DataJoint 2 will warn you if it does not find a `datajoint.json` file in your project root. You can safely ignore this warning, but if you want to make the connection explicit and avoid that warning, create a `datajoint.json` file in the root of your analysis project using the values below. The file will be ignored by git:
 
 ```json
 {
