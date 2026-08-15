@@ -462,7 +462,7 @@ class RAConfig:
         if platform == 'darwin':
             return Path.home() / '.config' / 'retinanalysis' / 'config.toml'
         else:
-            return user_config_path('retinanalysis') / 'config.toml'
+            return user_config_path('retinanalysis', appauthor=False) / 'config.toml'
 
     def _check_initialized(
         self,
