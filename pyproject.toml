@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "retinanalysis"
-version = "0.1"
+version = "0.2.0"
 description = 'An analysis pipeline package for MEA data, created for the Rieke/Manookin lab'
 readme = "README.md"
 requires-python = ">=3.10"
