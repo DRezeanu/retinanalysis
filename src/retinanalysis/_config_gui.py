@@ -19,7 +19,6 @@ REQUIRED_KEYS = (
     'vision',
     'meta',
     'tags',
-    'query',
     'user'
 )
 
@@ -31,7 +30,6 @@ KEY_DICT = {
     'vision' : 'Path to Vision.jar',
     'meta' : 'Metadata directory',
     'tags' : 'Tags directory',
-    'query' : 'Query directory',
     'user' : 'Username',
 }
 
@@ -40,6 +38,10 @@ def main(result_file):
     root = tk.Tk()
     root.title('Retinanalysis config setup')
 
+    root.attributes('-topmost', True)
+    root.lift()
+    root.focus_force()
+    root.after(100, lambda: root.attributes('-topmost', False))
 
     # Create the grid for buttons and such
     frame = ttk.Frame(root, padding=20)
@@ -76,24 +78,30 @@ def main(result_file):
                     v.set(path)
             ttk.Button(frame, text='Browse', command=on_browse_dir).grid(column=2, row=idx+1)
 
-
+    # Write an empty string as path if no path given for a particular
+    # entry. This allows users to leave certain paths blank if they wish.
+    # The only required fields are the profile name and the username
     def create_callback():
         name = name_var.get()
         if not name:
             messagebox.showwarning(
-                title='Empty Fields',
-                message='Profile name field is empty, please fill out all fields.',
+                title='Required Fields',
+                message='Profile name and Username are required.',
             )
             return
 
         profile_paths = {key: var.get() for key, var in entries.items()}
         for key, var in profile_paths.items():
-            if not var:
-                messagebox.showwarning(
-                    title='Empty Fields',
-                    message=f'No {KEY_DICT[key]} value given, please fill out all fields',
-                )
-                return
+            if key == 'user':
+                if not var:
+                    messagebox.showwarning(
+                        title='Required Fields',
+                        message='Profile name and Username are required.',
+                    )
+                    return
+            else:
+                if not var:
+                    profile_paths[key] = ""
 
         with open(result_file, 'w') as f:
             json.dump({'name':name, 'paths':profile_paths}, f)
@@ -103,7 +111,7 @@ def main(result_file):
     ttk.Button(frame, text='Create', command=create_callback).grid(column=0, row=len(REQUIRED_KEYS)+3, columnspan=3)
 
     # Force the window to make a geometry calculation
-    root.update_idletasks()  
+    root.update_idletasks()
 
     # Center the window
     x = (root.winfo_screenwidth() - root.winfo_reqwidth()) // 2

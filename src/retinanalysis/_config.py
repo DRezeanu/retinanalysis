@@ -191,8 +191,8 @@ class RAConfig:
             raise ValueError(
                 f'{name} is not a valid config profile. '
                 f'Available profiles are {self.profiles}. '
-                'Use create_profile() to add a new profile '
-                'to the list.'
+                'Use create_profile() or create_profile_gui() to add '
+                'a new profile to the list.'
             )
 
         self.config_file['active']['profile'] = name
@@ -214,15 +214,17 @@ class RAConfig:
 
         Args:
             name: name of new profile to create
-            profile_paths: dictionary that contains all required
-                paths. Required keys are:
+            profile_paths: dictionary that contains all required keys. 
+            Required keys are:
                 - 'analysis'
                 - 'data'
                 - 'raw'
                 - 'h5'
+                - 'vision'
                 - 'meta'
                 - 'tags'
                 - 'user'
+                NOTE: path values may be left empty, but 'user' is required.
             overwrite: optional, default False. If true allows 
                 create_profile() to overwrite an existing profile
                 with the same ``name``.
@@ -250,7 +252,7 @@ class RAConfig:
             )
 
 
-        extra_keys = set(profile_paths.keys()) - set(self.REQUIRED_KEYS)
+        extra_keys = list(set(profile_paths.keys()) - set(self.REQUIRED_KEYS))
         if extra_keys:
             warn(
                 f'Only {self.REQUIRED_KEYS} allowed in config. '
@@ -262,8 +264,17 @@ class RAConfig:
             if key not in profile_paths:
                 raise ValueError(
                     f'Missing {key} path. profile_paths dictionary '
-                    f'must include:\n {self.REQUIRED_KEYS}'
+                    f'must include:\n {self.REQUIRED_KEYS}. To leave a '
+                    'path blank, make the value an empty string. '
+                    '(e.g. {"analysis" : ""})'
                 )
+
+            if key == 'user':
+                if (not profile_paths[key]) or (profile_paths[key] is None):
+                    raise ValueError(
+                            f'Username is required'
+                    )
+
             new_profile[name][key] = profile_paths[key]
 
         self.config_file['profiles'].update(new_profile)
