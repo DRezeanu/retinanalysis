@@ -11,6 +11,7 @@ _CONFIG_ATTRS = {
     'DATA_DIR',
     'RAW_DIR',
     'H5_DIR',
+    'VISION_PATH',
     'META_DIR',
     'TAGS_DIR',
     'USER',

@@ -24,6 +24,7 @@ class RAConfig:
         'data',
         'raw', 
         'h5',
+        'vision',
         'meta',
         'tags',
         'user'
@@ -34,6 +35,7 @@ class RAConfig:
         'data' : 'Sorted data directory',
         'raw' : 'Raw data directory',
         'h5' : 'H5 file directory',
+        'vision': 'Path to Vision.jar',
         'meta' : 'Metadata directory',
         'tags' : 'Tags directory',
         'user' : 'Username',

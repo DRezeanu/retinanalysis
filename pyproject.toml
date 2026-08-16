@@ -74,5 +74,5 @@ markers = [
     "downstream: tests that exercise downstream repos dependent on retinanalysis",
 ]
 
-[tools.hatch.version]
+[tool.hatch.version]
 source = "vcs"

@@ -16,6 +16,7 @@ REQUIRED_KEYS = (
     'data',
     'raw', 
     'h5',
+    'vision',
     'meta',
     'tags',
     'query',
@@ -27,6 +28,7 @@ KEY_DICT = {
     'data' : 'Sorted data directory',
     'raw' : 'Raw data directory',
     'h5' : 'H5 file directory',
+    'vision' : 'Path to Vision.jar',
     'meta' : 'Metadata directory',
     'tags' : 'Tags directory',
     'query' : 'Query directory',
@@ -55,16 +57,24 @@ def main(result_file):
         var = tk.StringVar()
         entries[key] = var
 
-        if key != 'user':
+        if key == 'user':
+            ttk.Entry(frame, textvariable=entries[key]).grid(column=1, row=idx+1, columnspan=2)
+
+        elif key == 'vision':
+            ttk.Entry(frame, textvariable=entries[key]).grid(column=1, row=idx+1)
+            def on_browse_file(v=var):
+                path = filedialog.askopenfilename()
+                if path:
+                    v.set(path)
+            ttk.Button(frame, text='Browse', command=on_browse_file).grid(column=2, row=idx+1)
+
+        else:
             ttk.Entry(frame, textvariable=entries[key]).grid(column=1,row=idx+1)
-            def on_browse(v=var):
+            def on_browse_dir(v=var):
                 path = filedialog.askdirectory()
                 if path:
                     v.set(path)
-                
-            ttk.Button(frame, text='Browse', command=on_browse).grid(column=2, row=idx+1)
-        else:
-            ttk.Entry(frame, textvariable=entries[key]).grid(column=1, row=idx+1, columnspan=2)
+            ttk.Button(frame, text='Browse', command=on_browse_dir).grid(column=2, row=idx+1)
 
 
     def create_callback():
