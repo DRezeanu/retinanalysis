@@ -703,6 +703,7 @@ def get_display_params_by_exp(exp_name: str, verbose: bool = True):
 def get_typing_files_for_datasets(
     df: pd.DataFrame,
     ls_cell_types: list = ["OffP", "OffM", "OnP", "OnM"],
+    config_profile: str | None = None,
     verbose: bool = False,
 ):
     # Return df_typed with columns:
@@ -711,6 +712,9 @@ def get_typing_files_for_datasets(
     # And df_not_typed with columns:
     # exp_name, datafile_names, nearest_noise_chunk, nearest_noise_distance
     # Each row corresponds to a dataset without any typing files.
+    if config_profile is not None:
+        config.set_profile(config_profile)
+
     d_not_typed = {
         "exp_name": [],
         "datafile_name": [],
@@ -776,7 +780,7 @@ def get_typing_files_for_datasets(
                         ss_version = df_ct.at[i_ct, "algorithm"]
                         typing_file_name = df_ct.at[i_ct, "file_name"]
                         typing_file_path = os.path.join(
-                            config.QUERY_DIR,
+                            config.ANALYSIS_DIR,
                             exp_name,
                             noise_chunk,
                             ss_version,
@@ -828,13 +832,21 @@ def get_typing_files_for_datasets(
 def plot_mosaics_for_all_datasets(
     df: pd.DataFrame,
     ls_cell_types: list = ["OffP", "OffM", "OnP", "OnM"],
-    n_top: Optional[int] = None,
+    config_profile: str | None = None,
+    n_top: int | None = None,
+    verbose: bool = False,
 ):
 
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
 
     # df should be output of get_datasets_from_protocol_names
-    df_typed, df_not_typed = get_typing_files_for_datasets(df, ls_cell_types)
+    df_typed, df_not_typed = get_typing_files_for_datasets(
+        df=df,
+        ls_cell_types=ls_cell_types,
+        config_profile=config_profile,
+        verbose=verbose,
+    )
+
     print(f"Found {df_not_typed.shape[0]} datasets without any typing files:")
     display(df_not_typed)
     print(f"Found {df_typed.shape[0]} datasets with typing files.")

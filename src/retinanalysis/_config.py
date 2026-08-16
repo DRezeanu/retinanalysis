@@ -26,7 +26,6 @@ class RAConfig:
         'h5',
         'meta',
         'tags',
-        'query',
         'user'
     )
     
@@ -37,7 +36,6 @@ class RAConfig:
         'h5' : 'H5 file directory',
         'meta' : 'Metadata directory',
         'tags' : 'Tags directory',
-        'query' : 'Query directory',
         'user' : 'Username',
     }
 
@@ -222,7 +220,6 @@ class RAConfig:
                 - 'h5'
                 - 'meta'
                 - 'tags'
-                - 'query'
                 - 'user'
             overwrite: optional, default False. If true allows 
                 create_profile() to overwrite an existing profile
@@ -393,13 +390,6 @@ class RAConfig:
         self._check_initialized()
         return self.config_file['profiles'][self.active_profile]['tags']
 
-
-    @property
-    def QUERY_DIR(self) -> str:
-        self._check_initialized()
-        return self.config_file['profiles'][self.active_profile]['query']
-
-
     @property
     def USER(self) -> str:
         self._check_initialized()
@@ -426,7 +416,6 @@ class RAConfig:
                 - 'h5'
                 - 'meta'
                 - 'tags'
-                - 'query'
                 - 'user'
         """
         # Create directories

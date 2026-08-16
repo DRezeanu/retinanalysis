@@ -13,7 +13,6 @@ _CONFIG_ATTRS = {
     'H5_DIR',
     'META_DIR',
     'TAGS_DIR',
-    'QUERY_DIR',
     'USER',
 }
 def __getattr__(name):
