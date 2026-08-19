@@ -31,7 +31,7 @@ class RawTraces:
             print(f"Assuming 60um electrode map for binpath {binpath} since no MEAResponseBlock provided.")
             self.sorted_electrodes = eiu.sort_electrode_map(D_ELECTRODE_MAPS['60um'])
         else:
-            self.binpath = os.path.join(RAW_DIR, rb.exp_name, rb.datafile_name)
+            self.binpath = os.path.join(config.RAW_DIR, rb.exp_name, rb.datafile_name)
             self.d_timing = rb.d_timing
             self.sorted_electrodes = eiu.sort_electrode_map(rb.vcd.get_electrode_map())
         
