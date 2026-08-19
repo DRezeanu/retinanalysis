@@ -6,9 +6,9 @@ analysis = '/Volumes/SSD/analysis'
 data = '/Volumes/SSD/data/sorted'
 raw = '/Volumes/SSD/data/raw'
 h5 = '/Volumes/SSD/data/h5'
+vision = '/Users/username/repos/MEA/Vision.jar'
 meta = '/Volumes/SSD/metadata'
 tags = '/Volumes/SSD/tags'
-query = '/Volumes/data/analysis'
 user = 'username'
 
 [profiles.mac_nas]
@@ -16,9 +16,9 @@ analysis = '/Volumes/data/analysis'
 data = '/Volumes/data/data/sorted'
 raw = '/Volumes/data/data/raw'
 h5 = '/Volumes/data/data/h5'
+vision = '/Users/username/repos/MEA/Vision.jar'
 meta = '/Volumes/data/metadata'
 tags = '/Volumes/data/tags'
-query = '/Volumes/data/analysis'
 user = 'username'
 
 [profiles.linux_ssd]
@@ -26,9 +26,9 @@ analysis = '/media/SSD/analysis'
 data = '/media/SSD/data/sorted'
 raw = '/media/SSD/data/raw'
 h5 = '/media/SSD/data/h5'
+vision = '/home/username/repos/MEA/Vision.jar'
 meta = '/media/SSD/metadata'
 tags = '/media/SSD/tags'
-query = '/mnt/data/analysis'
 user = 'username'
 
 [profiles.linux_nas]
@@ -36,9 +36,9 @@ analysis = '/mnt/data/analysis'
 data = '/mnt/data/data/sorted'
 raw = '/mnt/data/data/raw'
 h5 = '/mnt/data/data/h5'
+vision = '/home/username/repos/MEA/Vision.jar'
 meta = '/mnt/data/metadata'
 tags = '/mnt/data/tags'
-query = '/mnt/data/analysis'
 user = 'username'
 
 
