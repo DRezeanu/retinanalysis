@@ -4,7 +4,7 @@ from retinanalysis.classes.analysis_chunk import AnalysisChunk
 import retinanalysis.utils.vision_utils as vu
 import retinanalysis.utils.ei_utils as eu
 import os
-from retinanalysis.config.settings import DATA_DIR
+from retinanalysis._config import config
 from matplotlib.patches import Ellipse
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -325,7 +325,7 @@ class DedupBlock:
         if self.is_noise:
             amps = np.load(
                 os.path.join(
-                    DATA_DIR,
+                    config.DATA_DIR,
                     self.AnalysisChunk.exp_name,
                     self.AnalysisChunk.chunk_name,
                     self.AnalysisChunk.ss_version,
@@ -334,7 +334,7 @@ class DedupBlock:
             )
             temps = np.load(
                 os.path.join(
-                    DATA_DIR,
+                    config.DATA_DIR,
                     self.AnalysisChunk.exp_name,
                     self.AnalysisChunk.chunk_name,
                     self.AnalysisChunk.ss_version,
@@ -343,7 +343,7 @@ class DedupBlock:
             )
             times = np.load(
                 os.path.join(
-                    DATA_DIR,
+                    config.DATA_DIR,
                     self.AnalysisChunk.exp_name,
                     self.AnalysisChunk.chunk_name,
                     self.AnalysisChunk.ss_version,
@@ -353,7 +353,7 @@ class DedupBlock:
         else:
             amps = np.load(
                 os.path.join(
-                    DATA_DIR,
+                    config.DATA_DIR,
                     self.MEAResponseBlock.exp_name,
                     self.MEAResponseBlock.datafile_name,
                     self.MEAResponseBlock.ss_version,
@@ -362,7 +362,7 @@ class DedupBlock:
             )
             temps = np.load(
                 os.path.join(
-                    DATA_DIR,
+                    config.DATA_DIR,
                     self.MEAResponseBlock.exp_name,
                     self.MEAResponseBlock.datafile_name,
                     self.MEAResponseBlock.ss_version,
@@ -371,7 +371,7 @@ class DedupBlock:
             )
             times = np.load(
                 os.path.join(
-                    DATA_DIR,
+                    config.DATA_DIR,
                     self.MEAResponseBlock.exp_name,
                     self.MEAResponseBlock.datafile_name,
                     self.MEAResponseBlock.ss_version,
@@ -773,7 +773,7 @@ class DedupBlock:
             if self.is_noise:
                 self.spike_pcs = np.load(
                     os.path.join(
-                        DATA_DIR,
+                        config.DATA_DIR,
                         self.AnalysisChunk.exp_name,
                         self.AnalysisChunk.chunk_name,
                         self.AnalysisChunk.ss_version,
@@ -783,7 +783,7 @@ class DedupBlock:
                 )
                 self.spike_pc_idx = np.load(
                     os.path.join(
-                        DATA_DIR,
+                        config.DATA_DIR,
                         self.AnalysisChunk.exp_name,
                         self.AnalysisChunk.chunk_name,
                         self.AnalysisChunk.ss_version,
@@ -794,7 +794,7 @@ class DedupBlock:
             else:
                 self.spike_pcs = np.load(
                     os.path.join(
-                        DATA_DIR,
+                        config.DATA_DIR,
                         self.MEAResponseBlock.exp_name,
                         self.MEAResponseBlock.datafile_name,
                         self.MEAResponseBlock.ss_version,
@@ -804,7 +804,7 @@ class DedupBlock:
                 )
                 self.spike_pc_idx = np.load(
                     os.path.join(
-                        DATA_DIR,
+                        config.DATA_DIR,
                         self.MEAResponseBlock.exp_name,
                         self.MEAResponseBlock.datafile_name,
                         self.MEAResponseBlock.ss_version,

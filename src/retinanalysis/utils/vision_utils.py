@@ -1,16 +1,16 @@
 from __future__ import annotations
-from typing import Union, List, Dict, Tuple, Optional, TYPE_CHECKING
+from typing import List, Dict, Tuple, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
     from retinanalysis.classes.response import MEAResponseBlock, MEAResponseGroup
     from visionloader import VisionCellDataTable
 
-from retinanalysis.utils import DATA_DIR, ANALYSIS_DIR, get_exp_summary
+from retinanalysis.utils import get_exp_summary
+from retinanalysis._config import config
 
 import os
 import numpy as np
-from pandas import DataFrame
 
 # from retinanalysis.utils.datajoint_utils import get_exp_summary
 from visionloader import load_vision_data
@@ -29,7 +29,7 @@ def get_analysis_vcd(
     verbose: bool = True,
 ) -> VisionCellDataTable:
 
-    data_path = os.path.join(ANALYSIS_DIR, exp_name, chunk_name, ss_version)
+    data_path = os.path.join(config.ANALYSIS_DIR, exp_name, chunk_name, ss_version)
 
     if verbose:
         print(f"Loading VCD from {data_path} ...")
@@ -59,7 +59,7 @@ def get_protocol_vcd(
     verbose: bool = True,
 ) -> VisionCellDataTable:
 
-    data_path = os.path.join(DATA_DIR, exp_name, datafile_name, ss_version)
+    data_path = os.path.join(config.DATA_DIR, exp_name, datafile_name, ss_version)
 
     if verbose:
         print(f"Loading VCD from {data_path} ...")
@@ -411,7 +411,7 @@ def get_classification_file_path(
 ) -> str:
 
     classification_file_path = os.path.join(
-        ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name
+        config.ANALYSIS_DIR, exp_name, chunk_name, ss_version, classification_file_name
     )
 
     return classification_file_path
@@ -700,7 +700,7 @@ def classification_transfer(
                 f"Cluster matching {analysis_chunk.chunk_name} with {target_object.chunk_name}\n"
             )
         destination_file_path = os.path.join(
-            ANALYSIS_DIR,
+            config.ANALYSIS_DIR,
             analysis_chunk.exp_name,
             target_object.chunk_name,
             ss_version,
@@ -726,7 +726,7 @@ def classification_transfer(
 
     # Create classification file and drop it in the destination path
     input_file_path = os.path.join(
-        ANALYSIS_DIR,
+        config.ANALYSIS_DIR,
         analysis_chunk.exp_name,
         analysis_chunk.chunk_name,
         analysis_chunk.ss_version,

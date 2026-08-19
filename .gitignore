@@ -11,3 +11,4 @@ src/retinanalysis/.DS_Store
 .venv
 uv.lock
 .python-version
+datajoint.json

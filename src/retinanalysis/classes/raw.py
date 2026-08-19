@@ -3,7 +3,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 from retinanalysis.classes.response import MEAResponseBlock
-from retinanalysis.config.settings import RAW_DIR
+from retinanalysis._config import config
 from retinanalysis import ei_utils as eiu
 from typing import Optional
 
@@ -15,7 +15,7 @@ SAMPLE_RATE = 20000  # Hz
 
 class RawTraces:
     def __init__(self, rb: MEAResponseBlock):
-        self.binpath = os.path.join(RAW_DIR, rb.exp_name, rb.datafile_name)
+        self.binpath = os.path.join(config.RAW_DIR, rb.exp_name, rb.datafile_name)
         self.d_timing = rb.d_timing
         self.sorted_electrodes = eiu.sort_electrode_map(rb.vcd.get_electrode_map())
         self.data = None

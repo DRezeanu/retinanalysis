@@ -1,7 +1,7 @@
 import retinanalysis
+from retinanalysis._config import config
 from retinanalysis._database import schema
 import os
-from retinanalysis.config.settings import ANALYSIS_DIR, DATA_DIR
 import pandas as pd
 from retinanalysis.utils.vision_utils import get_analysis_vcd, get_ells, get_timecourses
 from hdf5storage import loadmat
@@ -239,7 +239,7 @@ class AnalysisChunk:
         # Pull typing files directly from available Analysis Directory... avoids issues with datajoint
         # not updating typing files on existing experiments
         typing_file_dir = os.path.join(
-            ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version
+            config.ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version
         )
         self.typing_files = [
             file
@@ -345,7 +345,7 @@ class AnalysisChunk:
 
         for idx, typing_file in enumerate(self.typing_files):
             file_path = os.path.join(
-                ANALYSIS_DIR,
+                config.ANALYSIS_DIR,
                 self.exp_name,
                 self.chunk_name,
                 self.ss_version,
@@ -382,7 +382,7 @@ class AnalysisChunk:
     def get_spatial_maps(self, ls_channels=[0, 2]):
         # By default load red and blue channel spatial maps.
         mat_file = os.path.join(
-            DATA_DIR,
+            config.DATA_DIR,
             self.exp_name,
             self.chunk_name,
             self.ss_version,
@@ -392,7 +392,7 @@ class AnalysisChunk:
         # If _params.mat file doesn't exist in data dir, look in analysis dir instead
         if not os.path.exists(mat_file):
             mat_file = os.path.join(
-                ANALYSIS_DIR,
+                config.ANALYSIS_DIR,
                 self.exp_name,
                 self.chunk_name,
                 self.ss_version,
@@ -994,7 +994,7 @@ class AnalysisChunk:
 
         # Pull STAs and organize by cell id alone, or nested inside a dictionary organized by cell id
         sta_reader = vl.STAReader(
-            os.path.join(ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version),
+            os.path.join(config.ANALYSIS_DIR, self.exp_name, self.chunk_name, self.ss_version),
             self.ss_version,
         )
 
