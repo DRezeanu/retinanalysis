@@ -1,11 +1,11 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "retinanalysis"
-version = "0.1"
-description = 'An analysis pipeline package for MEA data, created for the Rieke/Manookin lab'
+dynamic = ["version"]
+description = "An analysis pipeline package for MEA data, created for the Rieke/Manookin lab"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -52,6 +52,7 @@ dependencies = [
   "hdbscan",
   "scikit-image",
   "platformdirs>=4.9.6",
+  "tomlkit>=0.15.1",
 ]
 
 [project.urls]
@@ -72,3 +73,6 @@ markers = [
     "integration: slower tests that exercise multiple package components",
     "downstream: tests that exercise downstream repos dependent on retinanalysis",
 ]
+
+[tool.hatch.version]
+source = "vcs"

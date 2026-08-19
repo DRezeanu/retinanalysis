@@ -1,4 +1,4 @@
-from retinanalysis.utils import DATA_DIR, ANALYSIS_DIR, USER
+from retinanalysis._config import config
 
 import datajoint as dj
 import json
@@ -28,7 +28,7 @@ SortedCellType: dj.Manual = None
 
 
 db: object = None
-user = USER
+user = None
 
 fields = {
     "experiment": [
@@ -260,7 +260,7 @@ def append_sorting_files(chunk_id: int, algorithm: str, sorting_dir: str):
     p1 = os.path.split(sorting_dir)
     p2 = os.path.split(p1[0])
     p3 = os.path.split(p2[0])
-    analysis_dir = os.path.join(ANALYSIS_DIR, p3[1], p2[1], p1[1])
+    analysis_dir = os.path.join(config.ANALYSIS_DIR, p3[1], p2[1], p1[1])
     # check if real path
     if not os.path.exists(analysis_dir):
         return
@@ -335,11 +335,11 @@ def append_experiment_analysis(experiment_id: int, exp_name: str):
     print(f"Adding analysis for experiment {experiment_id}, {exp_name}")
     # exp_name = (Experiment & f"id={experiment_id}").fetch1()['data_file']
     # exp_name = os.path.basename(exp_name)[:-3]
-    if exp_name not in os.listdir(DATA_DIR):
+    if exp_name not in os.listdir(config.DATA_DIR):
         print(f"Could not find data directory for experiment {exp_name}")
         return
 
-    experiment_dir = os.path.join(DATA_DIR, exp_name)
+    experiment_dir = os.path.join(config.DATA_DIR, exp_name)
     print(f"Looking in {experiment_dir}")
     for file in os.listdir(experiment_dir):
         if os.path.isdir(os.path.join(experiment_dir, file)) and not file.startswith(
@@ -359,7 +359,7 @@ def get_block_chunk(experiment_id: int, data_dir: str) -> int:
     )
     exp_name = (Experiment & f"id={experiment_id}").fetch1("exp_name")
     # exp_name = os.path.basename(exp_name)[:-3]
-    experiment_dir = os.path.join(DATA_DIR, exp_name)
+    experiment_dir = os.path.join(config.DATA_DIR, exp_name)
     for chunk_name in possible_chunks:
         f = os.path.join(experiment_dir, f"{exp_name}_{chunk_name}.txt")
         if not os.path.exists(f):
@@ -508,7 +508,7 @@ def append_epoch_block(
         chunk_id = ""
         if is_mea:
             # Check that spike sorted outputs exist for this Experiment
-            if os.path.exists(os.path.join(DATA_DIR, exp_name)):
+            if os.path.exists(os.path.join(config.DATA_DIR, exp_name)):
                 chunk_id = get_block_chunk(experiment_id, data_dir)
     except Exception as e:
         print(f"Error getting chunk_id for {experiment_id}, {data_dir}: {e}")
@@ -742,15 +742,15 @@ def gen_meta_list(data_dir: str, meta_dir: str, tags_dir: str) -> list:
             if not os.path.exists(tags_file):
                 gen_tags(item[:-5] + ".json", tags_dir)
             # Check that NAS directory exists
-            if not os.path.exists(DATA_DIR):
-                print(f"Could not find NAS_DATA_DIR: {DATA_DIR}")
+            if not os.path.exists(config.DATA_DIR):
+                print(f"Could not find NAS_DATA_DIR: {config.DATA_DIR}")
                 print(
                     "Make sure you are connected and that api/helpers/utils.py has the correct path."
                 )
                 continue
 
             # find the right directory in NAS_DATA_DIR
-            if item[:-5] not in os.listdir(DATA_DIR):
+            if item[:-5] not in os.listdir(config.DATA_DIR):
                 print(f"Could not find data directory for {item}")
                 continue
             meta_list.append([os.path.join(meta_dir, item), item[:-5], tags_file])
@@ -807,7 +807,7 @@ def append_celltypefiles(sc_q):
         exp_name = (Experiment() & f"id={experiment_id}").fetch1("exp_name")
         chunk_name = df_sc.at[chunk_id, "chunk_name"]
 
-        chunk_path = os.path.join(DATA_DIR, exp_name, chunk_name)
+        chunk_path = os.path.join(config.DATA_DIR, exp_name, chunk_name)
         for file in os.listdir(chunk_path):
             for algorithm in os.listdir(chunk_path):
                 algorithm_dir = os.path.join(chunk_path, algorithm)
@@ -820,7 +820,7 @@ def append_celltypefiles(sc_q):
                 p1 = os.path.split(algorithm_dir)
                 p2 = os.path.split(p1[0])
                 p3 = os.path.split(p2[0])
-                analysis_dir = os.path.join(ANALYSIS_DIR, p3[1], p2[1], p1[1])
+                analysis_dir = os.path.join(config.ANALYSIS_DIR, p3[1], p2[1], p1[1])
                 if not os.path.exists(analysis_dir):
                     continue
                 for file in os.listdir(analysis_dir):

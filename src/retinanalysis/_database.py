@@ -17,7 +17,7 @@ from typing import Any
 @cache
 def get_schema_module() -> ModuleType:
     """Import and cache the DataJoint schema module on first use."""
-    return import_module("retinanalysis.config.schema")
+    return import_module("retinanalysis.schema")
 
 
 class LazySchema:
@@ -32,7 +32,7 @@ class LazySchema:
         return sorted(set(dir(type(self))) | set(dir(schema_module)))
 
     def __repr__(self) -> str:
-        return "<LazySchema proxy for retinanalysis.config.schema>"
+        return "<LazySchema proxy for retinanalysis.schema>"
 
 
 schema = LazySchema()

@@ -4,7 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import retinanalysis
 from retinanalysis.classes.response import MEAResponseBlock
-from retinanalysis.config.settings import RAW_DIR
+from retinanalysis._config import config
 from retinanalysis import ei_utils as eiu
 try:
     import importlib.resources as ir

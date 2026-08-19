@@ -12,7 +12,7 @@ from typing import List
 import retinanalysis.utils.regen as regen
 import pickle
 from typing import Optional
-from retinanalysis.config.settings import ANALYSIS_DIR
+from retinanalysis._config import config
 import os
 
 D_REGEN_FXNS = {
@@ -264,10 +264,10 @@ class MEAStimBlock(StimBlock):
             # New way to check for typing files... avoids missing typing files in database
             try:
                 ss_version = os.listdir(
-                    os.path.join(ANALYSIS_DIR, self.exp_name, nearest_noise_chunk)
+                    os.path.join(config.ANALYSIS_DIR, self.exp_name, nearest_noise_chunk)
                 )[0]
                 typing_file_path = os.path.join(
-                    ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version
+                    config.ANALYSIS_DIR, self.exp_name, nearest_noise_chunk, ss_version
                 )
                 typing_files = [
                     file for file in os.listdir(typing_file_path) if ".txt" in file

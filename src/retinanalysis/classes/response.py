@@ -6,7 +6,7 @@ from retinanalysis.utils.datajoint_utils import (
     get_exp_summary,
 )
 
-from retinanalysis.config.settings import ANALYSIS_DIR
+from retinanalysis._config import config
 from retinanalysis.utils.vision_utils import get_protocol_vcd, cluster_match
 
 from retinanalysis.utils.spike_detector import detector
@@ -538,7 +538,7 @@ class MEAResponseBlock(ResponseBlock):
 
         # Pull types from classification file
         file_path = os.path.join(
-            ANALYSIS_DIR, self.exp_name, noise_chunk, self.ss_version, typing_file
+            config.ANALYSIS_DIR, self.exp_name, noise_chunk, self.ss_version, typing_file
         )
 
         d_result = dict()
@@ -916,7 +916,7 @@ class MEAResponseGroup:
 
         # Pull types from classification file
         file_path = os.path.join(
-            ANALYSIS_DIR, self.exp_name, noise_chunk, self.ss_version, typing_file
+            config.ANALYSIS_DIR, self.exp_name, noise_chunk, self.ss_version, typing_file
         )
 
         d_result = dict()
