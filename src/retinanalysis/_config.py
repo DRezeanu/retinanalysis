@@ -99,6 +99,9 @@ class RAConfig:
                 'overwrite = True.'
             )
 
+        print('Input a config profile and all relevant paths. To skip a path, '
+              'enter an empty string.')
+
         name = input('Config profile name: ')
         profile_paths = dict()
 
@@ -130,9 +133,11 @@ class RAConfig:
         import json
         import sys
 
-
+        # Create an empty json in a temp directory, which will be used by
+        # the GUI to write and return the values we need.
         fd, result_file = tempfile.mkstemp(suffix='.json')
-        os.close(fd)
+        with os.fdopen(fd, 'w') as f:
+            json.dump({}, f)
 
         gui_module = Path(__file__).parent / '_config_gui.py'
 
@@ -142,11 +147,15 @@ class RAConfig:
             with open(result_file, 'r') as f:
                 result = json.load(f)
 
-            self._setup(
-                name=result['name'],
-                profile_paths=result['paths']
-            )
-            os.remove(result_file)
+            if ('name' in result) and ('paths' in result):
+                self._setup(
+                    name=result['name'],
+                    profile_paths=result['paths']
+                )
+                os.remove(result_file)
+            else:
+                warn('Setup cancelled - No config created')
+                os.remove(result_file)
         else:
             warn('Setup cancelled - No config created')
 
@@ -214,17 +223,16 @@ class RAConfig:
 
         Args:
             name: name of new profile to create
-            profile_paths: dictionary that contains all required keys. 
-            Required keys are:
-                - 'analysis'
-                - 'data'
-                - 'raw'
-                - 'h5'
-                - 'vision'
-                - 'meta'
-                - 'tags'
-                - 'user'
-                NOTE: path values may be left empty, but 'user' is required.
+            profile_paths: dictionary that contains one of more of these keys. 
+                - 'analysis' (OPTIONAL)
+                - 'data' (OPTIONAL)
+                - 'raw' (OPTIONAL)
+                - 'h5' (OPTIONAL)
+                - 'vision' (OPTIONAL)
+                - 'meta' (OPTIONAL)
+                - 'tags' (OPTIONAL)
+                - 'user' (REQUIRED)
+                If a key is not included, it will be filled with an empty string.
             overwrite: optional, default False. If true allows 
                 create_profile() to overwrite an existing profile
                 with the same ``name``.
@@ -233,7 +241,6 @@ class RAConfig:
             ValueError if no config file is found.
             ValueError: if overwrite is set to False and ``name`` is
                 found in the list of existing profiles.
-            ValueError: if a required key is missing from ``profile_paths``
             Warning if extra keys are found in ``profile_paths``.
                 Extra keys are ignored, per the warning message.
 
@@ -262,13 +269,7 @@ class RAConfig:
         new_profile = {name : dict()}
         for key in self.REQUIRED_KEYS:
             if key not in profile_paths:
-                raise ValueError(
-                    f'Missing {key} path. profile_paths dictionary '
-                    f'must include:\n {self.REQUIRED_KEYS}. To leave a '
-                    'path blank, make the value an empty string. '
-                    '(e.g. {"analysis" : ""})'
-                )
-
+                profile_paths[key] = ""
             if key == 'user':
                 if (not profile_paths[key]) or (profile_paths[key] is None):
                     raise ValueError(
@@ -289,7 +290,7 @@ class RAConfig:
         using a graphical user interface. The new profile is appended 
         to the config.toml file. Note that this does not set the new
         profile as active by default. To do so, call ``set_profile(name)``
-        or ``set_default_profile(name)`` after compleing the setup.
+        or ``set_default_profile(name)`` after completing the setup.
 
         Args:
             overwrite: optional, default False. If true allows 
@@ -313,8 +314,11 @@ class RAConfig:
                 'add your first profile.'
             )
 
+        # Create an empty json in a temp directory, which will be used by
+        # the GUI to write and return the values we need.
         fd, result_file = tempfile.mkstemp(suffix='.json')
-        os.close(fd)
+        with os.fdopen(fd, 'w') as f:
+            json.dump({}, f)
 
         gui_module = Path(__file__).parent / '_config_gui.py'
 
@@ -324,14 +328,154 @@ class RAConfig:
             with open(result_file, 'r') as f:
                 result = json.load(f)
 
-            self.create_profile(
-                name=result['name'],
-                profile_paths=result['paths'],
-                overwrite=overwrite,
-            )
-            os.remove(result_file)
+            if ('names' in result) and ('paths' in result):
+
+                self.create_profile(
+                    name=result['name'],
+                    profile_paths=result['paths'],
+                    overwrite=overwrite,
+                )
+                os.remove(result_file)
+            else:
+                warn('Profile creation cancelled - no profile created')
+                os.remove(result_file)
         else:
             warn('Profile creation cancelled - no profile created')
+
+    def edit_profile(
+        self,
+        name: str,
+        profile_paths: dict[str, str],
+    ) -> None:
+        """Method for creating a new config profile, which is 
+        written to the config.toml file. Note that this does not
+        set the new profile as active by default. To do so, call
+        ``set_profile(name)`` or ``set_default_profile(name)``.
+
+        Args:
+            name: name of profile to edit
+            profile_paths: dictionary that contains all keys to be edited 
+                and their new values. 
+                Possible keys are:
+                    - 'analysis'
+                    - 'data'
+                    - 'raw'
+                    - 'h5'
+                    - 'vision'
+                    - 'meta'
+                    - 'tags'
+                    - 'user'
+
+        Raises:
+            ValueError if no config file is found.
+            ValueError: if ``name`` does not match an existing profile.
+            Warning if extra keys are found in ``profile_paths``.
+                Extra keys are ignored, per the warning message.
+
+        """
+        if not self.config_path.is_file():
+            raise ValueError(
+                'No config file found. Run ra.config.setup() '
+                'or ra.config.setup_gui() to create the file and '
+                'add your first profile.'
+            )
+
+        if name not in self.profiles:
+            raise ValueError(
+                f'{name} profile does not exist in the current config. '
+                'Use create_profile() or create_profile_gui() to make a new '
+                'profile from scratch.'
+            )
+
+
+        extra_keys = list(set(profile_paths.keys()) - set(self.REQUIRED_KEYS))
+        if extra_keys:
+            warn(
+                f'Only {self.REQUIRED_KEYS} allowed in config. '
+                f'Ignoring unrecognized keys: {extra_keys} '
+            )
+
+        profile = {name : dict()}
+        for key in self.REQUIRED_KEYS:
+            if key not in profile_paths:
+                profile_paths[key] = self.config_file['profiles'][name][key]
+            if key == 'user':
+                if (not profile_paths[key]) or (profile_paths[key] is None):
+                    raise ValueError(
+                            f'Username cannot be blank'
+                    )
+
+            profile[name][key] = profile_paths[key]
+
+        self.config_file['profiles'].update(profile)
+
+        with open(self.config_path, 'w') as f:
+            tomlkit.dump(self.config_file, f)
+
+        self.reset()
+
+
+    def edit_profile_gui(self, name):
+        """Method for editing an existing config profile interactively,
+        using a graphical user interface. The profile is edited inside 
+        the config.toml file. Note that this does not set the newly edited
+        profile as active by default. To do so, call ``set_profile(name)``
+        or ``set_default_profile(name)`` after finishing the edit.
+
+        Args:
+            name: The name of the profile to edit
+
+        Raises:
+            ValueError if no config file is found.
+            ValueError: if ``name`` does not match an existing profile  
+        """
+        import subprocess
+        import tempfile
+        import json
+        import sys
+
+        if not self.config_path.is_file():
+            raise ValueError(
+                'No config file found. Run ra.config.setup() '
+                'or ra.config.setup_gui() to create the file and '
+                'add your first profile.'
+            )
+
+        if name not in self.profiles:
+            raise ValueError(
+                f'{name} is not an existing profile. To create it, '
+                'call create_profile() or create_profile_gui()'
+            )
+
+        # Create an empty json in a temp directory, which will be used by
+        # the GUI to write and return the values we need.
+        input_dict = self.config_file['profiles'][name].copy()
+        input_dict['name'] = name
+
+        fd, result_file = tempfile.mkstemp(suffix='.json')
+        with os.fdopen(fd, 'w') as f:
+            json.dump(input_dict, f)
+
+        gui_module = Path(__file__).parent / '_config_gui.py'
+
+        subprocess.run([sys.executable, str(gui_module), result_file])
+
+        if os.path.exists(result_file):
+            with open(result_file, 'r') as f:
+                result = json.load(f)
+
+            if ('name' in result) and ('paths' in result):
+
+                self.edit_profile(
+                    name=result['name'],
+                    profile_paths=result['paths'],
+                )
+                os.remove(result_file)
+            else:
+                warn(f'Profile edit cancelled - {name} hasn not been edited.')
+                os.remove(result_file)
+        else:
+            warn(f'Profile edit cancelled - {name} hasn not been edited.')
 
 
     def remove_profile(self, name):
@@ -392,6 +536,10 @@ class RAConfig:
         self._check_initialized()
         return self.config_file['profiles'][self.active_profile]['h5']
 
+    @property
+    def VISION_PATH(self) -> str:
+        self._check_initialized()
+        return self.config_file['profiles'][self.active_profile]['vision']
 
     @property
     def META_DIR(self) -> str:
@@ -421,15 +569,15 @@ class RAConfig:
 
         Args:
             name: name of profile to create
-            profile_paths: dictionary that contains all required
-                paths. Required keys are:
-                - 'analysis'
-                - 'data'
-                - 'raw'
-                - 'h5'
-                - 'meta'
-                - 'tags'
-                - 'user'
+            profile_paths: dictionary that contains these keys: 
+                - 'analysis' (OPTIONAL)
+                - 'data' (OPTIONAL)
+                - 'raw' (OPTIONAL)
+                - 'h5' (OPTIONAL)
+                - 'meta' (OPTIONAL)
+                - 'tags' (OPTIONAL)
+                - 'user' (REQUIRED)
+                Missing keys will be filled with an empty string
         """
         # Create directories
         self.config_path.parent.mkdir(parents=True, exist_ok=True)

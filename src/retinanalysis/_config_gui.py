@@ -1,6 +1,10 @@
 """Standalone config GUI script to get around stupid issues with
 TKinter on Mac, which is a nightmare and its maintainers should be
 ashamed of themselves.
+
+This script is used in two ways: to create a config profile or to edit
+an existing one. If the input file is empty, we default to creating a 
+profile. If it's not, we default to editing. 
 """
 import tkinter as tk
 from tkinter import (
@@ -35,9 +39,14 @@ KEY_DICT = {
 
 
 def main(result_file):
+
+    with open(result_file, 'r') as f:
+        input_dict = json.load(f)
+
     root = tk.Tk()
     root.title('Retinanalysis config setup')
 
+    # Put the window above the current active window
     root.attributes('-topmost', True)
     root.lift()
     root.focus_force()
@@ -47,17 +56,28 @@ def main(result_file):
     frame = ttk.Frame(root, padding=20)
     frame.grid()
 
-    name_var = tk.StringVar()
-    ttk.Label(frame, text=f'Profile name: ').grid(column=0, row=0, sticky='w')
-    ttk.Entry(frame, textvariable=name_var).grid(column=1, row=0, columnspan=2)
+    # Pull profile name
+    if not input_dict:
+        name_var = tk.StringVar()
+        ttk.Label(frame, text=f'Profile name: ').grid(column=0, row=0, sticky='w')
+        ttk.Entry(frame, textvariable=name_var).grid(column=1, row=0, columnspan=2)
+    else:
+        name_var = tk.StringVar(value=input_dict['name'])
+        ttk.Label(frame, text=f'Profile name: ').grid(column=0, row=0, sticky='w')
+        ttk.Entry(frame, textvariable=name_var).grid(column=1, row=0, columnspan=2)
+
 
     # Fill all the entries
     entries=dict()
     for idx, key in enumerate(REQUIRED_KEYS):
         ttk.Label(frame, text=f'{KEY_DICT[key]} :').grid(column=0, row=idx+1, sticky = 'w')
 
-        var = tk.StringVar()
-        entries[key] = var
+        if not input_dict:
+            var = tk.StringVar()
+            entries[key] = var
+        else:
+            var = tk.StringVar(value=input_dict[key])
+            entries[key] = var
 
         if key == 'user':
             ttk.Entry(frame, textvariable=entries[key]).grid(column=1, row=idx+1, columnspan=2)
