@@ -328,7 +328,7 @@ class RAConfig:
             with open(result_file, 'r') as f:
                 result = json.load(f)
 
-            if ('names' in result) and ('paths' in result):
+            if ('name' in result) and ('paths' in result):
 
                 self.create_profile(
                     name=result['name'],
