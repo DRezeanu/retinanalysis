@@ -94,13 +94,14 @@ def load_ks_data(ks_location: str, include_mua: bool = True):
     """
     spike_times = np.load(os.path.join(ks_location, "spike_times.npy"))
     cluster_ids = np.load(os.path.join(ks_location, "spike_clusters.npy"))
-    cluster_group = pd.read_csv(
-        os.path.join(ks_location, "cluster_group.tsv"), delimiter="\t"
-    )
 
     if include_mua:
         good_ids = np.unique(cluster_ids)
     else:
+        cluster_group = pd.read_csv(
+            os.path.join(ks_location, "cluster_group.tsv"), delimiter="\t"
+        )
+
         good_ids = cluster_group.query('KSLabel == "good"')["cluster_id"].to_list()
 
     spike_dict = {int(id + 1): spike_times[cluster_ids == id] for id in good_ids}
@@ -443,7 +444,7 @@ def generate_vision_files(
         raw_data = load_raw_data(rawfile_location, ttl_only=True)
         
         num_pts += raw_data.n_points
-        ttl_triggers += raw_data.ttl_triggers
+        ttl_triggers += raw_data.epoch_starts
 
     ttl_triggers=np.array(ttl_triggers)
 
