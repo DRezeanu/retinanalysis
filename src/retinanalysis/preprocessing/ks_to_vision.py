@@ -1,29 +1,27 @@
 from __future__ import annotations
-import bin2py as b2p
 import xarray as xr
 import visionwriter as vw
-import visionloader as vl
 import numpy as np
 import argparse
 import os
-from tqdm.auto import tqdm
-from retinanalysis.classes.stim import StimBlock
 from retinanalysis._config import config
 from retinanalysis._database import schema
-from retinanalysis.utils.datajoint_utils import (
-    get_block_id_from_datafile,
-    get_exp_summary,
-)
-from retinanalysis.utils.regen import (
-    get_spatial_noise_frames,
-    get_n_frames_spatial_noise
-)
+from retinanalysis.utils.datajoint_utils import get_exp_summary
 from subprocess import run as sp_run
 from multiprocessing import cpu_count
 import pandas as pd
 from pathlib import Path
-from dataclasses import dataclass
 from warnings import warn
+from .raw_data_loader import load_raw_data, RawDataContainer
+from .sta import (
+    get_data_for_chunk,
+    compute_stas_for_chunk,
+    write_sta_file,
+    write_globals_file,
+    write_params_file,
+)
+from .rfs import rf_fitting_pipeline
+from .ei_merge import merge_eis
 
 NOISE_PROTOCOLS = [
     'manookinlab.protocols.SpatialNoise',
@@ -31,52 +29,6 @@ NOISE_PROTOCOLS = [
 ]
 NUM_SAMPLES = 20000
 SAMPLES_PER_MS = NUM_SAMPLES / 1e3
-
-@dataclass(slots=True, frozen=True)
-class RawDataContainer:
-    array_id: int
-    n_electrodes: int
-    n_points: int
-    electrode_data: np.ndarray | None
-    ttl_data: np.ndarray
-    epoch_starts: np.ndarray
-    epoch_ends: np.ndarray
-
-
-def load_raw_data(
-    rawfile_location: str,
-    chunk_samples: int = 100000,
-    ttl_only: bool = False,
-) -> RawDataContainer:
-
-    with b2p.PyBinFileReader(rawfile_location, chunk_samples=chunk_samples) as pbfr:
-        n_points = pbfr.length
-        n_electrodes = pbfr.num_electrodes
-        array_id = pbfr.array_id
-        if ttl_only:
-            ttl_data = pbfr.get_data_for_electrode(0, 0, n_points)
-            electrode_data = None
-        else:
-            data = pbfr.get_data(0, n_points)
-            ttl_data = data[:, 0]
-            electrode_data = data[:, 1:]
-
-    epoch_starts = np.array(
-        [idx for idx, i in enumerate(np.diff(ttl_data)) if i<0]
-    )
-    epoch_ends = np.array(
-        [idx for idx, i in enumerate(np.diff(ttl_data)) if i>0]
-    )
-
-    return RawDataContainer(
-        array_id = array_id,
-        n_electrodes=n_electrodes,
-        n_points=n_points,
-        electrode_data=electrode_data,
-        ttl_data=ttl_data,
-        epoch_starts=epoch_starts,
-        epoch_ends=epoch_ends,
-    )
 
 def load_ks_data(ks_location: str, include_mua: bool = True):
     """
@@ -131,13 +83,154 @@ def get_chunk_datafiles(exp_name: str, chunk_name: str) -> list:
     
     return datafile_names
 
+
+def ks_chunk_to_vision(
+    exp_name: str,
+    chunk_name: str,
+    output_dir: str,
+    vision_path: str | None = None,
+    raw_data_dir: str | None = None,
+    ks_data_dir: str | None = None,
+    ks_version: str = 'kilosort2.5',
+    include_mua: bool = True,
+    verbose: bool = True,
+):
+    """Function for generating vision files from the kilosort sorter outputs for a sorting chunk.
+
+    The function uses Vision.jar and vision_writer utilities to write .globals, .neurons, and .ei
+    file types by default, with additional .params and .sta file types writen only if the chunk
+    arises from spatial noise.
+
+    Args:
+        exp_name: name of the experiment (e.g. '20260506C')
+        chunk_name: name of chunk that contains sorted kilosort files (e.g. 'chunk1')
+        output_dir: directory where the output folders and files will be created
+        vision_path: path to compiled Vision.jar program for EI calculation
+        raw_data_dir: path to raw data directory, default retinanalysis config.RAW_DIR
+        ks_data_dir: path to kilosort output directory where sorted data files live.
+            Default is retinanalysis config.DATA_DIR
+        ks_version: kilosort version used to do the sorting, default is 'kilosort2.5'
+        include_mua: boolean value, when true will include units labeled 'multi-unit activity'
+            by kilosort.
+        verbose: when true, will print status messages to console.
+
+    Returns:
+        None. Vision files will be exported to the directory of interest.
+    """
+
+    exp_summary = get_exp_summary(exp_name)
+    if exp_summary is None:
+        raise ValueError(
+            f"Experiment {exp_name} is not yet in the database. Parse the h5 and "
+            "run retinanalysis.populate_database() before creating vision files."
+        )
+
+    if raw_data_dir is None:
+        raw_data_dir = config.RAW_DIR
+    if ks_data_dir is None:
+        ks_data_dir = config.DATA_DIR
+    if vision_path is None:
+        vision_path = config.VISION_PATH
+
+    chunk_datafiles = exp_summary.query('chunk_name == @chunk_name')['datafile_name'].to_list()
+
+    raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
+    ks_chunk_path = Path(ks_data_dir) / exp_name / chunk_name / ks_version
+    ks_datafile_paths = [Path(ks_data_dir)/exp_name/datafile/ks_version for datafile in chunk_datafiles]
+    chunk_output_path = Path(output_dir) / exp_name / chunk_name
+    datafile_output_paths = [Path(output_dir)/exp_name/datafile for datafile in chunk_datafiles]
+
+    ks_chunk_path.mkdir(parents=True, exist_ok=True)
+    for datafile_path in ks_datafile_paths:
+        datafile_path.mkdir(parents=True, exist_ok=True)
+    chunk_output_path.mkdir(parents=True, exist_ok=True)
+    for datafile_opath in datafile_output_paths:
+        datafile_opath.mkdir(parents=True, exist_ok=True)
+
+    if verbose:
+        print(
+            f"Pulling raw data from {Path(raw_data_dir)/exp_name} "
+            f"for datafiles {chunk_datafiles}"
+                )
+
+        print(f"Using kilosort chunk data from: {ks_chunk_path}")
+
+        print(
+            "Using kilosort datafile data from: "
+            f"{Path(ks_data_dir)/exp_name} for datafiles {chunk_datafiles}"
+        )
+
+        print(f"Path to Vision.jar: {vision_path}.")
+
+        print(
+            f"Chunk's Vision files will be written to: {output_path}."
+        )
+
+        print(
+            "Individual datafile Vision files will be written to: "
+              f"{Path(output_dir)/exp_name} for datafiles {chunk_datafiles}."
+        )
+
+    chunk_spike_dict = load_ks_data(str(ks_chunk_path), include_mua)
+    datafile_spike_dicts = [load_ks_data(str(datafile_path), include_mua) for datafile_path in ks_datafile_paths]
+    ls_raw_data = [load_raw_data(raw_file, ttl_only=True) for raw_file in raw_file_paths]
+
+    
+    all_epoch_starts = []
+    n_samples = 0
+    for idx, raw_data in enumerate(ls_raw_data):
+        # Write .neurons file for each datafile
+        with vw.NeuronsFileWriter(str(datafile_output_paths[idx]), chunk_datafiles[idx]) as nfw:
+            nfw.write_neuron_file(datafile_spike_dicts[idx], raw_data.epoch_starts, raw_data.n_samples)
+
+        all_epoch_starts += (raw_data.epoch_starts + n_samples).tolist()
+        n_samples += raw_data.n_samples
+
+    all_epoch_starts = np.array(all_epoch_starts)
+
+    # Write neurons file for chunk
+    with vw.NeuronsFileWriter(str(output_path), datafile_name) as nfw:
+        nfw.write_neuron_file(chunk_spike_dict, all_epoch_starts, n_samples)
+
+    if verbose:
+        print(f"\nNeurons files written to {Path(output_dir)/exp_name} "
+              f"for {chunk_name} and {chunk_datafiles}")
+
+    # Write ei
+    n_cpus = cpu_count()
+
+    # Use 60% of available CPUs
+    available_cpus = int(n_cpus * 0.6)
+
+    if verbose:
+        print(f"\nUsing {available_cpus} CPUs for EI computation\n")
+
+    # Write EIs for each datafile in turn
+    for idx, raw_path in enumerate(raw_file_paths):
+        sp_run(
+            f'java -Xmx8G -cp {vision_path} edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" {datafile_output_paths[idx]} {raw_path} 0.01 67 133 1000000 {available_cpus}',
+            shell=True,
+        )
+
+    # Merge datafile EIs into chunk EI
+    merge_eis(
+        exp_name=exp_name,
+        chunk_name=chunk_name,
+        datafiles=chunk_datafiles,
+        sorted_dir = output_dir,
+        output_dir = output_dir,
+        ss_version=ks_version,
+        verbose=verbose)
+
+
+
 def ks_datafile_to_vision(
     exp_name: str,
     datafile_name: str,
     output_dir: str,
-    vision_path: str,
-    raw_data_path: str | None = None,
-    ks_data_path: str | None = None,
+    vision_path: str | None = None,
+    raw_data_dir: str | None = None,
+    ks_data_dir: str | None = None,
     ks_version: str = 'kilosort2.5',
     include_mua: bool = True,
     verbose: bool = True,
@@ -150,29 +243,39 @@ def ks_datafile_to_vision(
 
     Args:
         exp_name: name of the experiment (e.g. '20260506C')
-        datafiles_name: name of datafile sorted by kilosort (e.g. 'data001')
+        datafile_name: name of datafile folder that contains sorted kilosort files (e.g. 'data001')
         output_dir: directory where the output folders and files will be created
         vision_path: path to compiled Vision.jar program for EI calculation
-        raw_data_path: path to raw data directory, default retinanalysis config.RAW_DIR
-        ks_data_path: path to kilosort output directory where sorted data files live.
+        raw_data_dir: path to raw data directory, default retinanalysis config.RAW_DIR
+        ks_data_dir: path to kilosort output directory where sorted data files live.
             Default is retinanalysis config.DATA_DIR
         ks_version: kilosort version used to do the sorting, default is 'kilosort2.5'
         include_mua: boolean value, when true will include units labeled 'multi-unit activity'
             by kilosort.
         verbose: when true, will print status messages to console.
+
     Returns:
         None. Vision files will be exported to the directory of interest.
     """
-    if raw_data_path is None:
-        raw_data_path = config.RAW_DIR
-    if ks_data_path is None:
-        ks_data_path = config.DATA_DIR
 
-    raw_file_path = Path(raw_data_path) / exp_name / datafile_name
-    ks_file_path = Path(ks_data_path) / exp_name / datafile_name / ks_version
+    exp_summary = get_exp_summary(exp_name)
+    if exp_summary is None:
+        raise ValueError(
+            f"Experiment {exp_name} is not yet in the database. Parse the h5 and "
+            "run retinanalysis.populate_database() before creating vision files."
+        )
+
+    if raw_data_dir is None:
+        raw_data_dir = config.RAW_DIR
+    if ks_data_dir is None:
+        ks_data_dir = config.DATA_DIR
+    if vision_path is None:
+        vision_path = config.VISION_PATH
+
+    raw_file_path = Path(raw_data_dir) / exp_name / datafile_name
+    ks_file_path = Path(ks_data_dir) / exp_name / datafile_name / ks_version
     output_path = Path(output_dir) / exp_name / datafile_name
 
-    raw_file_path.mkdir(parents=True, exist_ok=True)
     ks_file_path.mkdir(parents=True, exist_ok=True)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -182,7 +285,6 @@ def ks_datafile_to_vision(
         print(f"Path to Vision.jar: {vision_path}.")
         print(f"Vision files will be written to: {output_path}.")
 
-
     spike_dict = load_ks_data(str(ks_file_path), include_mua)
 
     # Load raw data
@@ -190,7 +292,7 @@ def ks_datafile_to_vision(
 
     # Write neurons file
     with vw.NeuronsFileWriter(str(output_path), datafile_name) as nfw:
-        nfw.write_neuron_file(spike_dict, raw_data.epoch_starts, raw_data.n_points)
+        nfw.write_neuron_file(spike_dict, raw_data.epoch_starts, raw_data.n_samples)
 
     if verbose:
         print(f"\nNeurons file written to {output_path}")
@@ -204,138 +306,161 @@ def ks_datafile_to_vision(
     if verbose:
         print(f"\nUsing {available_cpus} CPUs for EI computation\n")
 
-    # sp_run(
-    #     f'java -Xmx8G -cp {vision_path} edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" {output_path} {raw_file_path} 0.01 67 133 1000000 {available_cpus}',
-    #     shell=True,
-    # )
+    sp_run(
+        f'java -Xmx8G -cp {vision_path} edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" {output_path} {raw_file_path} 0.01 67 133 1000000 {available_cpus}',
+        shell=True,
+    )
 
-    if _is_noise_datafile(exp_name, datafile_name):
+    if _is_noise_data(exp_name, datafile_name):
 
-        block_id = get_block_id_from_datafile(exp_name, datafile_name)
-        stim_block = StimBlock(exp_name, block_id)
-        n_epochs = len(stim_block.df_epochs)
+        # Create a temporary preprocessing config profile
+        # So stim_group and response_group are made from 
+        # the newly created neurons file.
+        config.create_profile(
+            name='preprocessing',
+            profile_paths={
+                'analysis': str(output_dir),
+                'data': str(output_dir),
+                'h5' : config.H5_DIR,
+                'raw' : config.RAW_DIR,
+                'meta' : config.META_DIR,
+                'tags' : config.TAGS_DIR,
+                'vision': config.VISION_PATH,
+                'user': config.USER,
+            },
+        )
+        config.set_profile('preprocessing')
 
-        d_display = stim_block.d_display
-        epoch_params = stim_block.df_epochs.loc[0, 'epoch_parameters']
-        
-        sta_width, sta_height = epoch_params['numXChecks'], epoch_params['numYChecks']
-        microns_per_pixel = d_display['mu_per_pixel']
-        
-        pixels_per_stixel = int(round(d_display['n_wt'] / sta_width))
-        microns_per_stixel = pixels_per_stixel * microns_per_pixel
-        mean_frame_rate = d_display['mean_frame_rate']
-        stage_frame_rate = d_display['stage_frame_rate']
 
-        pre_time_s = stim_block.d_epoch_block_params['preTime']*1e-3
-        pre_frames_1 = np.floor(pre_time_s*60)
-        pre_frames_1 -= 1
-
-        st_by_epoch = _align_spikes_by_epoch(
-            spike_dict=spike_dict,
-            raw_data=raw_data,
+        d_data = get_data_for_chunk(
+            exp_name=exp_name,
+            ss_version=ks_version,
+            datafile_name=datafile_name,
+            verbose=True,
         )
 
-        psth_xarr = _bin_spikes_by_frame(
-            spike_dict = st_by_epoch,
-            raw_data=raw_data,
-            mean_frame_rate=mean_frame_rate,
+        sta_dict = compute_stas_for_chunk(
+            sg = d_data['sg'],
+            rg=d_data['rg'],
+            ss_version=ks_version,
         )
 
-        for epoch in tqdm(range(n_epochs)):
-            d_e_params = stim_block.df_epochs.loc[epoch, 'epoch_parameters']
-            ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(stim_block.df_epochs) 
+        stas = sta_dict['stas']
+        rf_dict = rf_fitting_pipeline(stas, output_dir)
 
-            d_meta = {
-                "numXStixels": d_e_params["numXStixels"],
-                "numYStixels": d_e_params["numYStixels"],
-                "numXChecks": d_e_params["numXChecks"],
-                "numYChecks": d_e_params["numYChecks"],
-                "gridSizeUm": d_e_params["gridSize"],
-                "chromaticClass": d_e_params["chromaticClass"],
-                "unique_frames": ls_unique_frames[epoch],
-                "repeat_frames": ls_repeat_frames[epoch],
-                "stepsPerStixel": d_e_params["stepsPerStixel"],
-                "seed": int(d_e_params["seed"]),
-                "frameDwell": d_e_params["frameDwell"],
-            }
-            if "canvasSize" in d_e_params:
-                d_meta["canvasSize"] = d_e_params["canvasSize"]
-            else:
-                canvas_size = (1140, 1824)
-                print(
-                    f"canvasSize not in epoch params and not provided, defaulting to {canvas_size}"
-                )
-                d_meta["canvasSize"] = canvas_size
+        sta_height, sta_width = stas.shape[2], stas.shape[3]
 
-            if "gaussianFilter" in d_e_params:
-                d_meta["gaussianFilter"] = d_e_params["gaussianFilter"]
-            if "filterSdStixels" in d_e_params:
-                d_meta["filterSdStixels"] = d_e_params["filterSdStixels"]
-            if "canvasSize" in d_e_params:
-                # (x, y) to (rows, cols)
-                d_meta["canvasSize"] = tuple(d_e_params["canvasSize"][::-1])
-            if "micronsPerPixel" in d_e_params:
-                d_meta["micronsPerPixel"] = d_e_params["micronsPerPixel"]
-            if "repeating_seed" in d_e_params:
-                d_meta["repeating_seed"] = int(d_e_params["repeating_seed"])
-
-            e_frames, e_steps = get_spatial_noise_frames(**d_meta)
-
-
-        print(e_frames.shape)
-
-        stride = 2
-
-        refreshPeriod = (
-            1000.0 / mean_frame_rate / float(stride)
-        )  # STA refresh period in msec.
-
-        runtime_movie_params = vl.RunTimeMovieParamsReader(
-            pixelsPerStixelX=pixels_per_stixel,
-            pixelsPerStixelY=pixels_per_stixel,
-            width=sta_width,
-            height=sta_height,
-            micronsPerStixelX=microns_per_stixel,
-            micronsPerStixelY=microns_per_stixel,
-            xOffset=0.0,
-            yOffset=0.0,
-            interval=int(stride),  # MM: same as stride, I think
-            monitorFrequency=mean_frame_rate,
-            framesPerTTL=1,
-            refreshPeriod=refreshPeriod,
-            nFramesRequired=-1,  # MM: No idea what this means..
-            droppedFrames=[],
+        write_sta_file(
+            d_stas=sta_dict,
+            save_dir=output_dir,
+            ss_version=ks_version,
         )
 
-        with vw.GlobalsFileWriter(str(output_path), datafile_name) as gfw:
-            gfw.write_simplified_litke_array_globals_file(
-                raw_data.array_id
-                & 0xFFF,  # FIXME get rid of this after we figure out what happened with 120um
-                0,
-                0,
-                "Kilosort converted",
-                "",
-                0,
-                NUM_SAMPLES,
-            )
+        # Save RF params with ISIs in .params file
+        write_params_file(
+            sta_height=sta_height,
+            d_data=d_data,
+            d_rf_params=rf_dict,
+            save_dir=output_dir,
+            ss_version=ks_version,
+        )
 
-            gfw.write_run_time_movie_params(runtime_movie_params)
-
+        # Save .globals file
+        d_display = d_data["sg"].ls_blocks[0].d_display
+        write_globals_file(
+            globals_path=output_dir,
+            globals_name=ks_version,
+            microns_per_pixel=d_display["mu_per_pixel"],
+            display_width_pixels=d_display["n_wt"],
+            sta_width=sta_width,
+            sta_height=sta_height,
+            mean_frame_rate=d_display["mean_frame_rate"],
+            stride=2,
+            array_id=raw_data.array_id,
+            num_samples=NUM_SAMPLES,
+        )
 
     else:
 
         with vw.GlobalsFileWriter(str(output_path), datafile_name) as gfw:
             gfw.write_simplified_litke_array_globals_file(
-                raw_data.array_id
+                array_id=raw_data.array_id
                 & 0xFFF,  # FIXME get rid of this after we figure out what happened with 120um
-                0,
-                0,
-                "Kilosort converted",
-                "",
-                0,
-                NUM_SAMPLES,
+                base_time=0,
+                seconds_time=0,
+                comment="Kilosort converted",
+                dataset_identifier="",
+                dformat=0,
+                n_samples=NUM_SAMPLES,
             )
 
+    # remove the preprocessing profile
+    config.reset()
+    config.remove_profile('preprocessing')
+
+def _is_noise_data(
+    exp_name: str,
+    data_folder: str,
+) -> bool:
+
+    exp_summary = get_exp_summary(exp_name)
+    if exp_summary is None:
+        raise ValueError(
+            f"No summary found for experiment {exp_name}"
+        )
+
+    if data_folder.startswith('data'):
+        protocol_name = exp_summary.query('datafile_name == @data_folder')['protocol_name'].item()
+        if protocol_name in NOISE_PROTOCOLS:
+            return True
+        else:
+            return False
+    else:
+        protocol_names = exp_summary.query('chunk_name == @folder_name')['protocol_name'].to_list()
+        return any(p for p in protocol_names if p in NOISE_PROTOCOLS)
+
+def _bin_spikes_by_frame(
+    spike_dict: dict[int, np.ndarray],
+    raw_data: RawDataContainer,
+    mean_frame_rate: float = 59.941548817817917,
+) -> xr.DataArray:
+    n_epochs = len(list(spike_dict.values())[0])
+    epoch_starts = raw_data.epoch_starts
+    epoch_ends = raw_data.epoch_ends
+    epoch_length_ms = np.mean(epoch_ends - epoch_starts)/SAMPLES_PER_MS
+
+    spike_time_arr = [sts for _, sts in spike_dict.items()]
+    spike_time_arr = np.array(spike_time_arr, dtype=object)
+
+    dims = ["cell_id", "epoch"]
+
+    coords = {
+        "cell_id": sorted(list(spike_dict.keys())),
+        "epoch": np.arange(n_epochs),
+    }
+
+    spike_time_xarr = xr.DataArray(spike_time_arr, dims=dims, coords=coords)
+
+    ms_per_frame = 1/mean_frame_rate*1e3
+    bin_edges = np.arange(0, epoch_length_ms+ms_per_frame, ms_per_frame)
+    n_bins = len(bin_edges)-1
+
+    def apply_hist(arr, bin_edges):
+        output, _ = np.histogram(arr, bin_edges)
+        return output
+
+    psth_xarr = xr.apply_ufunc(
+        apply_hist,
+        spike_time_xarr,
+        kwargs={"bin_edges": bin_edges},
+        input_core_dims=[[]],
+        output_core_dims=[["bin"]],
+        vectorize=True,
+    )
+    psth_xarr = psth_xarr.assign_coords({"bin": np.arange(0, n_bins)})
+    psth_xarr = psth_xarr.assign_coords({"bin_edges": ("bin", bin_edges[:-1])})
+
+    return psth_xarr
 
 def _align_spikes_by_epoch(
     spike_dict: dict[int, np.ndarray],
@@ -359,183 +484,6 @@ def _align_spikes_by_epoch(
 
     return st_by_epoch
 
-def ks_chunk_to_vision(
-):
-    return
-
-def generate_vision_files(
-    exp_name: str,
-    output_dir: str,
-    vision_path: str,
-    chunk_name: str | None = None,
-    datafile_names: list[str] | None = None,
-    raw_path: str | None = None,
-    sorted_path: str | None = None,
-    ks_version: str = "kilosort2.5",
-    include_mua: bool = True,
-    verbose: bool = True,
-):
-    """
-    Function for converting spike times and raw data for an MEA datafile into .neurons,
-    .globals, and .ei files for vision.
-
-    Parameters:
-        exp_name (str): name of experiment (e.g. '20250713C')
-
-        datafile_name (str): name of the datafile of interest (e.g. 'data005')
-
-        output_path (str): path to output directory for the .neurons, .globals and .ei files
-
-        vision_path (str): path to Vision.jar file for EI computation
-
-        raw_path (str) Optional: path to raw data directory. Default is retinanalysis config.RAW_DIR
-
-        sorted_path (str) Optional: path to sorted data directory. Default is retinanalysis config.DATA_DIR
-
-        ks_version (str) Optional: kilosort version used for sorting. Default is 'kilosort2.5'.
-
-        include_mua (bool) Optional: if true, will include units marked as 'MUA' or 'multi-unit activity'
-        by kilosort. Default True
-
-        verbose (bool) Optional: When true, will print status messages to console. Default True.
-
-    Returns:
-        None: No return values. The .neurons, .globals, and .ei files will be written to the
-        specified output_path
-    """
-    if raw_path is None:
-        raw_path = config.RAW_DIR
-
-    if sorted_path is None:
-        sorted_path = config.DATA_DIR
-
-    if chunk_name is not None:
-        if datafile_names is not None:
-            raise ValueError('Cannot provide both chunk name and list of datafiles names')
-
-        datafile_names = get_chunk_datafiles(
-            exp_name=exp_name,
-            chunk_name=chunk_name
-        )
-        chunk_output_path = os.path.join(output_dir, chunk_name)
-    else:
-        if datafile_names is None:
-            raise ValueError('Must provide either chunk name or datafile names, got None for both')
-        chunk_output_path = None
-
-
-    rawfile_dir = os.path.join(raw_path, exp_name)
-    ks_location = os.path.join(sorted_path, exp_name, datafile_name, ks_version)
-
-    if verbose:
-        print(f"\nRaw file location: {rawfile_dir}")
-        print(f"Kilosort file location: {ks_location}")
-        print(f"Path to Vision.jar: {vision_path}")
-        print(f"Writing output to: {output_dir}")
-
-    # Load spike times and units from Kilosort output
-    spike_dict = load_ks_data(ks_location, include_mua)
-
-    # Load raw data
-    num_pts = 0
-    ttl_triggers = []
-    for datafile in datafile_names:
-        rawfile_location = os.path.join(rawfile_dir, datafile)
-        raw_data = load_raw_data(rawfile_location, ttl_only=True)
-        
-        num_pts += raw_data.n_points
-        ttl_triggers += raw_data.epoch_starts
-
-    ttl_triggers=np.array(ttl_triggers)
-
-    # Write neurons file
-    if chunk_output_path is not None:
-        with vw.NeuronsFileWriter(chunk_output_path, datafile_name) as nfw:
-            nfw.write_neuron_file(spike_dict, ttl_triggers, num_pts)
-
-    if verbose:
-        print(f"\nNeurons file written to {output_path}")
-
-    # Write ei
-    n_cpus = cpu_count()
-
-    # Use 60% of available CPUs
-    available_cpus = int(n_cpus * 0.6)
-
-    if verbose:
-        print(f"\nUsing {available_cpus} CPUs for EI computation\n")
-
-    for datafile in datafile_names:
-        rawfile_location = os.path.join(rawfile_dir, datafile)
-        sp_run(
-            f'java -Xmx8G -cp {vision_path} edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" {output_path} {rawfile_location} 0.01 67 133 1000000 {available_cpus}',
-            shell=True,
-        )
-
-
-def _is_noise_datafile(
-    exp_name: str,
-    datafile_name: str,
-) -> bool:
-
-    exp_summary = get_exp_summary(exp_name)
-    if exp_summary is None:
-        raise ValueError(
-            f"No summary found for experiment {exp_name}"
-        )
-
-    protocol_name = exp_summary.query('datafile_name == @datafile_name')['protocol_name'].item()
-    if protocol_name in NOISE_PROTOCOLS:
-        return True
-    else:
-        return False
-
-def _bin_spikes_by_frame(
-    spike_dict: dict[int, np.ndarray],
-    raw_data: RawDataContainer,
-    mean_frame_rate: float = 59.941548817817917,
-) -> xr.DataArray:
-    n_epochs = len(list(spike_dict.values())[0])
-    epoch_starts = raw_data.epoch_starts
-    epoch_ends = raw_data.epoch_ends
-    epoch_length_ms = np.mean(epoch_ends - epoch_starts)/SAMPLES_PER_MS
-
-
-    spike_time_arr = [sts for _, sts in spike_dict.items()]
-    spike_time_arr = np.array(spike_time_arr, dtype=object)
-
-    dims = ["cell_id", "epoch"]
-
-    coords = {
-        "cell_id": sorted(list(spike_dict.keys())),
-        "epoch": np.arange(n_epochs),
-    }
-
-
-    spike_time_xarr = xr.DataArray(spike_time_arr, dims=dims, coords=coords)
-
-    ms_per_frame = 1/mean_frame_rate*1e3
-    bin_edges = np.arange(0, epoch_length_ms+ms_per_frame, ms_per_frame)
-    n_bins = len(bin_edges)-1
-
-
-    def apply_hist(arr, bin_edges):
-        output, _ = np.histogram(arr, bin_edges)
-        return output
-
-    psth_xarr = xr.apply_ufunc(
-        apply_hist,
-        spike_time_xarr,
-        kwargs={"bin_edges": bin_edges},
-        input_core_dims=[[]],
-        output_core_dims=[["bin"]],
-        vectorize=True,
-    )
-    psth_xarr = psth_xarr.assign_coords({"bin": np.arange(0, n_bins)})
-    psth_xarr = psth_xarr.assign_coords({"bin_edges": ("bin", bin_edges[:-1])})
-
-    return psth_xarr
-
 def _validate_epoch_timing(
     raw_data: RawDataContainer,
 ) -> RawDataContainer:
@@ -553,7 +501,7 @@ def _validate_epoch_timing(
         return RawDataContainer(
             array_id=raw_data.array_id,
             n_electrodes=raw_data.n_electrodes,
-            n_points=raw_data.n_points,
+            n_samples=raw_data.n_samples,
             electrode_data=raw_data.electrode_data,
             ttl_data=raw_data.ttl_data[:epoch_ends[-1]],
             epoch_ends=epoch_ends,
@@ -658,14 +606,4 @@ if __name__ == "__main__":
     verbose = args.verbose
     include_mua = args.no_mua
 
-    # Generate vision files
-    generate_vision_files(
-        exp_name=exp_name,
-        output_dir=output_path,
-        raw_path=raw_path,
-        sorted_path=sorted_path,
-        ks_version=ks_version,
-        vision_path=vision_path,
-        include_mua=include_mua,
-        verbose=verbose,
-    )
+

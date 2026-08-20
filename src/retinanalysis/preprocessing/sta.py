@@ -9,17 +9,17 @@ from retinanalysis.classes import qc
 from retinanalysis.utils.datajoint_utils import get_noise_name_by_exp
 import os
 from retinanalysis.classes.response import (
-    MEAResponseBlock,
     MEAResponseGroup,
     create_mea_response_group,
 )
-from retinanalysis.classes.stim import MEAStimBlock, MEAStimGroup, create_mea_stim_group
+from retinanalysis.classes.stim import MEAStimGroup, create_mea_stim_group
 import gc
 from visionwriter import STAWriter, ParamsWriter, GlobalsFileWriter
 import visionloader as vl
 from retinanalysis._config import config
 from retinanalysis.preprocessing import rfs
 import psutil
+from pathlib import Path
 
 
 def _get_n_splits_memory(
@@ -265,16 +265,27 @@ def get_noise_datafiles(exp_name: str, chunk_name: str) -> list:
 
 def get_stim_response_groups(
     exp_name: str,
-    chunk_name: str,
+    chunk_name: str | None = None,
+    datafile_name: list | str | np.ndarray | None = None,
     ss_version: str = "kilosort2.5",
-    datafile_name: Optional[list] = None,
     verbose: bool = True,
 ) -> tuple[MEAStimGroup, MEAResponseGroup]:
+
+    if isinstance(datafile_name, str):
+        datafile_name = [datafile_name]
+    elif isinstance(datafile_name, np.ndarray):
+        datafile_name = list(datafile_name)
+
     # If datafile name(s) not given, get noise datafiles
     if datafile_name is None:
-        datafile_name = get_noise_datafiles(exp_name, chunk_name)
-        if verbose:
-            print(f"Found noise datafile(s): {datafile_name}")
+        if chunk_name is None:
+            raise ValueError(
+                f'Must provide a datafile_name(s) or chunk_name'
+            )
+        else:
+            datafile_name = get_noise_datafiles(exp_name, chunk_name)
+            if verbose:
+                print(f"Found noise datafile(s): {datafile_name}")
 
     sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
     rg = create_mea_response_group(
@@ -284,18 +295,35 @@ def get_stim_response_groups(
 
 
 def get_data_for_chunk(
-    sg: Optional[MEAStimGroup] = None,
-    rg: Optional[MEAResponseGroup] = None,
-    exp_name: Optional[str] = None,
-    chunk_name: Optional[str] = None,
+    exp_name: str | None = None,
+    chunk_name: str | None = None,
+    datafile_name: list | str | np.ndarray | None = None,
+    sg: MEAStimGroup | None = None,
+    rg: MEAResponseGroup | None = None,
     ss_version: str = "kilosort2.5",
-    datafile_name: Optional[list] = None,
     verbose: bool = True,
 ) -> dict:
+
+    if isinstance(datafile_name, str):
+        datafile_name = [datafile_name]
+    elif isinstance(datafile_name, np.ndarray):
+        datafile_name = list(datafile_name)
+
     if sg is None or rg is None:
-        sg, rg = get_stim_response_groups(
-            exp_name, chunk_name, ss_version, datafile_name, verbose
-        )
+        if exp_name is None or (chunk_name is None or datafile_name is None):
+            raise ValueError(
+                'Must provide one of the following parirs:\n'
+                '    - stim_group + response_group\n'
+                '    - exp_name + (chunk_name or datafile_name(s))'
+            )
+        else:
+            sg, rg = get_stim_response_groups(
+                exp_name=exp_name,
+                chunk_name=chunk_name,
+                datafile_name=datafile_name,
+                ss_version=ss_version,
+                verbose = verbose,
+            )
 
     # Collect spike counts
     spike_counts = qc.get_nsps(rg, rg.cell_ids)
@@ -322,28 +350,33 @@ def get_data_for_chunk(
 
     return d_output
 
-def compute_stas_from_scratch(
-    exp_name: str,
-    datafile_names: str | list[str],
-    ss_version: str = 'kilosort2.5',
-):
-    return
-
 def compute_stas_for_chunk(
-    sg: Optional[MEAStimGroup] = None,
-    rg: Optional[MEAResponseGroup] = None,
-    exp_name: Optional[str] = None,
-    chunk_name: Optional[str] = None,
+    exp_name: str | None = None,
+    chunk_name: str | None = None,
+    datafile_name: list | str | np.ndarray | None = None,
+    sg: MEAStimGroup | None = None,
+    rg: MEAResponseGroup | None= None,
     ss_version: str = "kilosort2.5",
-    datafile_name: Optional[list] = None,
     stride: int = 2,
     depth: int = 60,
     method: str = "conv",
     verbose: bool = True,
 ) -> dict:
+
     if sg is None or rg is None:
+        if exp_name is None or (chunk_name is None or datafile_name is None):
+            raise ValueError(
+                'Must provide one of the following parirs:\n'
+                '    - stim_group + response_group\n'
+                '    - exp_name + (chunk_name or datafile_name(s))'
+            )
+
         sg, rg = get_stim_response_groups(
-            exp_name, chunk_name, ss_version, datafile_name, verbose
+            exp_name=exp_name,
+            chunk_name=chunk_name,
+            datafile_name=datafile_name,
+            ss_version=ss_version,
+            verbose=verbose,
         )
 
     # STA input gen and calc loop
@@ -473,10 +506,10 @@ def load_stas_from_vcd(vcd: vl.VisionCellDataTable, cell_ids: np.ndarray) -> np.
 
 
 def load_stas_from_vl(
-    exp_name: Optional[str] = None,
-    chunk_name: Optional[str] = None,
+    exp_name: str | None = None,
+    chunk_name: str | None = None,
     ss_version: str = "kilosort2.5",
-    data_dir: Optional[str] = None,
+    data_dir: str | None = None,
     data_name: str = "kilosort2.5",
     analysis_dir: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -489,21 +522,30 @@ def load_stas_from_vl(
         data_dir (str, optional): _description_. Defaults to None.
         data_name (str, optional): _description_. Defaults to 'kilosort2.5'.
 
-    Raises:
-        ValueError: _description_
-
     Returns:
         tuple[np.ndarray, np.ndarray]: _description_
+
+    Raises:
+        ValueError: _description_
     """
 
     if analysis_dir is None:
         analysis_dir = config.ANALYSIS_DIR
 
     # Either exp_name and chunk_name, or data_dir must be provided
-    if exp_name is not None and chunk_name is not None:
-        if data_dir is not None:
-            raise ValueError("Provide either exp_name and chunk_name, or data_dir!")
+    elif exp_name is not None and chunk_name is not None and data_dir is not None:
+        raise ValueError(
+            "Provide either exp_name and chunk_name, OR a data_dir, "
+            "not all three."
+        )
 
+
+    if (exp_name is None or chunk_name is None):
+        if data_dir is None:
+            raise ValueError(
+                "Provide either exp_name and chunk_name, or a data_dir."
+            )
+    else:
         data_dir = os.path.join(analysis_dir, exp_name, chunk_name, ss_version)
         data_name = ss_version
 
@@ -520,6 +562,22 @@ def load_stas_from_vl(
 
     return stas, cell_ids
 
+def write_sta_file(
+    d_stas: dict,
+    save_dir: str | Path,
+    ss_version: str,
+):
+    out_file = os.path.join(save_dir, f"{ss_version}.sta")
+
+    print(f"Saving STAs in .sta format for {len(d_stas['cell_ids'])} cells...")
+    with STAWriter(filepath=out_file) as wr:
+        wr.write(
+            # Reverse time to match vision convention
+            sta=d_stas['stas'][:, ::-1], 
+            ste=None, cluster_id=d_stas['cell_ids'], 
+            stixel_size=d_stas['grid_size']
+            )
+    print(f"STAs saved to {out_file}")
 
 def write_params_file(sta_height, d_data, d_rf_params, save_dir, ss_version):
     out_file = os.path.join(save_dir, f"{ss_version}.params")
@@ -551,10 +609,9 @@ def write_globals_file(
     sta_height: int,
     mean_frame_rate: float,
     stride: int,
+    array_id: int = 504,
+    num_samples: int = 20000,
 ):
-    # TODO get array ID and nsamples from raw .bin files or schema?
-    array_id = 504
-    num_samples = 20000  # placeholder
 
     pixels_per_stixel = int(round(display_width_pixels / sta_width))
     microns_per_stixel = pixels_per_stixel * microns_per_pixel
@@ -581,14 +638,14 @@ def write_globals_file(
 
     with GlobalsFileWriter(globals_path, globals_name) as gfw:
         gfw.write_simplified_litke_array_globals_file(
-            array_id
+            array_id=array_id
             & 0xFFF,  # FIXME get rid of this after we figure out what happened with 120um
-            0,
-            0,
-            "Kilosort converted",
-            "",
-            0,
-            num_samples,
+            base_time=0,
+            seconds_time=0,
+            comment="Kilosort converted",
+            dataset_identifier="",
+            dformat=0,
+            n_samples=num_samples,
         )
         gfw.write_run_time_movie_params(runtime_movie_params)
 
@@ -632,13 +689,6 @@ if __name__ == "__main__":
     chunk_save_dir = os.path.join(
         SAVE_DIR, args.exp_name, args.chunk_name, args.ss_version
     )
-
-    # if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name)):
-    #     os.mkdir(os.path.join(SAVE_DIR, args.exp_name))
-    # if not os.path.exists(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name)):
-    #     os.mkdir(os.path.join(SAVE_DIR, args.exp_name, args.chunk_name))
-    # if not os.path.exists(chunk_save_dir):
-    #     os.mkdir(chunk_save_dir)
 
     if not os.path.exists(chunk_save_dir):
         os.makedirs(chunk_save_dir)
@@ -709,15 +759,10 @@ if __name__ == "__main__":
         np.save(save_np, d_stas["stas"])
         print(f"STAs saved to {save_np}")
 
-        print(f"Saving STAs in .sta format for {len(d_stas['cell_ids'])} cells...")
-        with STAWriter(filepath=save_vcd_sta) as wr:
-            wr.write(
-                # Reverse time to match vision convention
-                sta=d_stas['stas'][:, ::-1], 
-                ste=None, cluster_id=d_stas['cell_ids'], 
-                stixel_size=d_stas['grid_size']
-                )
-        print(f"STAs saved to {save_vcd_sta}")
+        write_sta_file(
+        d_stas=d_stas,
+        save_dir=chunk_save_dir,
+        ss_version=args.ss_version)
 
         stas = d_stas["stas"]
 

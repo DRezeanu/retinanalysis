@@ -7,9 +7,9 @@ import numpy as np
 import h5py
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from retinanalysis.preprocessing.frame_parser import detect_flips
+from .frame_parser import detect_flips
 import json
-from retinanalysis.preprocessing.raw_data_loader import load_raw_data
+from .raw_data_loader import load_raw_data
 
 # Translating between convoluted names in H5 file and simple versions
 # that we use in our JSON dict

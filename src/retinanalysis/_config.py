@@ -506,6 +506,7 @@ class RAConfig:
         with open(self.config_path, 'w') as f:
             tomlkit.dump(self.config_file, f)
 
+        self.reset()
 
     @property
     def profiles(self):
