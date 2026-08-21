@@ -482,11 +482,13 @@ class RAConfig:
         self._check_initialized('Cannot remove profile')
 
         if name not in self.profiles:
-            raise ValueError(
+            warn(
+                'No profile removed\n.'
                 f'{name} not in list of available profiles.\n'
                 'Available profiles are:\n'
-                f'{self.profiles}'
-            )
+                f'{self.profiles}\n'
+                'Select an existing profile and try again'
+            , stacklevel=2)
 
         if name == self.active_profile:
             raise ValueError(

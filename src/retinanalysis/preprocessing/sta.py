@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 import tqdm.auto as tqdm
-from typing import Optional, List
 from retinanalysis import regen
 import argparse
 from retinanalysis._database import schema
@@ -310,9 +309,15 @@ def get_data_for_chunk(
         datafile_name = list(datafile_name)
 
     if sg is None or rg is None:
-        if exp_name is None or (chunk_name is None or datafile_name is None):
+        if exp_name is None:
             raise ValueError(
-                'Must provide one of the following parirs:\n'
+                'Must provide one of the following pairs:\n'
+                '    - stim_group + response_group\n'
+                '    - exp_name + (chunk_name or datafile_name(s))'
+            )
+        if chunk_name is None and datafile_name is None:
+            raise ValueError(
+                'Must provide one of the following pairs:\n'
                 '    - stim_group + response_group\n'
                 '    - exp_name + (chunk_name or datafile_name(s))'
             )

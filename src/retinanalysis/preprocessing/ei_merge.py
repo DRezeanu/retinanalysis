@@ -34,6 +34,7 @@ def merge_eis(
     sorted_dir: str | None = None,
     output_dir: str | None = None,
     ss_version: str = "kilosort2.5",
+    overwrite: bool = False,
     verbose: bool = True,
 ):
     """
@@ -45,7 +46,7 @@ def merge_eis(
     The output is an EIContainer object with 'ei', 'ei_error', 'n_spikes', 'nl_points',
     and 'nr_points' fields.
 
-    Parameters:
+    Args:
         exp_name (str): Name of experiment (e.g. '20260224C')
 
         chunk_name (str): Name of chunk that all datafiles belong to (e.g. 'chunk1')
@@ -61,6 +62,8 @@ def merge_eis(
         Default is the configured retinanalysis config.DATA_DIR
 
         ss_version (str) Optional: The spike sorter version used to sort the data. Default is 'kilosort2.5'
+
+        overwrite (bool): If True, will overwrite existing .ei file.
 
         verbose (bool) Optional: If true will print status messages to the console. Default is True.
 
@@ -156,7 +159,12 @@ def merge_eis(
         print(f"Writing EI File...")
 
     with EIWriter(
-        output_dir, ss_version, sample_nl_points, sample_nr_points, array_id=504
+        analysis_folder_path=output_dir,
+        dataset_name=ss_version,
+        left_samples=sample_nl_points,
+        right_samples=sample_nr_points,
+        array_id=504,
+        overwrite_existing=overwrite,
     ) as eir:
         eir.write_eis_by_cell_id(combined_eis)
 
