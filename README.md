@@ -80,12 +80,8 @@ conda activate retinanalysis
 cd repositories_dir/retinanalysis
 pip install -e . 
 ```
+As of version 0.3.2, the dependency vision-utils that's recursively cloned into retinanalysis/lib/ is automatically installed.
 
-4. Install additional requirements from artificial-retina-software-pipeline submodule:
-```bash
-cd repositories_dir/retinanalysis/lib/artificial-retina-software-pipeline/utilities/ 
-pip install .
-```
 ---
 ### Install with uv
 UV is a new, highly recommended python package and project manager written in Rust that works extremely fast. You can learn more about it here: https://docs.astral.sh/uv/
@@ -108,12 +104,8 @@ source .venv/Source/activate
 cd ../*your_repositories_directory*/retinanalysis
 uv pip install -e . 
 ```
+As of version 0.3.2, the dependency vision-utils that's recursively cloned into retinanalysis/lib/ is automatically installed.
 
-4. Install additional requirements from artificial-retina-software-pipeline submodule in lib:
-```bash
-cd lib/artificial-retina-software-pipeline/utilities/ 
-uv pip install .
-```
 ---
 ### Installation Note for Windows Users
 
