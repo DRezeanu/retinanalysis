@@ -49,12 +49,12 @@ class ResponseBlock:
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        block_id: Optional[int] = None,
-        h5_file: Optional[str] = None,
-        pkl_file: Optional[str | dict] = None,
+        exp_name: str | None = None,
+        block_id: int | None = None,
+        h5_file: str | None = None,
+        pkl_file: str | dict  | None = None,
         b_load_fd: bool = True,
-        b_LED: bool = False,
+        b_LED: bool | None  = None,
         verbose: bool = True,
     ):
 
@@ -116,7 +116,7 @@ class ResponseBlock:
         )
 
     def plot_frame_monitor(self, e_idx=0, xlim=(0, 1)):
-        f, ax = plt.subplots(figsize=(10, 4))
+        _, ax = plt.subplots(figsize=(10, 4))
         fd = self.frame_data[e_idx]
         time = np.arange(fd.shape[0]) / self.frame_sample_rate
         ax.plot(time, fd)
@@ -179,13 +179,13 @@ class SCResponseBlock(ResponseBlock):
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        block_id: Optional[int] = None,
-        h5_file: Optional[str] = None,
-        pkl_file: Optional[str] = None,
+        exp_name: str | None = None,
+        block_id: int | None = None,
+        h5_file: str | None = None,
+        pkl_file: str | None = None,
         b_spiking: bool = False,
         b_load_fd: bool = True,
-        b_LED: bool = False,
+        b_LED: bool | None = None,
         verbose: bool = True,
         **detector_kwargs,
     ):
@@ -262,14 +262,14 @@ class MEAResponseBlock(ResponseBlock):
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        datafile_name: Optional[str] = None,
+        exp_name: str | None = None,
+        datafile_name: str | None = None,
         ss_version: str = "kilosort2.5",
-        pkl_file: Optional[str] = None,
-        h5_file: Optional[str] = None,
+        pkl_file: str | None = None,
+        h5_file: str | None = None,
         include_ei: bool = True,
         b_load_fd: bool = False,
-        b_LED: bool = False,
+        b_LED: bool | None = None,
         b_load_vcd: bool = True,
         verbose: bool = True,
     ):
@@ -750,7 +750,7 @@ class MEAResponseGroup:
                         self.frame_data = np.reshape(
                             frame_data, (-1, frame_data.shape[2])
                         )
-                    except Exception as e:
+                    except Exception:
                         print(
                             "Could not convert fame data to numpy array, trying object array"
                         )
@@ -766,7 +766,7 @@ class MEAResponseGroup:
                         self.frame_data = np.reshape(
                             frame_data, (-1, frame_data.shape[2])
                         )
-                    except Exception as e:
+                    except Exception:
                         print(
                             "Could not convert fame data to numpy array, trying object array"
                         )
@@ -1070,7 +1070,7 @@ def create_mea_response_group(
     ls_datafile_names: List[str],
     ss_version: str = "kilosort2.5",
     b_load_fd: bool = False,
-    b_LED: bool = False,
+    b_LED: bool | None = None,
     b_load_vcd: bool = True,
     verbose: bool = False,
 ):

@@ -951,7 +951,7 @@ def add_parameters_col(df, ls_params, src_col: str = "epoch_parameters"):
 def get_epoch_data_from_exp(
     exp_name: str,
     block_id: int,
-    b_LED: Optional[bool] = False,
+    b_LED: bool | None = None,
     ls_params: Optional[List] = None,
     stim_time_name: str = "stimTime",
 ) -> pd.DataFrame:
@@ -1073,7 +1073,7 @@ def get_epochblock_query(exp_name: str, block_id: int):
     return epochblock_query
 
 
-def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> dict:
+def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool | None = None) -> dict:
     epochblock_query = get_epochblock_query(exp_name, block_id)
     df = epochblock_query.to_pandas().reset_index()
     if len(df) > 1:
@@ -1089,8 +1089,29 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
 
     # For MEA data, 'block_properties' has epoch_starts, epoch_ends, n_samples, and if LED frame_times_ms
     # For SC data, this has just frame_times_ms
-    if not b_LED:
-        d_timing["frameTimesMs"] = d_data["block_properties"]["frameTimesMs"]
+    block_params = d_data['parameters'] or {}
+    d_timing["frameTimesMs"] = d_data["block_properties"]["frameTimesMs"]
+
+    # Infer whether this is an LED stim using the epobh block params. Params with an led stimulus
+    # have to set an 'led' parameter to the LED being used. As an additional check, LED stims should
+    # have no frame times.
+    has_led = 'led' in block_params
+    no_ft = d_timing['frameTimesMs'] is None or all(ft is None for ft in d_timing['frameTimesMs'])
+
+    if has_led != no_ft:
+        raise ValueError(
+            f"{exp_name} epoch block {block_id} LED param {'present' if has_led else 'absent'} "
+            f"but frame times {'absent' if no_ft else 'present'} - manually resolve conflict"
+        )
+
+    inferred_led = has_led
+
+    if b_LED is not None and b_LED != inferred_led:
+        raise ValueError(
+            f"Epoch Block says LED = {inferred_led}, user says LED = {b_LED}."
+            )
+
+    b_LED = inferred_led
 
     if is_mea:
         epoch_starts = d_data["block_properties"]["epochStarts"]
@@ -1261,13 +1282,13 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
 
         # Exceptions can occur when frame_times_ms are messed up and don't have correct number of frames.
         except Exception as e:
-            print(f"Error occurred while getting actual onset/offset times: {e}")
             print(
-                "It could be that frame_times_ms do not have the correct number of frames due to some error in frame detection."
-            )
-            print(
-                "Check the frame monitor sample rate! On MEA Rigs, prefer 1k, errors likely with 10k."
-            )
+                f"Error occurred while getting actual onset/offset times: {e}\n"
+                "It could be that frame_times_ms do not have the correct number of "
+                "frames due to some error in frame detection.\n"
+                "Check the frame monitor sample rate! On MEA Rigs, prefer 1k, "
+                "errors are likely with 10k."
+           )
             actual_onset_times_ms = []
             actual_offset_times_ms = []
 

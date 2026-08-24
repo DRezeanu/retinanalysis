@@ -36,12 +36,12 @@ class StimBlock:
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        block_id: Optional[int] = None,
-        ls_params: Optional[list] = None,
-        b_LED: Optional[bool] = False,
+        exp_name: str | None = None,
+        block_id: int | None = None,
+        ls_params: list | None = None,
+        b_LED: bool | None = None,
         verbose: bool = True,
-        pkl_file: Optional[str] = None,
+        pkl_file: str | None = None,
     ):
         self.verbose = verbose
         self.b_LED = b_LED
@@ -159,12 +159,12 @@ class MEAStimBlock(StimBlock):
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        datafile_name: Optional[str] = None,
-        ls_params: Optional[list] = None,
-        b_LED: Optional[bool] = False,
+        exp_name: str | None = None,
+        datafile_name: str | None = None,
+        ls_params: list | None = None,
+        b_LED: bool | None = None,
         verbose: bool = True,
-        pkl_file: Optional[str] = None,
+        pkl_file: str | None = None,
     ):
         # If pkl_file is provided, block_id can be None.
         block_id = None
@@ -458,8 +458,8 @@ class MEAStimGroup:
 def create_mea_stim_group(
     exp_name,
     ls_datafile_names,
-    ls_params: Optional[list] = None,
-    b_LED: Optional[bool] = False,
+    ls_params: list | None = None,
+    b_LED: bool | None = None,
     verbose: bool = False,
 ):
 

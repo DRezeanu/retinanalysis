@@ -722,7 +722,7 @@ def create_mea_pipeline(
     ss_version: str = "kilosort2.5",
     ls_params: list | None = None,
     b_load_fd: bool = False,
-    b_LED: bool = False,
+    b_LED: bool | None = None,
     verbose: bool = True,
 ):
     """
