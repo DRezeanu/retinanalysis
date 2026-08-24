@@ -1259,7 +1259,10 @@ def get_epochblock_timing(
             print(
                 f"Warning: for {exp_name} block {block_id}, error in finding stage frame rate."
             )
-            print(f"If this is for an LED stimulus, be sure to set b_LED=True!\n")
+            print(
+                "This block resolved as non-LED, so a missing stage frame rate is "
+                "unexpected — check the block's parameters rather than setting b_LED.\n"
+            )
         else:
             stage_frame_rate = float(stage_frame_rate)
 
@@ -1378,7 +1381,8 @@ def get_epochblock_frame_data(
     if len(sample_rates) == 0 and len(frame_data) == 0:
         print(f"WARNING: Didn't find any frame monitor data and sample rate.")
         print(
-            f"If this is for LED stimulus, be sure to set b_LED=True to skip loading this.\n"
+            "LED blocks skip this load automatically, so an empty result here means a "
+            "block that resolved as non-LED has no frame monitor recording.\n"
         )
         return np.array([]), None
     if len(sample_rates) != 1:

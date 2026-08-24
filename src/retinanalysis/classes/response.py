@@ -44,8 +44,9 @@ class ResponseBlock:
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data.
 
-        b_LED (bool): Boolean value, set to True if stimulus was delivered by an LED.
-        This automatically overwrites b_load_fd to False since LED stimuli have no frame data.
+        b_LED (bool | None): Whether the stimulus was delivered by an LED. Inferred from the
+        epoch block; pass a value only to assert it, which raises on disagreement.
+        LED blocks force b_load_fd to False.
 
         verbose (bool): Boolean value, if True will print status messages to console. Default True.
     """
@@ -206,8 +207,9 @@ class SCResponseBlock(ResponseBlock):
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data.
 
-        b_LED (bool): Boolean value, set to True if stimulus was delivered by an LED.
-        This automatically overwrites b_load_fd to False since LED stimuli have no frame data.
+        b_LED (bool | None): Whether the stimulus was delivered by an LED. Inferred from the
+        epoch block; pass a value only to assert it, which raises on disagreement.
+        LED blocks force b_load_fd to False.
 
         verbose (bool): Boolean value, if True will print status messages to console. Default True.
 
@@ -289,9 +291,9 @@ class MEAResponseBlock(ResponseBlock):
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data. Default is False.
 
-        b_LED (bool): Boolean value, if True the stimulus used for this datafile was delivered using an
-        LED rather than a microdisplay or lightcrafter. This automatically overwrites b_load_fd to False
-        since LED stimuli have no frame monitor data.
+        b_LED (bool | None): Whether the stimulus was delivered by an LED rather than a
+        microdisplay or lightcrafter. Inferred from the epoch block; pass a value only to
+        assert it, which raises on disagreement. LED blocks force b_load_fd to False.
 
         verbose (bool): Boolean value, if True all status messages will be printed to the console as
         the response block is created. Default is True.
@@ -1130,8 +1132,9 @@ def create_mea_response_group(
 
         b_load_fd (bool): Boolean value, if True will load and included frame monitor data. Default False.
 
-        b_LED (bool): Boolean value, if True assume stimulus for tehse datafiles was deliverd by an LED.
-        This automatically sets b_load_fd to False since LED stimuli have no frame data. Default False.
+        b_LED (bool | None): Whether the stimuli for these datafiles were delivered by an LED.
+        Inferred from the epoch block; pass a value only to assert it, which raises on
+        disagreement. LED blocks force b_load_fd to False.
 
         b_load_vcd (bool): Boolean value, if True will load the vision data table.
             Mainly for debugging purposes to skip load time.
