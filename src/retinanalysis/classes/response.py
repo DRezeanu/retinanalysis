@@ -4,6 +4,7 @@ from retinanalysis.utils.datajoint_utils import (
     get_epochblock_timing,
     get_block_id_from_datafile,
     get_exp_summary,
+    resolve_b_LED,
 )
 
 from retinanalysis._config import config
@@ -17,6 +18,8 @@ import pickle
 from typing import Optional, List
 import matplotlib.pyplot as plt
 import os
+
+from warnings import warn
 
 SAMPLE_RATE = 20000  # MEA DAQ sample rate in Hz
 
@@ -59,22 +62,27 @@ class ResponseBlock:
     ):
 
         self.verbose = verbose
-        self.b_LED = b_LED
-
-        if self.b_LED:
-            # No frame data for LED blocks
-            b_load_fd = False
 
         if pkl_file is None:
-            if self.verbose:
-                print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError(
                     "Either exp_name and block_id or pkl_file must be provided."
                 )
-        else:
+            self.b_LED = resolve_b_LED(
+                block_id = block_id,
+                b_LED = b_LED,
+                exp_name = exp_name,
+            )
+
             if self.verbose:
-                print(f"Initializing ResponseBlock from pickle file.")
+                print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
+        else:
+            if exp_name is None and block_id is None:
+                if self.verbose:
+                    print(f"Initializing ResponseBlock from pickle file.")
+            else:
+                if self.verbose:
+                    print(f"Initializing ResponseBlock for {exp_name} block {block_id} from pickle file")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
                 if self.verbose:
@@ -85,6 +93,30 @@ class ResponseBlock:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
+
+            if not hasattr(self, 'b_LED'):
+                # Pickle pre-dates the creation of the b_LED parameter, these objects
+                # are non-LED by default
+                self.b_LED = b_LED if b_LED is not None else False
+                if b_LED is None:
+                    warn(
+                        "Pickle predates b_LED, assuming false. "
+                        "Pass b_LED explicitly to overwrite."
+                    )
+
+            elif b_LED is not None and b_LED != self.b_LED:
+                warn(
+                    f"Pickle file has b_LED = {self.b_LED} but user provided {b_LED}\n"
+                    f"Using b_LED = {self.b_LED}"
+                )
+
+            if verbose != self.verbose:
+                warn(
+                    f"Pickle file has verbose = {self.verbose} but user provided {verbose}\n"
+                    f"Using verbose = {verbose}"
+                )
+            self.verbose = verbose
+
             if self.verbose:
                 print(f"ResponseBlock loaded from {pkl_file}")
             return
@@ -92,6 +124,11 @@ class ResponseBlock:
         self.exp_name = exp_name
         self.block_id = block_id
         self.h5_file = h5_file
+
+        if self.b_LED:
+            # No frame data for LED blocks
+            b_load_fd = False
+
         self.d_timing = get_epochblock_timing(
             self.exp_name, self.block_id, b_LED=self.b_LED
         )
@@ -625,7 +662,10 @@ class MEAResponseGroup:
     ):
 
         self.verbose = verbose
-        self.b_LED = ls_blocks[0].b_LED
+
+        if not all(block.b_LED == ls_blocks[0].b_LED for block in ls_blocks):
+            raise ValueError("All ResponseBlocks must have the same b_LED value")
+
 
         if not all(block.exp_name == ls_blocks[0].exp_name for block in ls_blocks):
             raise ValueError("All ResponseBlocks must have the same exp_name")
@@ -652,6 +692,8 @@ class MEAResponseGroup:
             print(
                 f"\nGenerating MEA Response Block from {ls_blocks[0].protocol_name} datafiles"
             )
+
+        self.b_LED = ls_blocks[0].b_LED
 
         # Pull only cell ids that are common to all blocks in this group
         all_ids = [set(block.cell_ids) for block in ls_blocks]

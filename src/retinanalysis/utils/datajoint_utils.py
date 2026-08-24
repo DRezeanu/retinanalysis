@@ -955,6 +955,14 @@ def get_epoch_data_from_exp(
     ls_params: Optional[List] = None,
     stim_time_name: str = "stimTime",
 ) -> pd.DataFrame:
+
+    # Check that given b_LED value matches value inferred from epoch block data
+    b_LED = resolve_b_LED(
+        block_id=block_id,
+        b_LED=b_LED,
+        exp_name=exp_name,
+    )
+
     # Filter Experiment by exp_name, EpochBlock by block_id, then join down to Epoch
     exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
     is_mea = exp_query.fetch1("is_mea") == 1
@@ -1035,6 +1043,7 @@ def get_epoch_data_from_exp(
         )
     df = df[ls_order]
 
+
     if b_LED:
         # Delete frame_times_ms column
         df = df.drop(columns=["frame_times_ms"])
@@ -1073,7 +1082,19 @@ def get_epochblock_query(exp_name: str, block_id: int):
     return epochblock_query
 
 
-def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool | None = None) -> dict:
+def get_epochblock_timing(
+    exp_name: str,
+    block_id: int,
+    b_LED: bool | None = None
+) -> dict:
+
+    # Check that given b_LED value matches value inferred from epoch block data
+    b_LED = resolve_b_LED(
+        block_id=block_id,
+        b_LED=b_LED,
+        exp_name=exp_name,
+    )
+
     epochblock_query = get_epochblock_query(exp_name, block_id)
     df = epochblock_query.to_pandas().reset_index()
     if len(df) > 1:
@@ -1087,31 +1108,12 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool | None = Non
 
     d_timing = {"exp_name": exp_name, "block_id": block_id}
 
+
     # For MEA data, 'block_properties' has epoch_starts, epoch_ends, n_samples, and if LED frame_times_ms
     # For SC data, this has just frame_times_ms
-    block_params = d_data['parameters'] or {}
-    d_timing["frameTimesMs"] = d_data["block_properties"]["frameTimesMs"]
+    if not b_LED:
+        d_timing["frameTimesMs"] = d_data["block_properties"]["frameTimesMs"]
 
-    # Infer whether this is an LED stim using the epobh block params. Params with an led stimulus
-    # have to set an 'led' parameter to the LED being used. As an additional check, LED stims should
-    # have no frame times.
-    has_led = 'led' in block_params
-    no_ft = d_timing['frameTimesMs'] is None or all(ft is None for ft in d_timing['frameTimesMs'])
-
-    if has_led != no_ft:
-        raise ValueError(
-            f"{exp_name} epoch block {block_id} LED param {'present' if has_led else 'absent'} "
-            f"but frame times {'absent' if no_ft else 'present'} - manually resolve conflict"
-        )
-
-    inferred_led = has_led
-
-    if b_LED is not None and b_LED != inferred_led:
-        raise ValueError(
-            f"Epoch Block says LED = {inferred_led}, user says LED = {b_LED}."
-            )
-
-    b_LED = inferred_led
 
     if is_mea:
         epoch_starts = d_data["block_properties"]["epochStarts"]
@@ -1424,3 +1426,31 @@ def get_epochblock_amp_data(
     sample_rate = sample_rates[0]
 
     return amp_data, sample_rate
+
+def resolve_b_LED(
+    block_id: int,
+    b_LED: bool | None = None,
+    exp_name: str = "",
+) -> bool:
+    params, props = (schema.EpochBlock() & f"id={block_id}").fetch1("parameters", "properties")
+
+    has_led = 'led' in (params or {})
+    frame_times = (props or {}).get('frameTimesMs')
+    no_ft = frame_times is None or (len(frame_times) > 0 and all(ft is None for ft in frame_times))
+
+    if has_led != no_ft:
+        raise ValueError(
+            f"{exp_name} epoch_block {block_id}: LED param {'present' if has_led else 'absent'} "
+            f"but frame times {'absent' if no_ft else 'present'} - manually resolve conflict"
+        )
+
+    inferred_led = has_led
+
+    if b_LED is not None and b_LED != inferred_led:
+        raise ValueError(
+            f"{exp_name} epoch_block {block_id}: "
+            f"Inferred LED ({inferred_led}) and user-provided b_LED ({b_LED}) disagree."
+            )
+
+    return has_led
+
