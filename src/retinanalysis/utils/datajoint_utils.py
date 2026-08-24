@@ -956,6 +956,11 @@ def get_epoch_data_from_exp(
     stim_time_name: str = "stimTime",
 ) -> pd.DataFrame:
 
+    epochblock_query = get_epochblock_query(
+        exp_name=exp_name,
+        block_id=block_id
+    )
+
     # Check that given b_LED value matches value inferred from epoch block data
     b_LED = resolve_b_LED(
         block_id=block_id,
@@ -963,28 +968,11 @@ def get_epoch_data_from_exp(
         exp_name=exp_name,
     )
 
-    # Filter Experiment by exp_name, EpochBlock by block_id, then join down to Epoch
-    exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
-    is_mea = exp_query.fetch1("is_mea") == 1
-    epochgroup_query = schema.EpochGroup() * exp_query.proj("exp_name", experiment_id="id")
-    epochgroup_query = epochgroup_query.proj("exp_name", "experiment_id", group_label="label", group_id="id")
-
-    ls_eb_cols = ["protocol_id"]
-    if is_mea:
-        ls_eb_cols += ["data_dir"]
-    epochblock_query = schema.EpochBlock.proj(
-        *ls_eb_cols,
-        group_id="parent_id",
-        block_properties="properties",
-        block_id="id",  # type: ignore
-    )
-
-    epochblock_query = epochgroup_query * epochblock_query
-    epochblock_query = epochblock_query & f"block_id={block_id}"
+    eb_df = epochblock_query.to_pandas().reset_index()
+    is_mea = bool(eb_df.loc[0, 'is_mea'])
 
     if is_mea:
         # Check num epoch ends matches num epoch starts
-        eb_df = epochblock_query.to_pandas().reset_index()
         d_data = eb_df.loc[0].to_dict()
         epoch_starts = d_data["block_properties"]["epochStarts"]
         epoch_ends = d_data["block_properties"]["epochEnds"]
@@ -1073,12 +1061,20 @@ def get_epochblock_query(exp_name: str, block_id: int):
     epochblock_query = schema.EpochBlock.proj(
         "protocol_id",
         "data_dir",
+        "experiment_id",
         block_properties="properties",  # type: ignore
         group_id="parent_id",
         block_id="id",
     )
     epochblock_query = epochgroup_query * epochblock_query
     epochblock_query = epochblock_query & f"block_id={block_id}"
+
+    n = len(epochblock_query)
+    if n != 1:
+        raise ValueError(
+            f"Expected one epoch block from {exp_name} block {block_id}, but got {n}"
+        )
+
     return epochblock_query
 
 
@@ -1088,6 +1084,8 @@ def get_epochblock_timing(
     b_LED: bool | None = None
 ) -> dict:
 
+    epochblock_query = get_epochblock_query(exp_name, block_id)
+
     # Check that given b_LED value matches value inferred from epoch block data
     b_LED = resolve_b_LED(
         block_id=block_id,
@@ -1095,19 +1093,12 @@ def get_epochblock_timing(
         exp_name=exp_name,
     )
 
-    epochblock_query = get_epochblock_query(exp_name, block_id)
     df = epochblock_query.to_pandas().reset_index()
-    if len(df) > 1:
-        raise ValueError(
-            f"Expected only one EpochBlock for {exp_name} {block_id}, but found {len(df)}"
-        )
-    if len(df) == 0:
-        raise ValueError(f"No EpochBlock found for {exp_name} {block_id}")
+
     d_data = df.loc[0].to_dict()
     is_mea = df.loc[0, "is_mea"]
 
     d_timing = {"exp_name": exp_name, "block_id": block_id}
-
 
     # For MEA data, 'block_properties' has epoch_starts, epoch_ends, n_samples, and if LED frame_times_ms
     # For SC data, this has just frame_times_ms
@@ -1304,12 +1295,14 @@ def get_epochblock_timing(
 
 
 def get_epochblock_response_query(exp_name: str, block_id: int):
+
     epochblock_query = get_epochblock_query(exp_name, block_id)
     protocol_query = epochblock_query * schema.Protocol.proj(protocol_name="name")  # type: ignore
     epoch_query = protocol_query * schema.Epoch.proj(
         epoch_parameters="parameters", block_id="parent_id", epoch_id="id"
     )  # type: ignore
     response_query = epoch_query * schema.Response.proj(..., epoch_id="parent_id", response_id="id")  # type: ignore
+
     return response_query
 
 
