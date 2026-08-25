@@ -168,21 +168,21 @@ def ks_chunk_to_vision(
     # If compute_datafile_stas = True, compute .sta and .params files
     # for those datafiles that were for noise runs
 
-    # for datafile in chunk_datafiles:
-    #     if verbose:
-    #         print(f'***Creating Vision Files for {exp_name} {datafile}...***')
-    #     ks_datafile_to_vision(
-    #         exp_name=exp_name,
-    #         datafile_name=datafile,
-    #         output_dir = output_dir,
-    #         vision_path=vision_path,
-    #         raw_data_dir=raw_data_dir,
-    #         ks_data_dir = ks_data_dir,
-    #         ks_version = ks_version,
-    #         include_mua = include_mua,
-    #         compute_sta = compute_datafile_stas,
-    #         verbose=verbose,
-    #     )
+    for datafile in chunk_datafiles:
+        if verbose:
+            print(f'***Creating Vision Files for {exp_name} {datafile}...***')
+        ks_datafile_to_vision(
+            exp_name=exp_name,
+            datafile_name=datafile,
+            output_dir = output_dir,
+            vision_path=vision_path,
+            raw_data_dir=raw_data_dir,
+            ks_data_dir = ks_data_dir,
+            ks_version = ks_version,
+            include_mua = include_mua,
+            compute_sta = compute_datafile_stas,
+            verbose=verbose,
+        )
 
     # Write neurons file for chunk
     with vw.NeuronsFileWriter(str(chunk_output_path), ks_version) as nfw:
