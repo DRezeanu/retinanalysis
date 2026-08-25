@@ -79,7 +79,7 @@ def get_chunk_datafiles(exp_name: str, chunk_name: str) -> list:
 
     data_dirs = epoch_blocks.to_arrays("data_dir")
     datafile_names = [os.path.basename(path) for path in data_dirs]
-    print(f'Found {chunk_name} datafiles: {datafile_names}')
+    print(f'Found {chunk_name} datafiles: {datafile_names}\n')
     
     return datafile_names
 
@@ -134,23 +134,23 @@ def ks_chunk_to_vision(
     if vision_path is None:
         vision_path = config.VISION_PATH
 
-    chunk_datafiles = get_chunk_datafiles(
-                exp_name = exp_name,
-                chunk_name = chunk_name,
-    )
-
-    raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
     ks_chunk_path = Path(ks_data_dir) / exp_name / chunk_name / ks_version
     chunk_output_path = Path(output_dir) / exp_name / chunk_name / ks_version
 
     chunk_output_path.mkdir(parents=True, exist_ok=True)
 
     if verbose:
-        print(f"***Creating Vision Files for {exp_name} {chunk_name}...***")
+        print(f"***Creating Vision Files for {exp_name} {chunk_name}...***\n")
         print(f"Using kilosort chunk data from: {ks_chunk_path}\n")
         print(f"Path to Vision.jar: {vision_path}\n")
         print(f"Chunk's Vision files will be written to: {chunk_output_path}\n")
 
+    chunk_datafiles = get_chunk_datafiles(
+                exp_name = exp_name,
+                chunk_name = chunk_name,
+    )
+
+    raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
 
     chunk_spike_dict = load_ks_data(str(ks_chunk_path), include_mua)
     ls_raw_data = [load_raw_data(raw_file, ttl_only=True) for raw_file in raw_file_paths]
