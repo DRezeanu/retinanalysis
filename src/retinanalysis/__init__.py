@@ -46,8 +46,6 @@ from .utils.regen import *
 from .utils import vision_utils
 from .utils.vision_utils import *
 
-from .utils import parse_data
-
 # Import preprocessing
 from . import preprocessing
 from .preprocessing import sta
