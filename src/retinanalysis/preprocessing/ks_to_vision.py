@@ -154,7 +154,7 @@ def ks_chunk_to_vision(
     )
 
     block_id = get_block_id_from_datafile(exp_name, chunk_datafiles[0])
-    df = (schema.EpochBlock() @ f'id = {block_id}').to_pandas().reset_index()
+    df = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
     array_id = df.loc[0, 'properties']['array_id']
 
     raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
@@ -422,7 +422,7 @@ def ks_datafile_to_vision(
         print(f"Vision files will be written to: {output_path}\n")
 
     block_id = get_block_id_from_datafile(exp_name, datafile_name)
-    df = (schema.EpochBlock() @ f'id = {block_id}').to_pandas().reset_index()
+    df = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
     array_id = df.loc[0, 'properties']['array_id']
 
     neurons_exists = (Path(output_path) / f'{datafile_name}.neurons').is_file()
