@@ -79,7 +79,7 @@ def get_chunk_datafiles(exp_name: str, chunk_name: str) -> list:
 
     data_dirs = epoch_blocks.to_arrays("data_dir")
     datafile_names = [os.path.basename(path) for path in data_dirs]
-    print(f'Found {chunk_name} datafiles: {datafile_names}\n')
+    print(f'\nFound {chunk_name} datafiles: {datafile_names}\n')
     
     return datafile_names
 
@@ -180,27 +180,47 @@ def ks_chunk_to_vision(
             ks_data_dir = ks_data_dir,
             ks_version = ks_version,
             include_mua = include_mua,
+            overwrite_existing=overwrite_existing,
             compute_sta = compute_datafile_stas,
             verbose=verbose,
         )
 
     # Write neurons file for chunk
-    with vw.NeuronsFileWriter(str(chunk_output_path), ks_version) as nfw:
-        nfw.write_neuron_file(chunk_spike_dict, all_epoch_starts, n_samples)
+    if (Path(chunk_output_path) / f'{ks_version}.neurons').is_file():
+        if overwrite_existing:
+            with vw.NeuronsFileWriter(str(chunk_output_path), ks_version) as nfw:
+                nfw.write_neuron_file(chunk_spike_dict, all_epoch_starts, n_samples)
 
-    if verbose:
-        print(f"Neurons file written to {chunk_output_path}\n")
+            if verbose:
+                print(f'.neurons file written to {chunk_output_path}\n')
+        else:
+            if verbose:
+                print(
+                    f'{ks_version}.neurons already exists and overwite_existing = False\n'
+                    'Using old file.\n'
+                )
 
     # Merge datafile EIs into chunk EI
-    merge_eis(
-        exp_name=exp_name,
-        chunk_name=chunk_name,
-        datafiles=chunk_datafiles,
-        sorted_dir = output_dir,
-        output_dir = output_dir,
-        ss_version=ks_version,
-        overwrite=overwrite_existing,
-        verbose=verbose)
+    if (Path(chunk_output_path) / f'{ks_version}.ei').is_file():
+        if overwrite_existing:
+            merge_eis(
+                exp_name=exp_name,
+                chunk_name=chunk_name,
+                datafiles=chunk_datafiles,
+                sorted_dir = output_dir,
+                output_dir = output_dir,
+                ss_version=ks_version,
+                overwrite=overwrite_existing,
+                verbose=verbose)
+
+            if verbose:
+                print(f'.ei file written to {chunk_output_path}\n')
+        else:
+            if verbose:
+                print(
+                    f'{ks_version}.ei already exists and overwrite_existing = False\n'
+                    'Using old file.\n'
+                )
 
     # If this is a noise chunk, write sta, params, globals, and runtime movie params
     if _is_noise_data(
@@ -208,78 +228,88 @@ def ks_chunk_to_vision(
         data_folder=chunk_name,
     ):
         try:
-            # Create a temporary preprocessing config profile
-            # So stim_group and response_group are made from 
-            # the newly created neurons file.
-            config.create_profile(
-                name='preprocessing',
-                profile_paths={
-                    'analysis': str(output_dir),
-                    'data': str(output_dir),
-                    'h5' : config.H5_DIR,
-                    'raw' : config.RAW_DIR,
-                    'meta' : config.META_DIR,
-                    'tags' : config.TAGS_DIR,
-                    'vision': config.VISION_PATH,
-                    'user': config.USER,
-                },
-                overwrite=True,
-            )
-            config.set_profile('preprocessing')
+            if (
+                (Path(chunk_output_path)/f'{ks_version}.sta').is_file()
+                and (Path(chunk_output_path)/f'{ks_version}.params').is_file()
+            ):
+                if overwrite_existing:
+                    # Create a temporary preprocessing config profile
+                    # So stim_group and response_group are made from 
+                    # the newly created neurons file.
+                    config.create_profile(
+                        name='preprocessing',
+                        profile_paths={
+                            'analysis': str(output_dir),
+                            'data': str(output_dir),
+                            'h5' : config.H5_DIR,
+                            'raw' : config.RAW_DIR,
+                            'meta' : config.META_DIR,
+                            'tags' : config.TAGS_DIR,
+                            'vision': config.VISION_PATH,
+                            'user': config.USER,
+                        },
+                        overwrite=True,
+                    )
+                    config.set_profile('preprocessing')
 
+                    d_data = get_data_for_chunk(
+                        exp_name=exp_name,
+                        ss_version=ks_version,
+                        chunk_name=chunk_name,
+                        verbose=True,
+                    )
 
-            d_data = get_data_for_chunk(
-                exp_name=exp_name,
-                ss_version=ks_version,
-                chunk_name=chunk_name,
-                verbose=True,
-            )
+                    sta_dict = compute_stas_for_chunk(
+                        sg = d_data['sg'],
+                        rg=d_data['rg'],
+                        ss_version=ks_version,
+                    )
 
-            sta_dict = compute_stas_for_chunk(
-                sg = d_data['sg'],
-                rg=d_data['rg'],
-                ss_version=ks_version,
-            )
+                    stas = sta_dict['stas']
+                    rf_dict = rf_fitting_pipeline(stas, str(chunk_output_path))
 
-            stas = sta_dict['stas']
-            rf_dict = rf_fitting_pipeline(stas, str(chunk_output_path))
+                    sta_height, sta_width = stas.shape[2], stas.shape[3]
 
-            sta_height, sta_width = stas.shape[2], stas.shape[3]
+                    write_sta_file(
+                        d_stas=sta_dict,
+                        save_dir=str(chunk_output_path),
+                        ss_version=ks_version,
+                    )
 
-            write_sta_file(
-                d_stas=sta_dict,
-                save_dir=str(chunk_output_path),
-                ss_version=ks_version,
-            )
+                    # Save RF params with ISIs in .params file
+                    write_params_file(
+                        sta_height=sta_height,
+                        d_data=d_data,
+                        d_rf_params=rf_dict,
+                        save_dir=str(chunk_output_path),
+                        ss_version=ks_version,
+                    )
 
-            # Save RF params with ISIs in .params file
-            write_params_file(
-                sta_height=sta_height,
-                d_data=d_data,
-                d_rf_params=rf_dict,
-                save_dir=str(chunk_output_path),
-                ss_version=ks_version,
-            )
+                    # Save .globals file
+                    d_display = d_data["sg"].ls_blocks[0].d_display
+                    write_globals_file(
+                        globals_path=str(chunk_output_path),
+                        globals_name=ks_version,
+                        microns_per_pixel=d_display["mu_per_pixel"],
+                        display_width_pixels=d_display["n_wt"],
+                        sta_width=sta_width,
+                        sta_height=sta_height,
+                        mean_frame_rate=d_display["mean_frame_rate"],
+                        stride=2,
+                        array_id=ls_raw_data[0].array_id,
+                        num_samples=NUM_SAMPLES,
+                    )
 
-            # Save .globals file
-            d_display = d_data["sg"].ls_blocks[0].d_display
-            write_globals_file(
-                globals_path=str(chunk_output_path),
-                globals_name=ks_version,
-                microns_per_pixel=d_display["mu_per_pixel"],
-                display_width_pixels=d_display["n_wt"],
-                sta_width=sta_width,
-                sta_height=sta_height,
-                mean_frame_rate=d_display["mean_frame_rate"],
-                stride=2,
-                array_id=ls_raw_data[0].array_id,
-                num_samples=NUM_SAMPLES,
-            )
-
-            config.reset()
-            config.remove_profile('preprocessing')
-            if verbose:
-                print(f'Wrote .neurons, .globals, .ei, .sta, and .params files to {chunk_output_path}\n')
+                    config.reset()
+                    config.remove_profile('preprocessing')
+                    if verbose:
+                        print(f'Wrote .sta and .params files to {chunk_output_path}\n')
+                else:
+                    if verbose:
+                        print(
+                            f'{ks_version}.sta and {ks_version}.params already exist.\n'
+                            'To overwrite set overwrite_existing = True\n'
+                        )
 
         except Exception as e:
             config.reset()
@@ -314,6 +344,7 @@ def ks_datafile_to_vision(
     ks_data_dir: str | None = None,
     ks_version: str = 'kilosort2.5',
     include_mua: bool = True,
+    overwrite_existing: bool = False,
     compute_sta: bool = False,
     verbose: bool = True,
 ):
@@ -332,11 +363,12 @@ def ks_datafile_to_vision(
         ks_data_dir: path to kilosort output directory where sorted data files live.
             Default is retinanalysis config.DATA_DIR
         ks_version: kilosort version used to do the sorting, default is 'kilosort2.5'
-        include_mua: boolean value, when true will include units labeled 'multi-unit activity'
+        include_mua (bool): If true will include units labeled 'multi-unit activity'
             by kilosort.
-        compute_sta: boolean value, when true, STA and Params will be computed and written to
+        overwrite_existing (bool): If true, will overwrite existing files. Default false.
+        compute_sta (bool): If true, STA and Params will be computed and written to
             disk. Default False.
-        verbose: when true, will print status messages to console.
+        verbose (bool): If true, will print status messages to console.
 
     Returns:
         None. Vision files will be exported to the directory of interest.
@@ -374,128 +406,170 @@ def ks_datafile_to_vision(
     raw_data = load_raw_data(str(raw_file_path), ttl_only=True)
 
     # Write neurons file
-    with vw.NeuronsFileWriter(str(output_path), ks_version) as nfw:
-        nfw.write_neuron_file(spike_dict, raw_data.epoch_starts, raw_data.n_samples)
+    if (Path(output_path) / f'{datafile_name}.neurons').is_file():
+        if overwrite_existing:
+            with vw.NeuronsFileWriter(str(output_path), ks_version) as nfw:
+                nfw.write_neuron_file(spike_dict, raw_data.epoch_starts, raw_data.n_samples)
 
-    if verbose:
-        print(f"Neurons file written to {output_path}\n")
+            neurons_filepath = output_path / f'{ks_version}.neurons'
+            os.rename(neurons_filepath, Path(output_path)/f'{datafile_name}.neurons')
 
-    # Write ei
-    n_cpus = cpu_count()
+            if verbose:
+                print(f".neurons file written to {output_path}\n")
+        else:
+            if verbose:
+                print(
+                    f'{datafile_name}.neurons already exists and overwrite = False\n'
+                    'Using old file.\n'
+                )
 
-    # Use 60% of available CPUs
-    available_cpus = int(n_cpus * 0.8)
+    if (Path(output_path) / f'{datafile_name}.ei').is_file():
+        if overwrite_existing:
+            # Write ei
+            n_cpus = cpu_count()
 
-    if verbose:
-        print(f"Using {available_cpus} of {n_cpus} CPUs for EI computation\n")
+            # Use 60% of available CPUs
+            available_cpus = int(n_cpus * 0.8)
 
-    sp_run(
-        f'java -Xmx8G -cp {vision_path} edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" {output_path} {raw_file_path} 0.01 67 133 1000000 {available_cpus}',
-        shell=True,
-    )
+            if verbose:
+                print(f"Using {available_cpus} of {n_cpus} CPUs for EI computation\n")
 
-    with vw.GlobalsFileWriter(str(output_path), datafile_name) as gfw:
-        gfw.write_simplified_litke_array_globals_file(
-            array_id=raw_data.array_id
-            & 0xFFF,  # FIXME get rid of this after we figure out what happened with 120um
-            base_time=0,
-            seconds_time=0,
-            comment="Kilosort converted",
-            dataset_identifier="",
-            dformat=0,
-            n_samples=NUM_SAMPLES,
-        )
+            sp_run(
+                f'java -Xmx8G -cp {vision_path} edu.ucsc.neurobiology.vision.calculations.CalculationManager "Electrophysiological Imaging Fast" {output_path} {raw_file_path} 0.01 67 133 1000000 {available_cpus}',
+                shell=True,
+            )
 
-    neurons_filepath = output_path / f'{ks_version}.neurons'
-    ei_filepath = output_path / f'{ks_version}.ei'
-    os.rename(neurons_filepath, Path(output_path)/f'{datafile_name}.neurons')
-    os.rename(ei_filepath, Path(output_path)/f'{datafile_name}.ei')
+            ei_filepath = output_path / f'{ks_version}.ei'
+            os.rename(ei_filepath, Path(output_path)/f'{datafile_name}.ei')
+
+            if verbose:
+                print(f'.ei file written to {output_path}\n')
+
+        else:
+            if verbose:
+                print(
+                    f'{datafile_name}.ei already exists and overwrite_existing = False\n'
+                    'Using old file.\n'
+                )
+
+    if (Path(output_path) / f'{datafile_name}.globals').is_file():
+        if overwrite_existing:
+            with vw.GlobalsFileWriter(str(output_path), datafile_name) as gfw:
+                gfw.write_simplified_litke_array_globals_file(
+                    array_id=raw_data.array_id
+                    & 0xFFF,  # FIXME get rid of this after we figure out what happened with 120um
+                    base_time=0,
+                    seconds_time=0,
+                    comment="Kilosort converted",
+                    dataset_identifier="",
+                    dformat=0,
+                    n_samples=NUM_SAMPLES,
+                )
+
+            if verbose:
+                print(f'.globals file written to {output_path}\n')
+        else:
+            if verbose:
+                print(
+                    f'{datafile_name}.globals already exists and overwrite_existing = False\n'
+                    'Using old file.\n'
+                )
 
     if _is_noise_data(exp_name, datafile_name) and compute_sta:
 
         try:
-            # Create a temporary preprocessing config profile
-            # So stim_group and response_group are made from 
-            # the newly created neurons file.
-            config.create_profile(
-                name='preprocessing',
-                profile_paths={
-                    'analysis': str(output_dir),
-                    'data': str(output_dir),
-                    'h5' : config.H5_DIR,
-                    'raw' : config.RAW_DIR,
-                    'meta' : config.META_DIR,
-                    'tags' : config.TAGS_DIR,
-                    'vision': config.VISION_PATH,
-                    'user': config.USER,
-                },
-                overwrite=True,
-            )
-            config.set_profile('preprocessing')
+            if (
+                (Path(output_dir) / f'{datafile_name}.sta').is_file()
+                and (Path(output_dir) / f'{datafile_name}.params').is_file()
+            ):
+                if overwrite_existing:
+                    # Create a temporary preprocessing config profile
+                    # So stim_group and response_group are made from 
+                    # the newly created neurons file.
+                    config.create_profile(
+                        name='preprocessing',
+                        profile_paths={
+                            'analysis': str(output_dir),
+                            'data': str(output_dir),
+                            'h5' : config.H5_DIR,
+                            'raw' : config.RAW_DIR,
+                            'meta' : config.META_DIR,
+                            'tags' : config.TAGS_DIR,
+                            'vision': config.VISION_PATH,
+                            'user': config.USER,
+                        },
+                        overwrite=True,
+                    )
+                    config.set_profile('preprocessing')
 
+                    d_data = get_data_for_chunk(
+                        exp_name=exp_name,
+                        ss_version=ks_version,
+                        datafile_name=datafile_name,
+                        verbose=True,
+                    )
 
-            d_data = get_data_for_chunk(
-                exp_name=exp_name,
-                ss_version=ks_version,
-                datafile_name=datafile_name,
-                verbose=True,
-            )
+                    sta_dict = compute_stas_for_chunk(
+                        sg = d_data['sg'],
+                        rg=d_data['rg'],
+                        ss_version=ks_version,
+                    )
 
-            sta_dict = compute_stas_for_chunk(
-                sg = d_data['sg'],
-                rg=d_data['rg'],
-                ss_version=ks_version,
-            )
+                    stas = sta_dict['stas']
+                    rf_dict = rf_fitting_pipeline(stas, str(output_path))
 
-            stas = sta_dict['stas']
-            rf_dict = rf_fitting_pipeline(stas, str(output_path))
+                    sta_height, sta_width = stas.shape[2], stas.shape[3]
 
-            sta_height, sta_width = stas.shape[2], stas.shape[3]
+                    write_sta_file(
+                        d_stas=sta_dict,
+                        save_dir=str(output_path),
+                        ss_version=ks_version,
+                    )
 
-            write_sta_file(
-                d_stas=sta_dict,
-                save_dir=str(output_path),
-                ss_version=ks_version,
-            )
+                    # Save RF params with ISIs in .params file
+                    write_params_file(
+                        sta_height=sta_height,
+                        d_data=d_data,
+                        d_rf_params=rf_dict,
+                        save_dir=str(output_path),
+                        ss_version=ks_version,
+                    )
 
-            # Save RF params with ISIs in .params file
-            write_params_file(
-                sta_height=sta_height,
-                d_data=d_data,
-                d_rf_params=rf_dict,
-                save_dir=str(output_path),
-                ss_version=ks_version,
-            )
+                    # Save .globals file
+                    d_display = d_data["sg"].ls_blocks[0].d_display
+                    write_globals_file(
+                        globals_path=str(output_path),
+                        globals_name=ks_version,
+                        microns_per_pixel=d_display["mu_per_pixel"],
+                        display_width_pixels=d_display["n_wt"],
+                        sta_width=sta_width,
+                        sta_height=sta_height,
+                        mean_frame_rate=d_display["mean_frame_rate"],
+                        stride=2,
+                        array_id=raw_data.array_id,
+                        num_samples=NUM_SAMPLES,
+                    )
 
-            # Save .globals file
-            d_display = d_data["sg"].ls_blocks[0].d_display
-            write_globals_file(
-                globals_path=str(output_path),
-                globals_name=ks_version,
-                microns_per_pixel=d_display["mu_per_pixel"],
-                display_width_pixels=d_display["n_wt"],
-                sta_width=sta_width,
-                sta_height=sta_height,
-                mean_frame_rate=d_display["mean_frame_rate"],
-                stride=2,
-                array_id=raw_data.array_id,
-                num_samples=NUM_SAMPLES,
-            )
+                    # remove the preprocessing profile
+                    config.reset()
+                    config.remove_profile('preprocessing')
 
-            # remove the preprocessing profile
-            config.reset()
-            config.remove_profile('preprocessing')
+                    globals_filepath = output_path / f'{ks_version}.globals'
+                    params_filepath = output_path / f'{ks_version}.params'
+                    sta_filepath = output_path / f'{ks_version}.sta'
 
-            globals_filepath = output_path / f'{ks_version}.globals'
-            params_filepath = output_path / f'{ks_version}.params'
-            sta_filepath = output_path / f'{ks_version}.sta'
+                    os.rename(globals_filepath, Path(output_path)/f'{datafile_name}.globals')
+                    os.rename(params_filepath, Path(output_path)/f'{datafile_name}.params')
+                    os.rename(sta_filepath, Path(output_path)/f'{datafile_name}.sta')
 
-            os.rename(globals_filepath, Path(output_path)/f'{datafile_name}.globals')
-            os.rename(params_filepath, Path(output_path)/f'{datafile_name}.params')
-            os.rename(sta_filepath, Path(output_path)/f'{datafile_name}.sta')
-
-            if verbose:
-                print(f'Wrote .neurons, .globals, .ei, .sta, and .params files to {output_path}\n')
+                    if verbose:
+                        print(f'Wrote .sta and .params files to {output_path}\n')
+                else:
+                    if verbose:
+                        print(
+                            f'{datafile_name}.sta and {datafile_name}.params already exist.\n'
+                            'To overwrite, set overwrite_existing = True'
+                        )
 
         except Exception as e:
             # remove the preprocessing profile
@@ -503,14 +577,9 @@ def ks_datafile_to_vision(
             config.remove_profile('preprocessing')
             
             print(
-                f"Unable to create .sta, .params, and .globals file for {datafile_name}.\n"
+                f"Unable to create .sta and .params, file for {datafile_name}.\n"
                 f"Error: {e}"
             )
-
-    else:
-
-        if verbose:
-            print(f'Wrote .neurons, .globals, and .ei files to {output_path}')
 
 def _is_noise_data(
     exp_name: str,
