@@ -6,7 +6,10 @@ import argparse
 import os
 from retinanalysis._config import config
 from retinanalysis._database import schema
-from retinanalysis.utils.datajoint_utils import get_exp_summary
+from retinanalysis.utils.datajoint_utils import (
+    get_exp_summary,
+    get_block_id_from_datafile,
+)
 from subprocess import run as sp_run
 from multiprocessing import cpu_count
 import pandas as pd
@@ -150,9 +153,11 @@ def ks_chunk_to_vision(
                 chunk_name = chunk_name,
     )
 
-    raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
+    block_id = get_block_id_from_datafile(exp_name, chunk_datafiles[0])
+    df = (schema.EpochBlock() @ f'id = {block_id}').to_pandas().reset_index()
+    array_id = df.loc[0, 'properties']['array_id']
 
-    ls_raw_data = None
+    raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
 
     neurons_exists = (Path(chunk_output_path) / f'{ks_version}.neurons').is_file()
     ei_exists = (Path(chunk_output_path) / f'{ks_version}.ei').is_file()
@@ -185,6 +190,9 @@ def ks_chunk_to_vision(
             compute_sta = compute_datafile_stas,
             verbose=verbose,
         )
+
+    if verbose:
+        print(f'\n***Datafiles parsed, writing chunk level files.***\n')
 
     # Write neurons file for chunk
     if should_write_neurons:
@@ -220,7 +228,7 @@ def ks_chunk_to_vision(
             sorted_dir = output_dir,
             output_dir = output_dir,
             ss_version=ks_version,
-            overwrite=overwrite_existing,
+            overwrite_existing=overwrite_existing,
             verbose=verbose)
 
         if verbose:
@@ -239,8 +247,6 @@ def ks_chunk_to_vision(
     ):
         try:
             if should_write_params or should_write_sta:
-                if ls_raw_data is None:
-                    ls_raw_data = [load_raw_data(raw_file_paths[0], ttl_only=True)]
                 # Create a temporary preprocessing config profile
                 # So stim_group and response_group are made from 
                 # the newly created neurons file.
@@ -304,7 +310,7 @@ def ks_chunk_to_vision(
                     sta_height=sta_height,
                     mean_frame_rate=d_display["mean_frame_rate"],
                     stride=2,
-                    array_id=ls_raw_data[0].array_id,
+                    array_id=array_id,
                     num_samples=NUM_SAMPLES,
                 )
 
@@ -328,20 +334,27 @@ def ks_chunk_to_vision(
             )
 
     else:
-        with vw.GlobalsFileWriter(str(chunk_output_path), ks_version) as gfw:
-            gfw.write_simplified_litke_array_globals_file(
-                array_id=ls_raw_data[0].array_id
-                & 0xFFF,  # FIXME get rid of this after we figure out what happened with 120um
-                base_time=0,
-                seconds_time=0,
-                comment="Kilosort converted",
-                dataset_identifier="",
-                dformat=0,
-                n_samples=NUM_SAMPLES,
-            )
+        if should_write_globals:
+            with vw.GlobalsFileWriter(str(chunk_output_path), ks_version) as gfw:
+                gfw.write_simplified_litke_array_globals_file(
+                    array_id=array_id
+                    & 0xFFF,  # FIXME get rid of this after we figure out what happened with 120um
+                    base_time=0,
+                    seconds_time=0,
+                    comment="Kilosort converted",
+                    dataset_identifier="",
+                    dformat=0,
+                    n_samples=NUM_SAMPLES,
+                )
 
-        if verbose:
-            print(f'Wrote .neurons, .globals, and .ei files to {chunk_output_path}\n')
+            if verbose:
+                print(f'Wrote .neurons, .globals, and .ei files to {chunk_output_path}\n')
+        else:
+            if verbose:
+                print(
+                    f'{ks_version}.globals already exists and overwrite_existing = False\n'
+                    'Using old file.\n'
+                )
 
 def ks_datafile_to_vision(
     exp_name: str,
@@ -408,6 +421,9 @@ def ks_datafile_to_vision(
         print(f"Path to Vision.jar: {vision_path}\n")
         print(f"Vision files will be written to: {output_path}\n")
 
+    block_id = get_block_id_from_datafile(exp_name, datafile_name)
+    df = (schema.EpochBlock() @ f'id = {block_id}').to_pandas().reset_index()
+    array_id = df.loc[0, 'properties']['array_id']
 
     neurons_exists = (Path(output_path) / f'{datafile_name}.neurons').is_file()
     ei_exists = (Path(output_path) / f'{datafile_name}.ei').is_file()
@@ -420,8 +436,6 @@ def ks_datafile_to_vision(
     should_write_globals = overwrite_existing or (not globals_exists)
     should_write_sta = overwrite_existing or (not sta_exists)
     should_write_params = overwrite_existing or (not params_exists)
-
-    raw_data = None
 
     # Write neurons file
     if should_write_neurons:
@@ -474,12 +488,10 @@ def ks_datafile_to_vision(
             )
 
     if should_write_globals:
-        if raw_data is None:
-            raw_data = load_raw_data(str(raw_file_path), ttl_only=True)
 
         with vw.GlobalsFileWriter(str(output_path), datafile_name) as gfw:
             gfw.write_simplified_litke_array_globals_file(
-                array_id=raw_data.array_id
+                array_id=array_id
                 & 0xFFF,  # FIXME get rid of this after we figure out what happened with 120um
                 base_time=0,
                 seconds_time=0,
@@ -502,9 +514,6 @@ def ks_datafile_to_vision(
 
         try:
             if should_write_params or should_write_sta:
-                if raw_data is None:
-                    raw_data = load_raw_data(str(raw_file_path), ttl_only=True)
-
                 # Create a temporary preprocessing config profile
                 # So stim_group and response_group are made from 
                 # the newly created neurons file.
@@ -568,7 +577,7 @@ def ks_datafile_to_vision(
                     sta_height=sta_height,
                     mean_frame_rate=d_display["mean_frame_rate"],
                     stride=2,
-                    array_id=raw_data.array_id,
+                    array_id=array_id,
                     num_samples=NUM_SAMPLES,
                 )
 

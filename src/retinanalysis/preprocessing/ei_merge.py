@@ -34,7 +34,7 @@ def merge_eis(
     sorted_dir: str | None = None,
     output_dir: str | None = None,
     ss_version: str = "kilosort2.5",
-    overwrite: bool = False,
+    overwrite_existing: bool = False,
     verbose: bool = True,
 ):
     """
@@ -63,7 +63,7 @@ def merge_eis(
 
         ss_version (str) Optional: The spike sorter version used to sort the data. Default is 'kilosort2.5'
 
-        overwrite (bool): If True, will overwrite existing .ei file.
+        overwrite_existing (bool): If True, will overwrite existing .ei file.
 
         verbose (bool) Optional: If true will print status messages to the console. Default is True.
 
@@ -164,7 +164,7 @@ def merge_eis(
         left_samples=sample_nl_points,
         right_samples=sample_nr_points,
         array_id=504,
-        overwrite_existing=overwrite,
+        overwrite_existing=overwrite_existing,
     ) as eir:
         eir.write_eis_by_cell_id(combined_eis)
 
