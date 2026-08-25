@@ -152,18 +152,6 @@ def ks_chunk_to_vision(
 
     raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
 
-    chunk_spike_dict = load_ks_data(str(ks_chunk_path), include_mua)
-    ls_raw_data = [load_raw_data(raw_file, ttl_only=True) for raw_file in raw_file_paths]
-
-    
-    all_epoch_starts = []
-    n_samples = 0
-    for raw_data in ls_raw_data:
-        all_epoch_starts += (raw_data.epoch_starts + n_samples).tolist()
-        n_samples += raw_data.n_samples
-
-    all_epoch_starts = np.array(all_epoch_starts)
-
     # Write .globals, .neurons and .ei files for each datafile in turn
     # If compute_datafile_stas = True, compute .sta and .params files
     # for those datafiles that were for noise runs
@@ -188,6 +176,17 @@ def ks_chunk_to_vision(
     # Write neurons file for chunk
     if (Path(chunk_output_path) / f'{ks_version}.neurons').is_file():
         if overwrite_existing:
+            chunk_spike_dict = load_ks_data(str(ks_chunk_path), include_mua)
+            ls_raw_data = [load_raw_data(raw_file, ttl_only=True) for raw_file in raw_file_paths]
+            
+            all_epoch_starts = []
+            n_samples = 0
+            for raw_data in ls_raw_data:
+                all_epoch_starts += (raw_data.epoch_starts + n_samples).tolist()
+                n_samples += raw_data.n_samples
+
+            all_epoch_starts = np.array(all_epoch_starts)
+
             with vw.NeuronsFileWriter(str(chunk_output_path), ks_version) as nfw:
                 nfw.write_neuron_file(chunk_spike_dict, all_epoch_starts, n_samples)
 
@@ -400,14 +399,15 @@ def ks_datafile_to_vision(
         print(f"Path to Vision.jar: {vision_path}\n")
         print(f"Vision files will be written to: {output_path}\n")
 
-    spike_dict = load_ks_data(str(ks_file_path), include_mua)
-
-    # Load raw data
-    raw_data = load_raw_data(str(raw_file_path), ttl_only=True)
 
     # Write neurons file
     if (Path(output_path) / f'{datafile_name}.neurons').is_file():
         if overwrite_existing:
+
+            spike_dict = load_ks_data(str(ks_file_path), include_mua)
+            # Load raw data
+            raw_data = load_raw_data(str(raw_file_path), ttl_only=True)
+
             with vw.NeuronsFileWriter(str(output_path), ks_version) as nfw:
                 nfw.write_neuron_file(spike_dict, raw_data.epoch_starts, raw_data.n_samples)
 
