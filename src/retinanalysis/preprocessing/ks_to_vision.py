@@ -455,7 +455,9 @@ def ks_datafile_to_vision(
                 f'{datafile_name}.neurons already exists and overwrite = False\n'
                 'Using old file.\n'
             )
-        # rename neurons file to ks_version so ei can use it
+        # rename existing neurons file to ks_version.ei so ei can use it
+        # the EI calculator expects the file to be the same name as its enclosing
+        # folder...
         os.rename(Path(output_path) / f'{datafile_name}.neurons', Path(output_path) / f'{ks_version}.neurons')
 
     if should_write_ei:
