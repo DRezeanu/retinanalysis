@@ -447,9 +447,6 @@ def ks_datafile_to_vision(
         with vw.NeuronsFileWriter(str(output_path), ks_version) as nfw:
             nfw.write_neuron_file(spike_dict, raw_data.epoch_starts, raw_data.n_samples)
 
-        neurons_filepath = output_path / f'{ks_version}.neurons'
-        os.rename(neurons_filepath, Path(output_path)/f'{datafile_name}.neurons')
-
         if verbose:
             print(f".neurons file written to {output_path}\n")
     else:
@@ -458,6 +455,8 @@ def ks_datafile_to_vision(
                 f'{datafile_name}.neurons already exists and overwrite = False\n'
                 'Using old file.\n'
             )
+        # rename neurons file to ks_version so ei can use it
+        os.rename(Path(output_path) / f'{datafile_name}.neurons', Path(output_path) / f'{ks_version}.neurons')
 
     if should_write_ei:
         # Write ei
@@ -477,6 +476,7 @@ def ks_datafile_to_vision(
         ei_filepath = output_path / f'{ks_version}.ei'
         os.rename(ei_filepath, Path(output_path)/f'{datafile_name}.ei')
 
+
         if verbose:
             print(f'.ei file written to {output_path}\n')
 
@@ -486,6 +486,11 @@ def ks_datafile_to_vision(
                 f'{datafile_name}.ei already exists and overwrite_existing = False\n'
                 'Using old file.\n'
             )
+    # wait to rename neurons file until after ei calculation
+    neurons_filepath = output_path / f'{ks_version}.neurons'
+    if neurons_filepath.is_file():
+        os.rename(neurons_filepath, Path(output_path)/f'{datafile_name}.neurons')
+
 
     if should_write_globals:
 
