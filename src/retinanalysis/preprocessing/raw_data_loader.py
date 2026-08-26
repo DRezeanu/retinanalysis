@@ -62,7 +62,9 @@ def load_raw_data(
 
         d_out = {'trace' : ttl_data.astype(int).tolist(),
                  'epochStarts' : epoch_starts.tolist(),
-                 'epochEnds' : epoch_ends.tolist()
+                 'epochEnds' : epoch_ends.tolist(),
+                 'array_id': array_id,
+                 'n_samples': n_points,
                  }
 
         filename = bin_folder / f'{bin_folder.stem}_ttl.json'

@@ -14,8 +14,7 @@ from subprocess import run as sp_run
 from multiprocessing import cpu_count
 import pandas as pd
 from pathlib import Path
-from warnings import warn
-from .raw_data_loader import load_raw_data, RawDataContainer
+from .raw_data_loader import RawDataContainer
 from .sta import (
     get_data_for_chunk,
     compute_stas_for_chunk,
@@ -143,7 +142,11 @@ def ks_chunk_to_vision(
     chunk_output_path.mkdir(parents=True, exist_ok=True)
 
     if verbose:
-        print(f"***Creating Vision Files for {exp_name} {chunk_name}...***\n")
+        print(
+            '\n-----------------------------------------------------------\n'
+            f"***Creating Vision Files for {exp_name} {chunk_name}...***\n"
+            '-----------------------------------------------------------\n'
+        )
         print(f"Using kilosort chunk data from: {ks_chunk_path}\n")
         print(f"Path to Vision.jar: {vision_path}\n")
         print(f"Chunk's Vision files will be written to: {chunk_output_path}\n")
@@ -156,6 +159,7 @@ def ks_chunk_to_vision(
     block_id = get_block_id_from_datafile(exp_name, chunk_datafiles[0])
     df = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
     array_id = df.loc[0, 'properties']['array_id']
+    epoch_starts = df.loc[0, 'properties']['epochStarts']
 
     raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
 
@@ -176,7 +180,11 @@ def ks_chunk_to_vision(
     # for those datafiles that were for noise runs
     for datafile in chunk_datafiles:
         if verbose:
-            print(f'***Creating Vision Files for {exp_name} {datafile}...***')
+            print(
+                '\n---------------------------------------------------------\n'
+                f'***Creating Vision Files for {exp_name} {datafile}...***'
+                '---------------------------------------------------------\n'
+            )
         ks_datafile_to_vision(
             exp_name=exp_name,
             datafile_name=datafile,
@@ -192,18 +200,26 @@ def ks_chunk_to_vision(
         )
 
     if verbose:
-        print(f'\n***Datafiles parsed, writing chunk level files.***\n')
+        print(
+            '\n---------------------------------------------------\n'
+            f'***Datafiles parsed, writing chunk level files.***\n'
+            '---------------------------------------------------\n'
+        )
 
     # Write neurons file for chunk
     if should_write_neurons:
         chunk_spike_dict = load_ks_data(str(ks_chunk_path), include_mua)
-        ls_raw_data = [load_raw_data(raw_file, ttl_only=True) for raw_file in raw_file_paths]
+
+        block_ids = [get_block_id_from_datafile(exp_name, datafile) for datafile in chunk_datafiles]
         
         all_epoch_starts = []
         n_samples = 0
-        for raw_data in ls_raw_data:
-            all_epoch_starts += (raw_data.epoch_starts + n_samples).tolist()
-            n_samples += raw_data.n_samples
+        for block_id in block_ids:
+            df = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
+            starts = np.array(df.loc[0, 'properties']['epochStarts'])
+            samples = df.loc[0, 'properties']['n_samples']
+            all_epoch_starts += (starts + n_samples).tolist()
+            n_samples += samples
 
         all_epoch_starts = np.array(all_epoch_starts)
 
@@ -424,6 +440,8 @@ def ks_datafile_to_vision(
     block_id = get_block_id_from_datafile(exp_name, datafile_name)
     df = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
     array_id = df.loc[0, 'properties']['array_id']
+    epoch_starts = np.array(df.loc[0, 'properties']['epochStarts'])
+    n_samples = df.loc[0, 'properties']['n_samples']
 
     neurons_exists = (Path(output_path) / f'{datafile_name}.neurons').is_file()
     ei_exists = (Path(output_path) / f'{datafile_name}.ei').is_file()
@@ -441,11 +459,9 @@ def ks_datafile_to_vision(
     if should_write_neurons:
 
         spike_dict = load_ks_data(str(ks_file_path), include_mua)
-        # Load raw data
-        raw_data = load_raw_data(str(raw_file_path), ttl_only=True)
 
         with vw.NeuronsFileWriter(str(output_path), ks_version) as nfw:
-            nfw.write_neuron_file(spike_dict, raw_data.epoch_starts, raw_data.n_samples)
+            nfw.write_neuron_file(spike_dict, epoch_starts, n_samples)
 
         if verbose:
             print(f".neurons file written to {output_path}\n")
