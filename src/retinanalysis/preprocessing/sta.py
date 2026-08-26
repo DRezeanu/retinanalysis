@@ -402,10 +402,8 @@ def compute_stas_for_chunk(
         )
         total_frames = np.array(ls_unique_frames) + np.array(ls_repeat_frames)
         if len(np.unique(total_frames)) != 1:
-            warn(
-                f"Uneven number of frames across epochs, using min number: {total_frames}"
-            )
-        n_frames = int(np.min(total_frames))
+            raise ValueError(f"Uneven number of frames across epochs! {total_frames}")
+        n_frames = total_frames[0]
 
         # Bin spike times
         rb.bin_spike_times_by_frames(stride=stride)
