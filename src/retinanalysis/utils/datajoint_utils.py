@@ -605,98 +605,65 @@ def get_noise_name_by_exp(exp_name: str) -> str:
     return noise_protocol_name
 
 
-def get_stage_frame_rate_by_exp(exp_name: str, verbose: bool = True) -> float:
-    exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
-    exp_id = exp_query.fetch1("id")
-    epochblock_query = schema.EpochBlock() & f"experiment_id={exp_id}"
-    # Get epochs for all these epoch blocks based on id (parent_id)
-    epoch_query = schema.Epoch() & [f"parent_id={eb_id}" for eb_id in epochblock_query.to_arrays("id")]
-    epoch_query = epoch_query.proj(stage_frame_rate="parameters->>'$.frameRate'")
-    stage_frame_rates = epoch_query.to_arrays("stage_frame_rate")
-    stage_frame_rates = stage_frame_rates.astype(float)
-    # Remove NaN values if any
-    stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
+def get_display_params_for_block(
+    exp_name: str,
+    block_id: int,
+    verbose: bool = True
+):
+    # Pull relevant values from the database
+    block = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
+    epoch = (schema.Epoch() & f'parent_id = {block_id}').to_pandas().reset_index()
+    stage_class = block.at[0, 'properties'].get('stageClass')
+    mu_per_pixel = epoch.at[0, 'parameters'].get('micronsPerPixel')
+    n_wt, n_ht = epoch.at[0, 'parameters'].get('canvasSize')
 
-    if len(np.unique(stage_frame_rates)) != 1:
-        keep_rate = min(stage_frame_rates)
-        if verbose:
-            print(
-                f"Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}"
-            )
-            print(f"This could be due to PatternMode usage.")
-            print(f"d_display will keep the min: {keep_rate}")
+    # Compute mean frame rate across all epochs in the block
+    frame_times = block.at[0, 'properties'].get('frameTimes')
+    mean_frame_rate = 1/(np.mean([np.mean(np.diff(e_ft)) for e_ft in frame_times])*1e-3)
+    
+    # Pull stage frame rate
+    stage_frame_rate = epoch.at[0, 'parameters'].get('monitorRefreshRate')
+
+    # Potential Values that Reveal OLED vs LCR and Video vs Pattern Mode
+    pattern_rate = epoch.at[0, 'parameters'].get('lightCrafterPatternRate')
+    microdisplay_brightness = epoch.at[0, 'parameters'].get('microdisplayBrightness')
+
+    if (pattern_rate is not None) and (pattern_rate > 0):
+        mode = 'Pattern'
     else:
-        keep_rate = stage_frame_rates[0]
-        if verbose:
-            print(f"Found stage frame rate {keep_rate} for experiment {exp_name}")
+        mode = 'Video'
 
-    return keep_rate
-
-
-def get_display_params_by_exp(exp_name: str, verbose: bool = True):
-    # Rig H
-    if "H" in exp_name:
-        if verbose:
-            print(f"For Rig H {exp_name}:")
-        if int(exp_name[:8]) > 20230926:
-            disp_type = "LCR"
-            mu_per_pixel = 3.24
-            n_ht = 1140
-            n_wt = 1824
-            mean_frame_rate = 59.941548817817917
+    if stage_class in ['LcrRGB', 'LightCrafter']:
+        disp_type='LCR'
+    elif stage_class == 'Video':
+        if microdisplay_brightness is not None:
+            disp_type = 'OLED'
         else:
-            raise NotImplementedError("OLED display params not defined for Rig H yet.")
-
-    # Rig C
-    elif "C" in exp_name:
-        if verbose:
-            print(f"For Rig C {exp_name}:")
-        if int(exp_name[:8]) < 20230926:
-            disp_type = "OLED"
-            mu_per_pixel = 3.8
-            n_ht = 600
-            n_wt = 800
-            mean_frame_rate = 60.31807657
-        else:
-            disp_type = "LCR"
-            # As saved in sta_analysis.py. Rig Config indicates 3.37 so not sure what's best...
-            # I figure sta_analysis.py value is better as that's used to generate STAs
-            # and will be useful to convert regen stim from pixel to stixel space.
-            if int(exp_name[:8]) < 20260312:
-                mu_per_pixel = 3.34
-            else:
-                mu_per_pixel = 3.07
-            n_ht = 1140
-            n_wt = 1824
-            mean_frame_rate = 59.941548817817917
-    # Rig E (Fred confocal)
-    elif "E" in exp_name:
-        if verbose:
-            print(
-                f"For Rig E {exp_name}, assuming ConfocalWithLightCrafterAbove rig config:"
-            )
-        disp_type = "LCR"
-        mu_per_pixel = 1.3
-        n_ht = 1140
-        n_wt = 1824
-        mean_frame_rate = 59.9422
+            disp_type = 'LCR'
     else:
-        raise ValueError(
-            f"Unexpected Rig identified in MEA experiment name {exp_name} !"
+        warnings.warn(
+            f'Unknown display type, using stage class value: {stage_class}',
+            stacklevel=2,
         )
+        disp_type=stage_class
 
-    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name, verbose)
+
+        if verbose:
+            print(f"For Rig {exp_name[-1]} {exp_name}:")
 
     d_display = {
         "disp_type": disp_type,
+        "mode": mode,
         "mu_per_pixel": mu_per_pixel,
         "n_ht": n_ht,
         "n_wt": n_wt,
         "mean_frame_rate": mean_frame_rate,
         "stage_frame_rate": stage_frame_rate,
     }
+
     if verbose:
         print(d_display)
+
     return d_display
 
 

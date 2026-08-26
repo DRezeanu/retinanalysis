@@ -127,7 +127,11 @@ class StimBlock:
         self.df_epochs = df_epochs
         self.parameter_names = list(df_epochs.at[0, "epoch_parameters"].keys())
 
-        self.d_display = get_display_params_by_exp(self.exp_name, verbose=self.verbose)
+        self.d_display = get_display_params_by_exp(
+            exp_name=self.exp_name,
+            block_id=self.block_id,
+            verbose=self.verbose,
+        )
         self.stim_data: dict | None = None
 
     def regenerate_stimulus(self, ls_epochs: Optional[int | list] = None, **kwargs):
