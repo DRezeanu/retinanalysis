@@ -613,43 +613,84 @@ def get_display_params_for_block(
     # Pull relevant values from the database
     block = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
     epoch = (schema.Epoch() & f'parent_id = {block_id}').to_pandas().reset_index()
-    stage_class = block.at[0, 'properties'].get('stageClass')
-    mu_per_pixel = epoch.at[0, 'parameters'].get('micronsPerPixel')
-    n_wt, n_ht = epoch.at[0, 'parameters'].get('canvasSize')
 
-    # Compute mean frame rate across all epochs in the block
-    frame_times = block.at[0, 'properties'].get('frameTimes')
-    mean_frame_rate = 1/(np.mean([np.mean(np.diff(e_ft)) for e_ft in frame_times])*1e-3)
-    
-    # Pull stage frame rate
-    stage_frame_rate = epoch.at[0, 'parameters'].get('monitorRefreshRate')
-
-    # Potential Values that Reveal OLED vs LCR and Video vs Pattern Mode
-    pattern_rate = epoch.at[0, 'parameters'].get('lightCrafterPatternRate')
-    microdisplay_brightness = epoch.at[0, 'parameters'].get('microdisplayBrightness')
-
-    if (pattern_rate is not None) and (pattern_rate > 0):
-        mode = 'Pattern'
+    if resolve_b_LED(
+        block_id=block_id,
+        exp_name=exp_name,
+    ):
+        # Settings for LED Stim
+        mu_per_pixel = None
+        n_wt = n_ht = None
+        mean_frame_rate = None
+        disp_type='LED'
+        stage_frame_rate = None
+        mode = None
     else:
-        mode = 'Video'
+        mu_per_pixel = epoch.at[0, 'parameters'].get('micronsPerPixel')
+        canvas_size = epoch.at[0, 'parameters'].get('canvasSize')
+        if canvas_size is None:
+            raise ValueError(
+                f'{exp_name} block {block_id} has no canvas size.'
+            )
 
-    if stage_class in ['LcrRGB', 'LightCrafter']:
-        disp_type='LCR'
-    elif stage_class == 'Video':
-        if microdisplay_brightness is not None:
-            disp_type = 'OLED'
+        n_wt, n_ht = canvas_size
+        # Settings for all other display types
+        # Potential Values that Reveal OLED vs LCR and Video vs Pattern Mode
+        stage_class = block.at[0, 'properties'].get('stageClass')
+        pattern_rate = epoch.at[0, 'parameters'].get('lightCrafterPatternRate')
+        microdisplay_brightness = epoch.at[0, 'parameters'].get('microdisplayBrightness')
+
+        # Assign display type using stage_class 
+        if stage_class in ['LcrRGB', 'LightCrafter']:
+            disp_type='LCR'
+        elif stage_class == 'Video':
+            # Both LCR and Microdisplay were 'Video' class
+            # The existance of microdisplay_brightness disambiguates
+            # which is which.
+            if microdisplay_brightness is not None:
+                disp_type = 'OLED'
+            else:
+                disp_type = 'LCR'
         else:
-            disp_type = 'LCR'
-    else:
-        warnings.warn(
-            f'Unknown display type, using stage class value: {stage_class}',
-            stacklevel=2,
-        )
-        disp_type=stage_class
+            warnings.warn(
+                f'Unknown display type, using stage class value: {stage_class}',
+                stacklevel=2,
+            )
+            disp_type=stage_class
 
+        frame_times = block.at[0, 'properties'].get('frameTimesMs')
+        if not frame_times:
+            warnings.warn(
+                f'{exp_name} block {block_id} has no frame times.\n'
+                'Returning None for mean_frame_rate.'
+            )
+            mean_frame_rate = None
+        else:
+            elapsed = frames = 0.0
+            for e_ft in frame_times:
+                if e_ft is None or len(e_ft) < 2:
+                    continue
+                d = np.diff(e_ft)
+                elapsed += e_ft[-1] - e_ft[0]
+                frames += np.rint(d / np.median(d)).sum()   # 1 per interval, 2 across a drop
+            if frames:
+                mean_frame_rate = 1e3 * frames / elapsed
+            else:
+                warnings.warn(
+                    f'{exp_name} block {block_id} had no usable frame times.\n'
+                    'Returning None for mean_frame_rate.')
+                mean_frame_rate = None
 
-        if verbose:
-            print(f"For Rig {exp_name[-1]} {exp_name}:")
+        stage_frame_rate = epoch.at[0, 'parameters'].get('monitorRefreshRate')
+
+        # Check for pattern mode
+        if (pattern_rate is not None) and (pattern_rate > 0):
+            mode = 'Pattern'
+        else:
+            mode = 'Video'
+
+    if verbose:
+        print(f"\nFor experiment {exp_name} and block {block_id}:")
 
     d_display = {
         "disp_type": disp_type,
@@ -662,7 +703,9 @@ def get_display_params_for_block(
     }
 
     if verbose:
-        print(d_display)
+        for key, value in d_display.items():
+            print(f'    -{key}: {value}')
+        print()
 
     return d_display
 

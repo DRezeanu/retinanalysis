@@ -5,7 +5,7 @@ from retinanalysis.utils.datajoint_utils import (
     get_epoch_data_from_exp,
     get_block_id_from_datafile,
     get_noise_name_by_exp,
-    get_display_params_by_exp,
+    get_display_params_for_block,
     resolve_b_LED,
 )
 import pandas as pd
@@ -127,7 +127,7 @@ class StimBlock:
         self.df_epochs = df_epochs
         self.parameter_names = list(df_epochs.at[0, "epoch_parameters"].keys())
 
-        self.d_display = get_display_params_by_exp(
+        self.d_display = get_display_params_for_block(
             exp_name=self.exp_name,
             block_id=self.block_id,
             verbose=self.verbose,
