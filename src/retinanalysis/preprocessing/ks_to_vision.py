@@ -159,9 +159,6 @@ def ks_chunk_to_vision(
     block_id = get_block_id_from_datafile(exp_name, chunk_datafiles[0])
     df = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
     array_id = df.loc[0, 'properties']['array_id']
-    epoch_starts = df.loc[0, 'properties']['epochStarts']
-
-    raw_file_paths = [Path(raw_data_dir)/exp_name/datafile for datafile in chunk_datafiles]
 
     neurons_exists = (Path(chunk_output_path) / f'{ks_version}.neurons').is_file()
     ei_exists = (Path(chunk_output_path) / f'{ks_version}.ei').is_file()
@@ -209,9 +206,8 @@ def ks_chunk_to_vision(
     # Write neurons file for chunk
     if should_write_neurons:
         chunk_spike_dict = load_ks_data(str(ks_chunk_path), include_mua)
-
         block_ids = [get_block_id_from_datafile(exp_name, datafile) for datafile in chunk_datafiles]
-        
+
         all_epoch_starts = []
         n_samples = 0
         for block_id in block_ids:
