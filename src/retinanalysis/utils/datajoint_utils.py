@@ -605,98 +605,109 @@ def get_noise_name_by_exp(exp_name: str) -> str:
     return noise_protocol_name
 
 
-def get_stage_frame_rate_by_exp(exp_name: str, verbose: bool = True) -> float:
-    exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
-    exp_id = exp_query.fetch1("id")
-    epochblock_query = schema.EpochBlock() & f"experiment_id={exp_id}"
-    # Get epochs for all these epoch blocks based on id (parent_id)
-    epoch_query = schema.Epoch() & [f"parent_id={eb_id}" for eb_id in epochblock_query.to_arrays("id")]
-    epoch_query = epoch_query.proj(stage_frame_rate="parameters->>'$.frameRate'")
-    stage_frame_rates = epoch_query.to_arrays("stage_frame_rate")
-    stage_frame_rates = stage_frame_rates.astype(float)
-    # Remove NaN values if any
-    stage_frame_rates = stage_frame_rates[~np.isnan(stage_frame_rates)]
+def get_display_params_for_block(
+    exp_name: str,
+    block_id: int,
+    verbose: bool = True
+):
+    # Pull relevant values from the database
+    block = (schema.EpochBlock() & f'id = {block_id}').to_pandas().reset_index()
+    epoch = (schema.Epoch() & f'parent_id = {block_id}').to_pandas().reset_index()
 
-    if len(np.unique(stage_frame_rates)) != 1:
-        keep_rate = min(stage_frame_rates)
-        if verbose:
-            print(
-                f"Warning: Multiple stage frame rates found for experiment {exp_name}: {np.unique(stage_frame_rates)}"
-            )
-            print(f"This could be due to PatternMode usage.")
-            print(f"d_display will keep the min: {keep_rate}")
+    if resolve_b_LED(
+        block_id=block_id,
+        exp_name=exp_name,
+    ):
+        # Settings for LED Stim
+        mu_per_pixel = None
+        n_wt = n_ht = None
+        mean_frame_rate = None
+        disp_type='LED'
+        stage_frame_rate = None
+        mode = None
     else:
-        keep_rate = stage_frame_rates[0]
-        if verbose:
-            print(f"Found stage frame rate {keep_rate} for experiment {exp_name}")
+        mu_per_pixel = epoch.at[0, 'parameters'].get('micronsPerPixel')
+        canvas_size = epoch.at[0, 'parameters'].get('canvasSize')
+        if canvas_size is None:
+            raise ValueError(
+                f'{exp_name} block {block_id} has no canvas size.'
+            )
 
-    return keep_rate
+        n_wt, n_ht = canvas_size
+        # Settings for all other display types
+        # Potential Values that Reveal OLED vs LCR and Video vs Pattern Mode
+        stage_class = block.at[0, 'properties'].get('stageClass')
+        pattern_rate = epoch.at[0, 'parameters'].get('lightCrafterPatternRate')
+        microdisplay_brightness = epoch.at[0, 'parameters'].get('microdisplayBrightness')
 
-
-def get_display_params_by_exp(exp_name: str, verbose: bool = True):
-    # Rig H
-    if "H" in exp_name:
-        if verbose:
-            print(f"For Rig H {exp_name}:")
-        if int(exp_name[:8]) > 20230926:
-            disp_type = "LCR"
-            mu_per_pixel = 3.24
-            n_ht = 1140
-            n_wt = 1824
-            mean_frame_rate = 59.941548817817917
-        else:
-            raise NotImplementedError("OLED display params not defined for Rig H yet.")
-
-    # Rig C
-    elif "C" in exp_name:
-        if verbose:
-            print(f"For Rig C {exp_name}:")
-        if int(exp_name[:8]) < 20230926:
-            disp_type = "OLED"
-            mu_per_pixel = 3.8
-            n_ht = 600
-            n_wt = 800
-            mean_frame_rate = 60.31807657
-        else:
-            disp_type = "LCR"
-            # As saved in sta_analysis.py. Rig Config indicates 3.37 so not sure what's best...
-            # I figure sta_analysis.py value is better as that's used to generate STAs
-            # and will be useful to convert regen stim from pixel to stixel space.
-            if int(exp_name[:8]) < 20260312:
-                mu_per_pixel = 3.34
+        # Assign display type using stage_class 
+        if stage_class in ['LcrRGB', 'LightCrafter']:
+            disp_type='LCR'
+        elif stage_class == 'Video':
+            # Both LCR and Microdisplay were 'Video' class
+            # The existance of microdisplay_brightness disambiguates
+            # which is which.
+            if microdisplay_brightness is not None:
+                disp_type = 'OLED'
             else:
-                mu_per_pixel = 3.07
-            n_ht = 1140
-            n_wt = 1824
-            mean_frame_rate = 59.941548817817917
-    # Rig E (Fred confocal)
-    elif "E" in exp_name:
-        if verbose:
-            print(
-                f"For Rig E {exp_name}, assuming ConfocalWithLightCrafterAbove rig config:"
+                disp_type = 'LCR'
+        else:
+            warnings.warn(
+                f'Unknown display type, using stage class value: {stage_class}',
+                stacklevel=2,
             )
-        disp_type = "LCR"
-        mu_per_pixel = 1.3
-        n_ht = 1140
-        n_wt = 1824
-        mean_frame_rate = 59.9422
-    else:
-        raise ValueError(
-            f"Unexpected Rig identified in MEA experiment name {exp_name} !"
-        )
+            disp_type=stage_class
 
-    stage_frame_rate = get_stage_frame_rate_by_exp(exp_name, verbose)
+        frame_times = block.at[0, 'properties'].get('frameTimesMs')
+        if not frame_times:
+            warnings.warn(
+                f'{exp_name} block {block_id} has no frame times.\n'
+                'Returning None for mean_frame_rate.'
+            )
+            mean_frame_rate = None
+        else:
+            elapsed = frames = 0.0
+            for e_ft in frame_times:
+                if e_ft is None or len(e_ft) < 2:
+                    continue
+                d = np.diff(e_ft)
+                elapsed += e_ft[-1] - e_ft[0]
+                frames += np.rint(d / np.median(d)).sum()   # 1 per interval, 2 across a drop
+            if frames:
+                mean_frame_rate = 1e3 * frames / elapsed
+            else:
+                warnings.warn(
+                    f'{exp_name} block {block_id} had no usable frame times.\n'
+                    'Returning None for mean_frame_rate.')
+                mean_frame_rate = None
+
+
+        # Check for pattern mode
+        if (pattern_rate is not None) and (pattern_rate > 0):
+            mode = 'Pattern'
+            stage_frame_rate = pattern_rate
+        else:
+            mode = 'Video'
+            stage_frame_rate = epoch.at[0, 'parameters'].get('monitorRefreshRate')
+
+    if verbose:
+        print(f"\nFor experiment {exp_name} and block {block_id}:")
 
     d_display = {
         "disp_type": disp_type,
+        "mode": mode,
         "mu_per_pixel": mu_per_pixel,
         "n_ht": n_ht,
         "n_wt": n_wt,
         "mean_frame_rate": mean_frame_rate,
         "stage_frame_rate": stage_frame_rate,
     }
+
     if verbose:
-        print(d_display)
+        for key, value in d_display.items():
+            print(f'    -{key}: {value}')
+        print()
+
     return d_display
 
 
@@ -951,32 +962,28 @@ def add_parameters_col(df, ls_params, src_col: str = "epoch_parameters"):
 def get_epoch_data_from_exp(
     exp_name: str,
     block_id: int,
-    b_LED: Optional[bool] = False,
+    b_LED: bool | None = None,
     ls_params: Optional[List] = None,
     stim_time_name: str = "stimTime",
 ) -> pd.DataFrame:
-    # Filter Experiment by exp_name, EpochBlock by block_id, then join down to Epoch
-    exp_query = schema.Experiment() & f'exp_name="{exp_name}"'
-    is_mea = exp_query.fetch1("is_mea") == 1
-    epochgroup_query = schema.EpochGroup() * exp_query.proj("exp_name", experiment_id="id")
-    epochgroup_query = epochgroup_query.proj("exp_name", "experiment_id", group_label="label", group_id="id")
 
-    ls_eb_cols = ["protocol_id"]
-    if is_mea:
-        ls_eb_cols += ["data_dir"]
-    epochblock_query = schema.EpochBlock.proj(
-        *ls_eb_cols,
-        group_id="parent_id",
-        block_properties="properties",
-        block_id="id",  # type: ignore
+    epochblock_query = get_epochblock_query(
+        exp_name=exp_name,
+        block_id=block_id
     )
 
-    epochblock_query = epochgroup_query * epochblock_query
-    epochblock_query = epochblock_query & f"block_id={block_id}"
+    # Check that given b_LED value matches value inferred from epoch block data
+    b_LED = resolve_b_LED(
+        block_id=block_id,
+        b_LED=b_LED,
+        exp_name=exp_name,
+    )
+
+    eb_df = epochblock_query.to_pandas().reset_index()
+    is_mea = bool(eb_df.loc[0, 'is_mea'])
 
     if is_mea:
         # Check num epoch ends matches num epoch starts
-        eb_df = epochblock_query.to_pandas().reset_index()
         d_data = eb_df.loc[0].to_dict()
         epoch_starts = d_data["block_properties"]["epochStarts"]
         epoch_ends = d_data["block_properties"]["epochEnds"]
@@ -1035,6 +1042,7 @@ def get_epoch_data_from_exp(
         )
     df = df[ls_order]
 
+
     if b_LED:
         # Delete frame_times_ms column
         df = df.drop(columns=["frame_times_ms"])
@@ -1064,24 +1072,40 @@ def get_epochblock_query(exp_name: str, block_id: int):
     epochblock_query = schema.EpochBlock.proj(
         "protocol_id",
         "data_dir",
+        "experiment_id",
         block_properties="properties",  # type: ignore
         group_id="parent_id",
         block_id="id",
     )
     epochblock_query = epochgroup_query * epochblock_query
     epochblock_query = epochblock_query & f"block_id={block_id}"
+
+    n = len(epochblock_query)
+    if n != 1:
+        raise ValueError(
+            f"Expected one epoch block from {exp_name} block {block_id}, but got {n}"
+        )
+
     return epochblock_query
 
 
-def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> dict:
+def get_epochblock_timing(
+    exp_name: str,
+    block_id: int,
+    b_LED: bool | None = None
+) -> dict:
+
     epochblock_query = get_epochblock_query(exp_name, block_id)
+
+    # Check that given b_LED value matches value inferred from epoch block data
+    b_LED = resolve_b_LED(
+        block_id=block_id,
+        b_LED=b_LED,
+        exp_name=exp_name,
+    )
+
     df = epochblock_query.to_pandas().reset_index()
-    if len(df) > 1:
-        raise ValueError(
-            f"Expected only one EpochBlock for {exp_name} {block_id}, but found {len(df)}"
-        )
-    if len(df) == 0:
-        raise ValueError(f"No EpochBlock found for {exp_name} {block_id}")
+
     d_data = df.loc[0].to_dict()
     is_mea = df.loc[0, "is_mea"]
 
@@ -1091,6 +1115,7 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
     # For SC data, this has just frame_times_ms
     if not b_LED:
         d_timing["frameTimesMs"] = d_data["block_properties"]["frameTimesMs"]
+
 
     if is_mea:
         epoch_starts = d_data["block_properties"]["epochStarts"]
@@ -1236,7 +1261,10 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
             print(
                 f"Warning: for {exp_name} block {block_id}, error in finding stage frame rate."
             )
-            print(f"If this is for an LED stimulus, be sure to set b_LED=True!\n")
+            print(
+                "This block resolved as non-LED, so a missing stage frame rate is "
+                "unexpected — check the block's parameters rather than setting b_LED.\n"
+            )
         else:
             stage_frame_rate = float(stage_frame_rate)
 
@@ -1261,13 +1289,13 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
 
         # Exceptions can occur when frame_times_ms are messed up and don't have correct number of frames.
         except Exception as e:
-            print(f"Error occurred while getting actual onset/offset times: {e}")
             print(
-                "It could be that frame_times_ms do not have the correct number of frames due to some error in frame detection."
-            )
-            print(
-                "Check the frame monitor sample rate! On MEA Rigs, prefer 1k, errors likely with 10k."
-            )
+                f"Error occurred while getting actual onset/offset times: {e}\n"
+                "It could be that frame_times_ms do not have the correct number of "
+                "frames due to some error in frame detection.\n"
+                "Check the frame monitor sample rate! On MEA Rigs, prefer 1k, "
+                "errors are likely with 10k."
+           )
             actual_onset_times_ms = []
             actual_offset_times_ms = []
 
@@ -1278,12 +1306,14 @@ def get_epochblock_timing(exp_name: str, block_id: int, b_LED: bool = False) -> 
 
 
 def get_epochblock_response_query(exp_name: str, block_id: int):
+
     epochblock_query = get_epochblock_query(exp_name, block_id)
     protocol_query = epochblock_query * schema.Protocol.proj(protocol_name="name")  # type: ignore
     epoch_query = protocol_query * schema.Epoch.proj(
         epoch_parameters="parameters", block_id="parent_id", epoch_id="id"
     )  # type: ignore
     response_query = epoch_query * schema.Response.proj(..., epoch_id="parent_id", response_id="id")  # type: ignore
+
     return response_query
 
 
@@ -1355,7 +1385,8 @@ def get_epochblock_frame_data(
     if len(sample_rates) == 0 and len(frame_data) == 0:
         print(f"WARNING: Didn't find any frame monitor data and sample rate.")
         print(
-            f"If this is for LED stimulus, be sure to set b_LED=True to skip loading this.\n"
+            "LED blocks skip this load automatically, so an empty result here means a "
+            "block that resolved as non-LED has no frame monitor recording.\n"
         )
         return np.array([]), None
     if len(sample_rates) != 1:
@@ -1403,3 +1434,31 @@ def get_epochblock_amp_data(
     sample_rate = sample_rates[0]
 
     return amp_data, sample_rate
+
+def resolve_b_LED(
+    block_id: int,
+    b_LED: bool | None = None,
+    exp_name: str = "",
+) -> bool:
+    params, props = (schema.EpochBlock() & f"id={block_id}").fetch1("parameters", "properties")
+
+    has_led = 'led' in (params or {})
+    frame_times = (props or {}).get('frameTimesMs')
+    no_ft = frame_times is None or (len(frame_times) > 0 and all(ft is None for ft in frame_times))
+
+    if has_led != no_ft:
+        raise ValueError(
+            f"{exp_name} epoch_block {block_id}: LED param {'present' if has_led else 'absent'} "
+            f"but frame times {'absent' if no_ft else 'present'} - manually resolve conflict"
+        )
+
+    inferred_led = has_led
+
+    if b_LED is not None and b_LED != inferred_led:
+        raise ValueError(
+            f"{exp_name} epoch_block {block_id}: "
+            f"Inferred LED ({inferred_led}) and user-provided b_LED ({b_LED}) disagree."
+            )
+
+    return has_led
+

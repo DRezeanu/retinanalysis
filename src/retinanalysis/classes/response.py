@@ -4,6 +4,7 @@ from retinanalysis.utils.datajoint_utils import (
     get_epochblock_timing,
     get_block_id_from_datafile,
     get_exp_summary,
+    resolve_b_LED,
 )
 
 from retinanalysis._config import config
@@ -17,6 +18,8 @@ import pickle
 from typing import Optional, List
 import matplotlib.pyplot as plt
 import os
+
+from warnings import warn
 
 SAMPLE_RATE = 20000  # MEA DAQ sample rate in Hz
 
@@ -41,40 +44,46 @@ class ResponseBlock:
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data.
 
-        b_LED (bool): Boolean value, set to True if stimulus was delivered by an LED.
-        This automatically overwrites b_load_fd to False since LED stimuli have no frame data.
+        b_LED (bool | None): Whether the stimulus was delivered by an LED. Inferred from the
+        epoch block; pass a value only to assert it, which raises on disagreement.
+        LED blocks force b_load_fd to False.
 
         verbose (bool): Boolean value, if True will print status messages to console. Default True.
     """
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        block_id: Optional[int] = None,
-        h5_file: Optional[str] = None,
-        pkl_file: Optional[str | dict] = None,
+        exp_name: str | None = None,
+        block_id: int | None = None,
+        h5_file: str | None = None,
+        pkl_file: str | dict  | None = None,
         b_load_fd: bool = True,
-        b_LED: bool = False,
+        b_LED: bool | None  = None,
         verbose: bool = True,
     ):
 
         self.verbose = verbose
-        self.b_LED = b_LED
-
-        if self.b_LED:
-            # No frame data for LED blocks
-            b_load_fd = False
 
         if pkl_file is None:
-            if self.verbose:
-                print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError(
                     "Either exp_name and block_id or pkl_file must be provided."
                 )
-        else:
+            self.b_LED = resolve_b_LED(
+                block_id = block_id,
+                b_LED = b_LED,
+                exp_name = exp_name,
+            )
+
             if self.verbose:
-                print(f"Initializing ResponseBlock from pickle file.")
+                print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
+        else:
+            if exp_name is None and block_id is None:
+                if self.verbose:
+                    print(f"Initializing ResponseBlock from pickle file.")
+            else:
+                if self.verbose:
+                    print(f"Initializing ResponseBlock for {exp_name} block {block_id} from pickle file")
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
                 if self.verbose:
@@ -85,6 +94,30 @@ class ResponseBlock:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
+
+            if not hasattr(self, 'b_LED'):
+                # Pickle pre-dates the creation of the b_LED parameter, these objects
+                # are non-LED by default
+                self.b_LED = b_LED if b_LED is not None else False
+                if b_LED is None:
+                    warn(
+                        "Pickle predates b_LED, assuming false. "
+                        "Pass b_LED explicitly to overwrite."
+                    )
+
+            elif b_LED is not None and b_LED != self.b_LED:
+                warn(
+                    f"Pickle file has b_LED = {self.b_LED} but user provided {b_LED}\n"
+                    f"Using b_LED = {self.b_LED}"
+                )
+
+            if verbose != self.verbose:
+                warn(
+                    f"Pickle file has verbose = {self.verbose} but user provided {verbose}\n"
+                    f"Using verbose = {verbose}"
+                )
+            self.verbose = verbose
+
             if self.verbose:
                 print(f"ResponseBlock loaded from {pkl_file}")
             return
@@ -92,6 +125,11 @@ class ResponseBlock:
         self.exp_name = exp_name
         self.block_id = block_id
         self.h5_file = h5_file
+
+        if self.b_LED:
+            # No frame data for LED blocks
+            b_load_fd = False
+
         self.d_timing = get_epochblock_timing(
             self.exp_name, self.block_id, b_LED=self.b_LED
         )
@@ -116,7 +154,7 @@ class ResponseBlock:
         )
 
     def plot_frame_monitor(self, e_idx=0, xlim=(0, 1)):
-        f, ax = plt.subplots(figsize=(10, 4))
+        _, ax = plt.subplots(figsize=(10, 4))
         fd = self.frame_data[e_idx]
         time = np.arange(fd.shape[0]) / self.frame_sample_rate
         ax.plot(time, fd)
@@ -169,8 +207,9 @@ class SCResponseBlock(ResponseBlock):
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data.
 
-        b_LED (bool): Boolean value, set to True if stimulus was delivered by an LED.
-        This automatically overwrites b_load_fd to False since LED stimuli have no frame data.
+        b_LED (bool | None): Whether the stimulus was delivered by an LED. Inferred from the
+        epoch block; pass a value only to assert it, which raises on disagreement.
+        LED blocks force b_load_fd to False.
 
         verbose (bool): Boolean value, if True will print status messages to console. Default True.
 
@@ -179,13 +218,13 @@ class SCResponseBlock(ResponseBlock):
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        block_id: Optional[int] = None,
-        h5_file: Optional[str] = None,
-        pkl_file: Optional[str] = None,
+        exp_name: str | None = None,
+        block_id: int | None = None,
+        h5_file: str | None = None,
+        pkl_file: str | None = None,
         b_spiking: bool = False,
         b_load_fd: bool = True,
-        b_LED: bool = False,
+        b_LED: bool | None = None,
         verbose: bool = True,
         **detector_kwargs,
     ):
@@ -252,9 +291,9 @@ class MEAResponseBlock(ResponseBlock):
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data. Default is False.
 
-        b_LED (bool): Boolean value, if True the stimulus used for this datafile was delivered using an
-        LED rather than a microdisplay or lightcrafter. This automatically overwrites b_load_fd to False
-        since LED stimuli have no frame monitor data.
+        b_LED (bool | None): Whether the stimulus was delivered by an LED rather than a
+        microdisplay or lightcrafter. Inferred from the epoch block; pass a value only to
+        assert it, which raises on disagreement. LED blocks force b_load_fd to False.
 
         verbose (bool): Boolean value, if True all status messages will be printed to the console as
         the response block is created. Default is True.
@@ -262,14 +301,14 @@ class MEAResponseBlock(ResponseBlock):
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        datafile_name: Optional[str] = None,
+        exp_name: str | None = None,
+        datafile_name: str | None = None,
         ss_version: str = "kilosort2.5",
-        pkl_file: Optional[str] = None,
-        h5_file: Optional[str] = None,
+        pkl_file: str | None = None,
+        h5_file: str | None = None,
         include_ei: bool = True,
         b_load_fd: bool = False,
-        b_LED: bool = False,
+        b_LED: bool | None = None,
         b_load_vcd: bool = True,
         verbose: bool = True,
     ):
@@ -625,7 +664,10 @@ class MEAResponseGroup:
     ):
 
         self.verbose = verbose
-        self.b_LED = ls_blocks[0].b_LED
+
+        if not all(block.b_LED == ls_blocks[0].b_LED for block in ls_blocks):
+            raise ValueError("All ResponseBlocks must have the same b_LED value")
+
 
         if not all(block.exp_name == ls_blocks[0].exp_name for block in ls_blocks):
             raise ValueError("All ResponseBlocks must have the same exp_name")
@@ -652,6 +694,8 @@ class MEAResponseGroup:
             print(
                 f"\nGenerating MEA Response Block from {ls_blocks[0].protocol_name} datafiles"
             )
+
+        self.b_LED = ls_blocks[0].b_LED
 
         # Pull only cell ids that are common to all blocks in this group
         all_ids = [set(block.cell_ids) for block in ls_blocks]
@@ -750,7 +794,7 @@ class MEAResponseGroup:
                         self.frame_data = np.reshape(
                             frame_data, (-1, frame_data.shape[2])
                         )
-                    except Exception as e:
+                    except Exception:
                         print(
                             "Could not convert fame data to numpy array, trying object array"
                         )
@@ -766,7 +810,7 @@ class MEAResponseGroup:
                         self.frame_data = np.reshape(
                             frame_data, (-1, frame_data.shape[2])
                         )
-                    except Exception as e:
+                    except Exception:
                         print(
                             "Could not convert fame data to numpy array, trying object array"
                         )
@@ -1070,7 +1114,7 @@ def create_mea_response_group(
     ls_datafile_names: List[str],
     ss_version: str = "kilosort2.5",
     b_load_fd: bool = False,
-    b_LED: bool = False,
+    b_LED: bool | None = None,
     b_load_vcd: bool = True,
     verbose: bool = False,
 ):
@@ -1088,8 +1132,9 @@ def create_mea_response_group(
 
         b_load_fd (bool): Boolean value, if True will load and included frame monitor data. Default False.
 
-        b_LED (bool): Boolean value, if True assume stimulus for tehse datafiles was deliverd by an LED.
-        This automatically sets b_load_fd to False since LED stimuli have no frame data. Default False.
+        b_LED (bool | None): Whether the stimuli for these datafiles were delivered by an LED.
+        Inferred from the epoch block; pass a value only to assert it, which raises on
+        disagreement. LED blocks force b_load_fd to False.
 
         b_load_vcd (bool): Boolean value, if True will load the vision data table.
             Mainly for debugging purposes to skip load time.
