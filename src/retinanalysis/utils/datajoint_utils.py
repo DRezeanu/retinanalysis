@@ -681,13 +681,14 @@ def get_display_params_for_block(
                     'Returning None for mean_frame_rate.')
                 mean_frame_rate = None
 
-        stage_frame_rate = epoch.at[0, 'parameters'].get('monitorRefreshRate')
 
         # Check for pattern mode
         if (pattern_rate is not None) and (pattern_rate > 0):
             mode = 'Pattern'
+            stage_frame_rate = pattern_rate
         else:
             mode = 'Video'
+            stage_frame_rate = epoch.at[0, 'parameters'].get('monitorRefreshRate')
 
     if verbose:
         print(f"\nFor experiment {exp_name} and block {block_id}:")
