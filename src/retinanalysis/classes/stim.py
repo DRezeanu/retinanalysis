@@ -5,7 +5,8 @@ from retinanalysis.utils.datajoint_utils import (
     get_epoch_data_from_exp,
     get_block_id_from_datafile,
     get_noise_name_by_exp,
-    get_display_params_by_exp,
+    get_display_params_for_block,
+    resolve_b_LED,
 )
 import pandas as pd
 from typing import List
@@ -14,6 +15,7 @@ import pickle
 from typing import Optional
 from retinanalysis._config import config
 import os
+from warnings import warn
 
 D_REGEN_FXNS = {
     # 'manookinlab.protocols.FastNoise',
@@ -36,38 +38,74 @@ class StimBlock:
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        block_id: Optional[int] = None,
-        ls_params: Optional[list] = None,
-        b_LED: Optional[bool] = False,
+        exp_name: str | None = None,
+        block_id: int | None = None,
+        ls_params: list | None = None,
+        b_LED: bool | None = None,
         verbose: bool = True,
-        pkl_file: Optional[str] = None,
+        pkl_file: str | None = None,
     ):
         self.verbose = verbose
-        self.b_LED = b_LED
         if pkl_file is None:
-            if verbose:
-                print(f"Initializing StimBlock for {exp_name} block {block_id}")
             if exp_name is None or block_id is None:
                 raise ValueError(
                     "Either exp_name and block_id or pkl_file must be provided."
                 )
-        else:
+            self.b_LED = resolve_b_LED(
+                block_id = block_id,
+                b_LED = b_LED,
+                exp_name = exp_name,
+            )
+
             if verbose:
-                print(
-                    f"Initializing StimBlock for {exp_name} block {block_id} from pickle file"
-                )
+                print(f"Initializing StimBlock for {exp_name} block {block_id}")
+        else:
+            if exp_name is None or block_id is None:
+                if verbose:
+                    print(
+                        f"Initializing StimBlock from pickle file"
+                    )
+            else:
+                if verbose:
+                    print(
+                        f"Initializing StimBlock for {exp_name} block {block_id} from pickle file"
+                    )
             # Load from pickle file if string, otherwise must be a dict
             if isinstance(pkl_file, str):
-                print(f"  pkl_file: {pkl_file}")
+                if self.verbose:
+                    print(f"  pkl_file: {pkl_file}")
                 with open(pkl_file, "rb") as f:
                     d_out = pickle.load(f)
             else:
                 d_out = pkl_file
                 pkl_file = "input dict."
             self.__dict__.update(d_out)
+
+            if not hasattr(self, 'b_LED'):
+                # Pickle pre-dates the creation of the b_LED parameter, these objects
+                # are non-LED by default
+                self.b_LED = b_LED if b_LED is not None else False
+                if b_LED is None:
+                    warn(
+                        "Pickle predates b_LED, assuming false. "
+                        "Pass b_LED explicitly to overwrite."
+                    )
+            elif b_LED is not None and b_LED != self.b_LED:
+                warn(
+                    f"Pickle file has b_LED = {self.b_LED} but user provided {b_LED}\n"
+                    f"Using b_LED = {self.b_LED}"
+                )
+
+            if verbose != self.verbose:
+                warn(
+                    f"Pickle file has verbose = {self.verbose} but user provided {verbose}\n"
+                    f"Using verbose = {verbose}"
+                )
+                self.verbose = verbose
+
             if verbose:
                 print(f"StimBlock loaded from {pkl_file}")
+
             return
 
         self.exp_name = exp_name
@@ -89,7 +127,11 @@ class StimBlock:
         self.df_epochs = df_epochs
         self.parameter_names = list(df_epochs.at[0, "epoch_parameters"].keys())
 
-        self.d_display = get_display_params_by_exp(self.exp_name, verbose=self.verbose)
+        self.d_display = get_display_params_for_block(
+            exp_name=self.exp_name,
+            block_id=self.block_id,
+            verbose=self.verbose,
+        )
         self.stim_data: dict | None = None
 
     def regenerate_stimulus(self, ls_epochs: Optional[int | list] = None, **kwargs):
@@ -159,12 +201,12 @@ class MEAStimBlock(StimBlock):
 
     def __init__(
         self,
-        exp_name: Optional[str] = None,
-        datafile_name: Optional[str] = None,
-        ls_params: Optional[list] = None,
-        b_LED: Optional[bool] = False,
+        exp_name: str | None = None,
+        datafile_name: str | None = None,
+        ls_params: list | None = None,
+        b_LED: bool | None = None,
         verbose: bool = True,
-        pkl_file: Optional[str] = None,
+        pkl_file: str | None = None,
     ):
         # If pkl_file is provided, block_id can be None.
         block_id = None
@@ -458,8 +500,8 @@ class MEAStimGroup:
 def create_mea_stim_group(
     exp_name,
     ls_datafile_names,
-    ls_params: Optional[list] = None,
-    b_LED: Optional[bool] = False,
+    ls_params: list | None = None,
+    b_LED: bool | None = None,
     verbose: bool = False,
 ):
 
