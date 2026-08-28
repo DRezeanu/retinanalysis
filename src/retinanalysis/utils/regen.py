@@ -40,30 +40,122 @@ def load_mp4(str_mp4, b_crop_screencap=True, display_dims=(600, 800)):
 def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
     ls_unique_frames = []
     ls_repeat_frames = []
+
+    # Set default none values
+    unique_frames = None
+    repeat_frames = None
+
+    # If pattern rate is > 0 we know we're in pattern mode
+    pattern_rate = df_epochs.at[0, 'epoch_parameters'].get('lightCrafterPatternRate')
+
     for e_idx in df_epochs.index:
         fts = df_epochs.at[e_idx, "frame_times_ms"]
+        if fts[0] != 0.0 and fts[1] < 20.0:
+            # First frame time isn't 0, append 0 if appropriate
+            fts.insert(0, 0.0)
+
         pre_time = df_epochs.at[e_idx, "preTime"]
         unique_time = df_epochs.at[e_idx, "epoch_parameters"]["uniqueTime"]
         repeat_time = df_epochs.at[e_idx, "epoch_parameters"]["repeatTime"]
 
-        # TODO get saved out unique_frames, and compute total frames with state.time logic, which should be equivalent to below method.
-        unique_frames = len(
-            np.where(np.logical_and((fts > pre_time), (fts <= pre_time + unique_time)))[
-                0
-            ]
-        )
-        repeat_frames = len(
-            np.where(
-                np.logical_and(
-                    (fts > pre_time + unique_time),
-                    (fts <= pre_time + unique_time + repeat_time),
-                )
-            )[0]
-        )
+        # Current and recent versions of Spatial noise save out the unique_frames and repeat_frames
+        # used for the actual generation of frames in 'setStixels', 'setBYStixels' and 'setRGBStixels'
+        # This specifically does NOT fire for pattern mode because pattern mode uses state.time not
+        # state.frame to compute flips
+        if pattern_rate == 0:
+            unique_frames = df_epochs.at[e_idx, 'epoch_parameters'].get('unique_frames')
+            repeat_frames = df_epochs.at[e_idx, 'epoch_parameters'].get('repeat_frames')
+
+        if unique_frames is None:
+        # Use pre_time and unique_time to fetch unique_frames instead
+            unique_frames = len(
+                np.where(np.logical_and((fts > pre_time), (fts <= pre_time + unique_time)))[
+                    0
+                ]
+            )
+        if repeat_frames is None:
+        # Use pre_time and repeat_time to fetch the repeat_frames instead
+            repeat_frames = len(
+                np.where(
+                    np.logical_and(
+                        (fts > pre_time + unique_time),
+                        (fts <= pre_time + unique_time + repeat_time),
+                    )
+                )[0]
+            )
+
         ls_unique_frames.append(unique_frames)
         ls_repeat_frames.append(repeat_frames)
 
     return ls_unique_frames, ls_repeat_frames
+
+def get_spatial_noise_frame_sequence(
+    df_epochs: pd.DataFrame,
+    d_display: dict
+) -> tuple[list, list]:
+    frame_times = df_epochs['frame_times_ms'].to_list()
+
+    # If no zero has been appended, append one. The value 35
+    # is to add a zero even if there is an immediate dropped 
+    # frame. Any more than that is likely a deadband
+    for ft in frame_times:
+        if ft[0] != 0 and ft[0] < 35:
+            ft.insert(0,0.0)
+
+    epoch_times = [
+        df_epochs.loc[i, 'epoch_parameters']['preTime']
+        + df_epochs.loc[i, 'epoch_parameters']['stimTime']
+        + df_epochs.loc[i, 'epoch_parameters']['tailTime']
+        for i in df_epochs.index
+    ]
+    mean_frame_rate = d_display['mean_frame_rate']
+    upsample_rate = 1
+    if d_display['mode'] == 'pattern':
+        pattern_rate = df_epochs.at[0, 'epoch_parameters'].get('lightCrafterPatternRate')
+        monitor_refresh = df_epochs.at[0, 'epoch_parameters'].get('monitorRefreshRate')
+        if pattern_rate is None or monitor_refresh is None:
+            raise ValueError(
+                f'{df_epochs.at[0, "exp_name"]} block {df_epochs.at[0, "block_id"]} is a '
+                'pattern rate block but monitor refresh or pattern rate are None'
+            )
+        upsample_rate = np.round(monitor_refresh/pattern_rate).astype(int)
+        if d_display['mean_frame_rate'] < 65:
+            # This experiment's frame times weren't upsampled
+            mean_frame_rate = d_display['mean_frame_rate']*upsample_rate
+
+    # Maximum number of frames generated per epoch
+    max_frames = [e_time*1e-3*mean_frame_rate for e_time in epoch_times]
+
+    # pull pre frames from epoch_params if it's in there
+    pre_frames = [
+        int(df_epochs.loc[i, 'epoch_parameters'].get('pre_frames')) 
+        for i in df_epochs.index
+    ] 
+
+    # Calculate it if it's not
+    if any(frame is None for frame in pre_frames):
+        pre_frames = [
+            np.round(df_epochs.loc[i, 'epoch_parameters'].get('preTime')
+            *1e-3
+            *d_display['stage_frame_rate']).astype(int) 
+            for i in df_epochs.index
+        ]
+
+
+    frame_sequences = []
+    frame_drops = []
+    for e_fts in frame_times:
+        dt = np.diff(e_fts)
+        nominal_ft = 1/mean_frame_rate*1e3
+        n_missed = np.round(dt/nominal_ft).astype(int) - 1
+        drop_idx = np.where(n_missed >0 )[0]
+        slot_counts = np.concatenate([1 + n_missed, [1]])
+        seq_idx = np.repeat(np.arange(len(e_fts)), slot_counts)
+
+        frame_sequences.append(seq_idx.tolist())
+        frame_drops.append(drop_idx.tolist())
+
+    return frame_sequences, frame_drops
 
 
 def make_spatial_noise(
@@ -77,6 +169,8 @@ def make_spatial_noise(
     ls_frames = []
     ls_steps = []
     ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs)
+
+
     for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
         d_e_params = df_epochs.at[e_idx, "epoch_parameters"]
         d_meta = {
@@ -92,9 +186,12 @@ def make_spatial_noise(
             "seed": int(d_e_params["seed"]),
             "frameDwell": d_e_params["frameDwell"],
         }
-        if "canvasSize" in d_e_params:
-            d_meta["canvasSize"] = d_e_params["canvasSize"]
-        else:
+
+        # Dict 'get' method returns none if key is absent
+        d_meta['canvasSize'] = d_e_params.get('canvasSize')
+
+        # If not in dict and canvas_size not given, assign default
+        if d_meta['canvasSize'] is None:
             if canvas_size is None:
                 # Default canvas size
                 canvas_size = (1140, 1824)
@@ -102,6 +199,8 @@ def make_spatial_noise(
                     f"canvasSize not in epoch params and not provided, defaulting to {canvas_size}"
                 )
             d_meta["canvasSize"] = canvas_size
+
+        # Add optional arguments that may or may not exist
         if "gaussianFilter" in d_e_params:
             d_meta["gaussianFilter"] = d_e_params["gaussianFilter"]
         if "filterSdStixels" in d_e_params:
@@ -113,10 +212,14 @@ def make_spatial_noise(
             d_meta["micronsPerPixel"] = d_e_params["micronsPerPixel"]
         if "repeating_seed" in d_e_params:
             d_meta["repeating_seed"] = int(d_e_params["repeating_seed"])
+
         e_frames, e_steps = get_spatial_noise_frames(**d_meta)
         ls_frames.append(e_frames)
         ls_steps.append(e_steps)
 
+    # TODO: If an epoch has the wrong number of frames, this will throw an error
+    # it only works if all epochs are the exact same length and have no dropped
+    # frames.
     frames = np.array(ls_frames)
     steps = np.array(ls_steps)
 
