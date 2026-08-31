@@ -179,8 +179,18 @@ install_uv() {
   info "Creating/updating repo-local .venv with Python $PYTHON_VERSION"
   uv venv --python "$PYTHON_VERSION" --allow-existing
 
+  # Windows venvs put the interpreter in Scripts/, POSIX in bin/. Probe for the file
+  # rather than testing $OSTYPE or uname -- Git Bash reports MINGW64_NT/MSYS_NT
+  # inconsistently across installs, and the file either exists or it does not.
+  local venv_python
+  if [[ -x "$SCRIPT_DIR/.venv/Scripts/python.exe" ]]; then
+    venv_python="$SCRIPT_DIR/.venv/Scripts/python.exe"
+  else
+    venv_python="$SCRIPT_DIR/.venv/bin/python"
+  fi
+
   local existing_python
-  existing_python="$(.venv/bin/python - <<'PY'
+  existing_python="$("$venv_python" - <<'PY'
 import sys
 print(".".join(map(str, sys.version_info[:3])))
 PY
@@ -188,13 +198,15 @@ PY
   check_python_requirement "$existing_python" "$PYTHON_REQUIREMENT"
   check_requested_major_minor_matches "$existing_python" "$PYTHON_VERSION" "repo-local .venv" "Remove .venv or request its Python major/minor version."
 
-  local venv_python="$SCRIPT_DIR/.venv/bin/python"
+  # vision-utils first, for the same reason as the conda path below: it is declared in
+  # [project.dependencies] but only resolvable through [tool.uv.sources]. uv reads that
+  # table so the order does not strictly matter here, but keeping both backends in the
+  # same order means one less thing that is true on only one path.
+  info "Installing local vision-utils package from submodule"
+  uv pip install --python "$venv_python" "$SCRIPT_DIR/lib/artificial-retina-software-pipeline/utilities"
 
   info "Installing retinanalysis editable"
   uv pip install --python "$venv_python" -e "$SCRIPT_DIR"
-
-  info "Installing local vision-utils package from submodule"
-  uv pip install --python "$venv_python" "$SCRIPT_DIR/lib/artificial-retina-software-pipeline/utilities"
 
   if [[ "$DEV" -eq 1 ]]; then
     info "Installing development/test dependencies"
@@ -233,11 +245,17 @@ install_conda() {
     conda create -y -n "$CONDA_ENV" "python=$PYTHON_VERSION"
   fi
 
-  info "Installing retinanalysis editable into conda env '$CONDA_ENV'"
-  conda run -n "$CONDA_ENV" python -m pip install -e "$SCRIPT_DIR"
-
+  # vision-utils MUST be installed before retinanalysis here. It is declared in
+  # [project.dependencies] but is resolvable only through [tool.uv.sources], which is a
+  # uv-only table -- pip ignores everything under [tool] that is not its own. So pip
+  # treats "vision-utils" as an ordinary requirement, looks for it on PyPI, and fails,
+  # because it is not published there. Installing it first leaves the requirement already
+  # satisfied by an installed distribution, so pip never queries an index for it.
   info "Installing local vision-utils package from submodule into conda env '$CONDA_ENV'"
   conda run -n "$CONDA_ENV" python -m pip install "$SCRIPT_DIR/lib/artificial-retina-software-pipeline/utilities"
+
+  info "Installing retinanalysis editable into conda env '$CONDA_ENV'"
+  conda run -n "$CONDA_ENV" python -m pip install -e "$SCRIPT_DIR"
 
   if [[ "$DEV" -eq 1 ]]; then
     info "Installing development/test dependencies into conda env '$CONDA_ENV'"
