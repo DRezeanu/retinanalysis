@@ -67,6 +67,13 @@ Note: Populating the database can take a long time the first time you do it.
 ```bash
 git clone https://github.com/DRezeanu/retinanalysis.git --recursive 
 ```
+
+The `--recursive` flag is required, not optional — `vision-utils` is a git submodule under
+`lib/`, is not published on PyPI, and can only be installed from that directory. If you already
+cloned without it:
+```bash
+git submodule update --init --recursive
+```
 ---
 ### Install with Conda
 2. Create a conda environment using python 3.11.13:
@@ -74,13 +81,21 @@ git clone https://github.com/DRezeanu/retinanalysis.git --recursive
 conda create --name retinanalysis python=3.11.13
 ```
 
-3. Activate conda environment, cd to the package directory, and use pip and conda to install all required dependencies:
+3. Activate conda environment, cd to the package directory, and install `vision-utils` from the
+bundled submodule **before** installing retinanalysis:
 ```bash
 conda activate retinanalysis
 cd repositories_dir/retinanalysis
+pip install lib/artificial-retina-software-pipeline/utilities
 pip install -e . 
 ```
-As of version 0.3.2, the dependency vision-utils that's recursively cloned into retinanalysis/lib/ is automatically installed.
+**The order matters.** `vision-utils` is listed in `[project.dependencies]`, but the path that
+points at the submodule lives in `[tool.uv.sources]`, which only uv reads — pip ignores it. So a
+plain `pip install -e .` on its own looks for `vision-utils` on PyPI, where it does not exist, and
+fails with `No matching distribution found for vision-utils`. Installing the submodule first
+leaves the requirement already satisfied, so pip never goes looking.
+
+`./install.sh conda` does both steps in the right order for you.
 
 ---
 ### Install with uv
@@ -97,14 +112,16 @@ uv venv --python 3.11.13
 ```bash
 # On Mac and Linux:
 source .venv/bin/activate
-# On Windows
-source .venv/Source/activate
+# On Windows (Git Bash)
+source .venv/Scripts/activate
 
 # On all systems
 cd ../*your_repositories_directory*/retinanalysis
 uv pip install -e . 
 ```
-As of version 0.3.2, the dependency vision-utils that's recursively cloned into retinanalysis/lib/ is automatically installed.
+Unlike pip, uv reads `[tool.uv.sources]` in `pyproject.toml`, so it resolves `vision-utils`
+straight from `lib/artificial-retina-software-pipeline/utilities` and installs it automatically.
+No separate step is needed on this path.
 
 ---
 ### Installation Note for Windows Users
