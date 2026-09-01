@@ -7,34 +7,7 @@ import cv2
 from typing import Optional
 from retinanalysis.classes.response import MEAResponseBlock, SCResponseBlock
 import numpy as np
-
-
-def get_df_dict_vals(df, key, col_name="epoch_parameters"):
-    vals = np.array([d[key] for d in df[col_name].values])
-    return vals
-
-
-def load_mp4(str_mp4, b_crop_screencap=True, display_dims=(600, 800)):
-    cap = cv2.VideoCapture(str_mp4)
-    rec_frames = []
-    while True:
-        ret, rec_frame = cap.read()
-        if not ret:
-            break
-        # Convert BGR frame to RGB
-        rec_frame = cv2.cvtColor(rec_frame, cv2.COLOR_BGR2RGB)
-        rec_frames.append(rec_frame)
-    cap.release()
-
-    rec_frames = np.array(rec_frames)
-    print(f"Loaded {len(rec_frames)} frames from {str_mp4}")
-    print(f"Frame shape: {rec_frames.shape}")
-
-    if b_crop_screencap:
-        n_rows, n_cols = display_dims
-        rec_frames = np.array([r_frame[:n_rows, :n_cols, :] for r_frame in rec_frames])
-        print(f"Cropped frame shape: {rec_frames.shape}")
-    return rec_frames
+from warnings import warn
 
 
 def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
@@ -50,9 +23,6 @@ def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
 
     for e_idx in df_epochs.index:
         fts = df_epochs.at[e_idx, "frame_times_ms"]
-        if fts[0] != 0.0 and fts[1] < 20.0:
-            # First frame time isn't 0, append 0 if appropriate
-            fts.insert(0, 0.0)
 
         pre_time = df_epochs.at[e_idx, "preTime"]
         unique_time = df_epochs.at[e_idx, "epoch_parameters"]["uniqueTime"]
@@ -95,33 +65,20 @@ def get_spatial_noise_frame_sequence(
 ) -> tuple[list, list]:
     frame_times = df_epochs['frame_times_ms'].to_list()
 
-    # If no zero has been appended, append one. The value 35
-    # is to add a zero even if there is an immediate dropped 
-    # frame. Any more than that is likely a deadband
-    for ft in frame_times:
-        if ft[0] != 0 and ft[0] < 35:
-            ft.insert(0,0.0)
-
     epoch_times = [
         df_epochs.loc[i, 'epoch_parameters']['preTime']
         + df_epochs.loc[i, 'epoch_parameters']['stimTime']
         + df_epochs.loc[i, 'epoch_parameters']['tailTime']
         for i in df_epochs.index
     ]
+    
+    # Determine if frame times were upsampled, and get an accurate
+    # frame rate if pattern mode
     mean_frame_rate = d_display['mean_frame_rate']
-    upsample_rate = 1
     if d_display['mode'] == 'pattern':
-        pattern_rate = df_epochs.at[0, 'epoch_parameters'].get('lightCrafterPatternRate')
-        monitor_refresh = df_epochs.at[0, 'epoch_parameters'].get('monitorRefreshRate')
-        if pattern_rate is None or monitor_refresh is None:
-            raise ValueError(
-                f'{df_epochs.at[0, "exp_name"]} block {df_epochs.at[0, "block_id"]} is a '
-                'pattern rate block but monitor refresh or pattern rate are None'
-            )
-        upsample_rate = np.round(monitor_refresh/pattern_rate).astype(int)
-        if d_display['mean_frame_rate'] < 65:
-            # This experiment's frame times weren't upsampled
-            mean_frame_rate = d_display['mean_frame_rate']*upsample_rate
+        mean_frame_rate = _resolve_pattern_mode_framerate(
+            d_display=d_display,
+        )
 
     # Maximum number of frames generated per epoch
     max_frames = [e_time*1e-3*mean_frame_rate for e_time in epoch_times]
@@ -141,21 +98,60 @@ def get_spatial_noise_frame_sequence(
             for i in df_epochs.index
         ]
 
-
+    # Get frame sequence, tracking dropped frames
     frame_sequences = []
-    frame_drops = []
-    for e_fts in frame_times:
+    dropped_frames = []
+    for e_idx, e_fts in enumerate(frame_times):
         dt = np.diff(e_fts)
         nominal_ft = 1/mean_frame_rate*1e3
         n_missed = np.round(dt/nominal_ft).astype(int) - 1
         drop_idx = np.where(n_missed >0 )[0]
         slot_counts = np.concatenate([1 + n_missed, [1]])
         seq_idx = np.repeat(np.arange(len(e_fts)), slot_counts)
+        if len(seq_idx) > max_frames[e_idx]:
+            raise ValueError(
+                f'Error in epoch {e_idx}:\n'
+                f'More frames detected ({len(seq_idx)}) than possible ({max_frames[e_idx]}).'
+            )
 
         frame_sequences.append(seq_idx.tolist())
-        frame_drops.append(drop_idx.tolist())
+        dropped_frames.append(drop_idx.tolist())
 
-    return frame_sequences, frame_drops
+    return frame_sequences, dropped_frames
+
+def interpolate_pattern_mode_frames(
+    frame_times: np.ndarray | list,
+    frame_sequence: np.ndarray | list,
+    upsample_rate: float,
+) -> np.ndarray | list:
+    """Helper function that interpolates frame times by pattern rate
+    if frame times haven't already been interpolated by the h5 parser,
+    accounting for dropped frames.
+    """
+    n_fts = len(frame_times)
+    n_actual_frames = len(frame_sequence)
+
+    if n_fts == n_actual_frames:
+        warn(
+            '\nNum frame times == num frames. No interpolatin needed. '
+            'Returning raw frame times.', stacklevel=2,
+        )
+        return frame_times
+
+    interpolated_fts = []
+
+    cycle_idx = np.concatenate([0], np.cumsum(frame_sequence))
+
+    frame_grid = np.arange(0, cycle_idx[-1]+1/upsample_rate, 1/upsample_rate)
+    interpolated_fts = np.interp(frame_grid, cycle_idx, frame_times)
+
+    if len(interpolated_fts) != n_actual_frames:
+        raise ValueError(
+            f'Something went wrong. Num interpolated frames ({len(interpolated_fts)}) '
+            f'does not match num actual frames ({n_actual_frames})'
+        )
+
+    return interpolated_fts
 
 
 def make_spatial_noise(
@@ -2142,3 +2138,59 @@ def make_all_doves_movies(
         print(f"Movies have different frame counts: {frame_counts}, keeping as list.")
 
     return d_out
+
+
+def get_df_dict_vals(df, key, col_name="epoch_parameters"):
+    vals = np.array([d[key] for d in df[col_name].values])
+    return vals
+
+
+def load_mp4(str_mp4, b_crop_screencap=True, display_dims=(600, 800)):
+    cap = cv2.VideoCapture(str_mp4)
+    rec_frames = []
+    while True:
+        ret, rec_frame = cap.read()
+        if not ret:
+            break
+        # Convert BGR frame to RGB
+        rec_frame = cv2.cvtColor(rec_frame, cv2.COLOR_BGR2RGB)
+        rec_frames.append(rec_frame)
+    cap.release()
+
+    rec_frames = np.array(rec_frames)
+    print(f"Loaded {len(rec_frames)} frames from {str_mp4}")
+    print(f"Frame shape: {rec_frames.shape}")
+
+    if b_crop_screencap:
+        n_rows, n_cols = display_dims
+        rec_frames = np.array([r_frame[:n_rows, :n_cols, :] for r_frame in rec_frames])
+        print(f"Cropped frame shape: {rec_frames.shape}")
+    return rec_frames
+
+
+def _resolve_pattern_mode_framerate(
+    d_display: dict,
+):
+    """Helper function to resolve the true mean frame rate of pattern mode blocks.
+    This is necessary because not all pattern mode experiments had their frame times
+    upsampled to account for pattern rate, so some have appropriate frame times and
+    others have 59.94Hz frame times.
+
+    Args:
+        d_display (dict): display params dictionary contained in a StimBlock object
+
+    Returns:
+        float: the mean frame rate after resolving for upsampling
+
+    Raises:
+        ValueError: if pattern rate or monitor refresh rate is missing or None
+    """
+
+    mean_frame_rate = d_display['mean_frame_rate']
+    upsample_rate = d_display['upsample_rate']
+
+    if d_display['mean_frame_rate'] < 65:
+        # This experiment's frame times weren't upsampled
+        mean_frame_rate = d_display['mean_frame_rate']*upsample_rate
+
+    return mean_frame_rate

@@ -370,7 +370,7 @@ def compute_stas_for_chunk(
 ) -> dict:
 
     if sg is None or rg is None:
-        if exp_name is None or (chunk_name is None or datafile_name is None):
+        if exp_name is None and (chunk_name is None or datafile_name is None):
             raise ValueError(
                 'Must provide one of the following parirs:\n'
                 '    - stim_group + response_group\n'
