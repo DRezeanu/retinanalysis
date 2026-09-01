@@ -1,13 +1,36 @@
-# RetinAnalysis
+/# RetinAnalysis
 MEA and Single Cell Ephys Analysis Package
 
-NOTE: Mac and Linux users can use their main terminal for the steps below. Windows users can use Git Bash (if using uv) or Anaconda Powershell (if using conda).
+## Choosing an installer
+
+There are two quickstart installers. They accept the same modes and the same options and perform the
+same steps, so pick whichever suits your shell:
+
+| Platform | Command | Where to run it |
+| --- | --- | --- |
+| macOS, Linux | `./install.sh uv` / `./install.sh conda` | Any terminal |
+| Windows + uv | `.\install.ps1 uv` | Windows PowerShell (or Git Bash, using `./install.sh uv`) |
+| Windows + conda | `.\install.ps1 conda` | **Anaconda PowerShell Prompt** (Start menu) |
+
+If Windows refuses to run the PowerShell script (`running scripts is disabled on this
+system`), either launch it as
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 uv
+```
+
+or allow local scripts once, for your user account only:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
 
 ## Quickstart
 
-These steps get a fresh macOS/Linux setup running with the local DataJoint database workflow. A Windows version is in the works. 
+These steps get a fresh macOS, Linux, or Windows setup running with the local DataJoint
+database workflow.
 
-1. Install Docker Engine. On macOS, install Docker Desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>.
+1. Install Docker Engine. On macOS and Windows, install Docker Desktop from <a href='https://docs.docker.com/desktop/'>https://docs.docker.com/desktop/</a>.
 
 2. Clone the repo with submodules and run the installer with either `uv` or `conda`:
 
@@ -17,6 +40,17 @@ cd retinanalysis
 ./install.sh uv
 # or:
 ./install.sh conda
+```
+
+On Windows, use the PowerShell installer instead (conda mode requires the Anaconda
+PowerShell Prompt):
+
+```powershell
+git clone https://github.com/DRezeanu/retinanalysis.git --recursive
+cd retinanalysis
+.\install.ps1 uv
+# or:
+.\install.ps1 conda
 ```
 
 The installer creates/uses the Python environment, installs `retinanalysis`, installs the local `vision-utils` package from the bundled submodule, and has the option of launching the config creation GUI. 
@@ -29,9 +63,20 @@ Useful installer options:
 ./install.sh uv --python 3.12
 ```
 
-- Option 1 above installs using uv, including the developer dependencies (pytest, etc.), and launches the config creation GUI. Note: Do NOT use the --config flag is installing headless on a server/over SSH, as it will try to open a GUI window.
+```powershell
+.\install.ps1 uv -Dev -Config
+.\install.ps1 conda -Dev -Env custom_name
+.\install.ps1 uv -Python 3.12
+```
+
+- Option 1 above installs using uv, including the developer dependencies (pytest, etc.), and launches the config creation GUI. Note: Do NOT use the --config flag if installing headless on a server/over SSH, as it will try to open a GUI window.
 - Option 2 above installs using conda, including the developer dependencies, and sets the conda environment name to 'custom_name' instead of the default 'retinanalysis'
-- Option 3 above installs using uv, without developer depencies, and overwrites the default python version 3.11.13 with 3.12. The version you give using --python must be greater than or equal to Python 3.10.
+- Option 3 above installs using uv, without developer dependencies, and overwrites the default python version 3.11.13 with 3.12. The version you give using `--python`/`-Python` must be greater than or equal to Python 3.10.
+
+Note that if a `.venv` or conda environment already exists and its Python major/minor
+version differs from the one you request, the installer stops and leaves that environment
+untouched rather than rebuilding it. Delete the environment first, or ask for the version
+it already has.
 
 3. If you did not use the --config flag, import retinanalysis and run config setup:
 
@@ -67,20 +112,57 @@ Note: Populating the database can take a long time the first time you do it.
 ```bash
 git clone https://github.com/DRezeanu/retinanalysis.git --recursive 
 ```
+
+The `--recursive` flag is required, not optional — `vision-utils` is a git submodule under
+`lib/`, is not published on PyPI, and can only be installed from that directory. If you already
+cloned without it:
+```bash
+git submodule update --init --recursive
+```
 ---
 ### Install with Conda
+
+#### First time using conda on this machine?
+
+conda 25.x and newer refuse to create any environment until you accept the Terms of
+Service for Anaconda's default channels. This surfaces the moment the installer calls
+`conda create`:
+
+```
+CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels.
+```
+
+Accept them once, then rerun the installer:
+
+```
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/msys2
+```
+
+#### Manual conda install
+
 2. Create a conda environment using python 3.11.13:
 ```bash
 conda create --name retinanalysis python=3.11.13
 ```
 
-3. Activate conda environment, cd to the package directory, and use pip and conda to install all required dependencies:
+3. Activate conda environment, cd to the package directory, and install `vision-utils` from the
+bundled submodule **before** installing retinanalysis:
 ```bash
 conda activate retinanalysis
 cd repositories_dir/retinanalysis
+pip install lib/artificial-retina-software-pipeline/utilities
 pip install -e . 
 ```
-As of version 0.3.2, the dependency vision-utils that's recursively cloned into retinanalysis/lib/ is automatically installed.
+**The order matters.** `vision-utils` is listed in `[project.dependencies]`, but the path that
+points at the submodule lives in `[tool.uv.sources]`, which only uv reads — pip ignores it. So a
+plain `pip install -e .` on its own looks for `vision-utils` on PyPI, where it does not exist, and
+fails with `No matching distribution found for vision-utils`. Installing the submodule first
+leaves the requirement already satisfied, so pip never goes looking.
+
+`./install.sh conda` (or `.\install.ps1 conda` on Windows) does both steps in the right
+order for you.
 
 ---
 ### Install with uv
@@ -97,19 +179,21 @@ uv venv --python 3.11.13
 ```bash
 # On Mac and Linux:
 source .venv/bin/activate
-# On Windows
-source .venv/Source/activate
+# On Windows (Git Bash)
+source .venv/Scripts/activate
 
 # On all systems
 cd ../*your_repositories_directory*/retinanalysis
 uv pip install -e . 
 ```
-As of version 0.3.2, the dependency vision-utils that's recursively cloned into retinanalysis/lib/ is automatically installed.
+Unlike pip, uv reads `[tool.uv.sources]` in `pyproject.toml`, so it resolves `vision-utils`
+straight from `lib/artificial-retina-software-pipeline/utilities` and installs it automatically.
+No separate step is needed on this path.
 
 ---
 ### Installation Note for Windows Users
 
-The above requirements have been tested to work on both Mac (MacOS Tahoe, Sequoia and Sonoma), Linux (Ubuntu 24.04 LTS), and the latest Windows 11 Pro 25H2.
+The above requirements have been tested to work on Mac (MacOS Tahoe, Sequoia and Sonoma), Linux (Ubuntu 24.04 LTS), and Windows 11 Pro 25H2 (both `install.ps1` backends and `install.sh uv` under Git Bash).
 
 On older Windows 11 versions, you may receive a DLL error when the package attempts to import matplotlib for the first time. To fix this, run:
 ```bash
@@ -117,7 +201,7 @@ pip uninstall Pillow *or* uv pip uninstall Pillow
 pip install -U Pillow *or* uv pip install -U Pillow
 ```
 ---
-5. Create a config file using the built-in config.setup() or config.setup_gui() methods, or manually create a config.toml file and place it in your platform-specific config directory. You can find a config template in the repo's /assets folder:
+5. Create a config file using the built-in config.setup() or config.setup_gui() methods, or manually create a config.toml file and place it in your platform-specific config directory. You can find a config template at `src/retinanalysis/assets/config_template.toml`:
 
 - Mac and Linux: ~/.config/retinanalysis/
 - Windows: C:\Users\YourUsername\AppData\Local\retinanalysis
