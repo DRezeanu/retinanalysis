@@ -445,7 +445,6 @@ def compute_stas_for_chunk(
                 e_end = n_epochs
 
             # Regen stim
-            print(f'Regenerating from epoch {e_start} to {e_end}')
             sb.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
             # [N, T, H, W, C]
             stim_frames = sb.stim_data["frames"]
