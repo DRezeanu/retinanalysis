@@ -392,6 +392,7 @@ def compute_stas_for_chunk(
     # Number of epochs to process in batch
     n_epochs_batch = 4
     n_blocks = len(sg.ls_blocks)
+    print(f'Processing {n_blocks} blocks')
     for i in range(n_blocks):
         sb = sg.ls_blocks[i]
         rb = rg.ls_blocks[i]
@@ -444,6 +445,7 @@ def compute_stas_for_chunk(
                 e_end = n_epochs
 
             # Regen stim
+            print(f'Regenerating from epoch {e_start} to {e_end}')
             sb.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
             # [N, T, H, W, C]
             stim_frames = sb.stim_data["frames"]

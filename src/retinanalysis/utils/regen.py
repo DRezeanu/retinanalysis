@@ -19,6 +19,7 @@ def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
     repeat_frames = None
 
     # If pattern rate is > 0 we know we're in pattern mode
+    df_epochs = df_epochs.reset_index(drop=True)
     pattern_rate = df_epochs.at[0, 'epoch_parameters'].get('lightCrafterPatternRate')
 
     for e_idx in df_epochs.index:
@@ -62,7 +63,7 @@ def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
 def get_spatial_noise_frame_sequence(
     df_epochs: pd.DataFrame,
     d_display: dict
-) -> tuple[list, list]:
+) -> tuple[list, list, list]:
     frame_times = df_epochs['frame_times_ms'].to_list()
 
     epoch_times = [
@@ -100,6 +101,7 @@ def get_spatial_noise_frame_sequence(
 
     # Get frame sequence, tracking dropped frames
     frame_sequences = []
+    sequence_times = []
     dropped_frames = []
     for e_idx, e_fts in enumerate(frame_times):
         dt = np.diff(e_fts)
@@ -117,7 +119,7 @@ def get_spatial_noise_frame_sequence(
         frame_sequences.append(seq_idx.tolist())
         dropped_frames.append(drop_idx.tolist())
 
-    return frame_sequences, dropped_frames
+    return frame_sequences, sequence_times, dropped_frames
 
 def interpolate_pattern_mode_frames(
     frame_times: np.ndarray | list,
@@ -164,6 +166,7 @@ def make_spatial_noise(
     # Create noise movies by epochs
     ls_frames = []
     ls_steps = []
+    print(f'{df_epochs}')
     ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs)
 
 
