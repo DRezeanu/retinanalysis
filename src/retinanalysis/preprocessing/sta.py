@@ -370,7 +370,7 @@ def compute_stas_for_chunk(
 ) -> dict:
 
     if sg is None or rg is None:
-        if exp_name is None or (chunk_name is None or datafile_name is None):
+        if exp_name is None and (chunk_name is None or datafile_name is None):
             raise ValueError(
                 'Must provide one of the following parirs:\n'
                 '    - stim_group + response_group\n'
@@ -392,6 +392,7 @@ def compute_stas_for_chunk(
     # Number of epochs to process in batch
     n_epochs_batch = 4
     n_blocks = len(sg.ls_blocks)
+    print(f'Processing {n_blocks} blocks')
     for i in range(n_blocks):
         sb = sg.ls_blocks[i]
         rb = rg.ls_blocks[i]

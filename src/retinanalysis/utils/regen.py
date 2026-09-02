@@ -7,63 +7,152 @@ import cv2
 from typing import Optional
 from retinanalysis.classes.response import MEAResponseBlock, SCResponseBlock
 import numpy as np
-
-
-def get_df_dict_vals(df, key, col_name="epoch_parameters"):
-    vals = np.array([d[key] for d in df[col_name].values])
-    return vals
-
-
-def load_mp4(str_mp4, b_crop_screencap=True, display_dims=(600, 800)):
-    cap = cv2.VideoCapture(str_mp4)
-    rec_frames = []
-    while True:
-        ret, rec_frame = cap.read()
-        if not ret:
-            break
-        # Convert BGR frame to RGB
-        rec_frame = cv2.cvtColor(rec_frame, cv2.COLOR_BGR2RGB)
-        rec_frames.append(rec_frame)
-    cap.release()
-
-    rec_frames = np.array(rec_frames)
-    print(f"Loaded {len(rec_frames)} frames from {str_mp4}")
-    print(f"Frame shape: {rec_frames.shape}")
-
-    if b_crop_screencap:
-        n_rows, n_cols = display_dims
-        rec_frames = np.array([r_frame[:n_rows, :n_cols, :] for r_frame in rec_frames])
-        print(f"Cropped frame shape: {rec_frames.shape}")
-    return rec_frames
+from warnings import warn
 
 
 def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
     ls_unique_frames = []
     ls_repeat_frames = []
+
+    # Set default none values
+    unique_frames = None
+    repeat_frames = None
+
+    # If pattern rate is > 0 we know we're in pattern mode
+    # Note: have to reset index because we sometimes give in parts of df_epochs
+    # without the index reset, so at[0, ... will throw an error because there's no
+    # index 0.
+    df_epochs = df_epochs.reset_index(drop=True)
+    pattern_rate = df_epochs.at[0, 'epoch_parameters'].get('lightCrafterPatternRate')
+
     for e_idx in df_epochs.index:
         fts = df_epochs.at[e_idx, "frame_times_ms"]
+
         pre_time = df_epochs.at[e_idx, "preTime"]
         unique_time = df_epochs.at[e_idx, "epoch_parameters"]["uniqueTime"]
         repeat_time = df_epochs.at[e_idx, "epoch_parameters"]["repeatTime"]
 
-        # TODO get saved out unique_frames, and compute total frames with state.time logic, which should be equivalent to below method.
-        unique_frames = len(
-            np.where(np.logical_and((fts > pre_time), (fts <= pre_time + unique_time)))[
-                0
-            ]
-        )
-        repeat_frames = len(
-            np.where(
-                np.logical_and(
-                    (fts > pre_time + unique_time),
-                    (fts <= pre_time + unique_time + repeat_time),
-                )
-            )[0]
-        )
+        # Current and recent versions of Spatial noise save out the unique_frames and repeat_frames
+        # used for the actual generation of frames in 'setStixels', 'setBYStixels' and 'setRGBStixels'
+        # This specifically does NOT fire for pattern mode because pattern mode uses state.time not
+        # state.frame to compute flips
+        if pattern_rate == 0:
+            unique_frames = df_epochs.at[e_idx, 'epoch_parameters'].get('unique_frames')
+            repeat_frames = df_epochs.at[e_idx, 'epoch_parameters'].get('repeat_frames')
+
+        if unique_frames is None:
+        # Use pre_time and unique_time to fetch unique_frames instead
+            unique_frames = len(
+                np.where(np.logical_and((fts > pre_time), (fts <= pre_time + unique_time)))[0]
+            )
+        if repeat_frames is None:
+        # Use pre_time and repeat_time to fetch the repeat_frames instead
+            repeat_frames = len(
+                np.where(
+                    np.logical_and(
+                        (fts > pre_time + unique_time),
+                        (fts <= pre_time + unique_time + repeat_time)
+                    ))[0]
+            )
+
         ls_unique_frames.append(unique_frames)
         ls_repeat_frames.append(repeat_frames)
 
     return ls_unique_frames, ls_repeat_frames
+
+def get_spatial_noise_frame_sequence(
+    df_epochs: pd.DataFrame,
+    d_display: dict
+) -> tuple[list, list, list]:
+    frame_times = df_epochs['frame_times_ms'].to_list()
+
+    epoch_times = [
+        df_epochs.loc[i, 'epoch_parameters']['preTime']
+        + df_epochs.loc[i, 'epoch_parameters']['stimTime']
+        + df_epochs.loc[i, 'epoch_parameters']['tailTime']
+        for i in df_epochs.index
+    ]
+    
+    # Determine if frame times were upsampled, and get an accurate
+    # frame rate if pattern mode
+    mean_frame_rate = d_display['mean_frame_rate']
+    if d_display['mode'] == 'pattern':
+        mean_frame_rate = _resolve_pattern_mode_framerate(
+            d_display=d_display,
+        )
+
+    # Maximum number of frames generated per epoch
+    max_frames = [e_time*1e-3*mean_frame_rate for e_time in epoch_times]
+
+    # pull pre frames from epoch_params if it's in there
+    pre_frames = [
+        int(df_epochs.loc[i, 'epoch_parameters'].get('pre_frames')) 
+        for i in df_epochs.index
+    ] 
+
+    # Calculate it if it's not
+    if any(frame is None for frame in pre_frames):
+        pre_frames = [
+            np.round(df_epochs.loc[i, 'epoch_parameters'].get('preTime')
+            *1e-3
+            *d_display['stage_frame_rate']).astype(int) 
+            for i in df_epochs.index
+        ]
+
+    # Get frame sequence, tracking dropped frames
+    frame_sequences = []
+    dropped_frames = []
+    for e_idx, e_fts in enumerate(frame_times):
+        dt = np.diff(e_fts)
+        nominal_ft = 1/mean_frame_rate*1e3
+        n_missed = np.round(dt/nominal_ft).astype(int) - 1
+        drop_idx = np.where(n_missed >0 )[0]
+        slot_counts = np.concatenate([1 + n_missed, [1]])
+        seq_idx = np.repeat(np.arange(len(e_fts)), slot_counts)
+        if len(seq_idx) > max_frames[e_idx]:
+            raise ValueError(
+                f'Error in epoch {e_idx}:\n'
+                f'More frames detected ({len(seq_idx)}) than possible ({max_frames[e_idx]}).'
+            )
+
+        frame_sequences.append(seq_idx.tolist())
+        dropped_frames.append(drop_idx.tolist())
+
+    return frame_sequences, dropped_frames
+
+def interpolate_pattern_mode_frames(
+    frame_times: np.ndarray | list,
+    frame_sequence: np.ndarray | list,
+    upsample_rate: float,
+) -> np.ndarray | list:
+    """Helper function that interpolates frame times by pattern rate
+    if frame times haven't already been interpolated by the h5 parser,
+    accounting for dropped frames.
+    """
+    n_fts = len(frame_times)
+    n_actual_frames = len(frame_sequence)
+
+    if n_fts == n_actual_frames:
+        warn(
+            '\nNum frame times == num frames. No interpolatin needed. '
+            'Returning raw frame times.', stacklevel=2,
+        )
+        return frame_times
+
+    interpolated_fts = []
+
+    cycle_idx = np.concatenate([0], np.cumsum(frame_sequence))
+
+    frame_grid = np.arange(0, cycle_idx[-1]+1/upsample_rate, 1/upsample_rate)
+    interpolated_fts = np.interp(frame_grid, cycle_idx, frame_times)
+
+    if len(interpolated_fts) != n_actual_frames:
+        raise ValueError(
+            f'Something went wrong. Num interpolated frames ({len(interpolated_fts)}) '
+            f'does not match num actual frames ({n_actual_frames})'
+        )
+
+    return interpolated_fts
 
 
 def make_spatial_noise(
@@ -77,6 +166,8 @@ def make_spatial_noise(
     ls_frames = []
     ls_steps = []
     ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs)
+
+
     for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
         d_e_params = df_epochs.at[e_idx, "epoch_parameters"]
         d_meta = {
@@ -92,9 +183,12 @@ def make_spatial_noise(
             "seed": int(d_e_params["seed"]),
             "frameDwell": d_e_params["frameDwell"],
         }
-        if "canvasSize" in d_e_params:
-            d_meta["canvasSize"] = d_e_params["canvasSize"]
-        else:
+
+        # Dict 'get' method returns none if key is absent
+        d_meta['canvasSize'] = d_e_params.get('canvasSize')
+
+        # If not in dict and canvas_size not given, assign default
+        if d_meta['canvasSize'] is None:
             if canvas_size is None:
                 # Default canvas size
                 canvas_size = (1140, 1824)
@@ -102,6 +196,8 @@ def make_spatial_noise(
                     f"canvasSize not in epoch params and not provided, defaulting to {canvas_size}"
                 )
             d_meta["canvasSize"] = canvas_size
+
+        # Add optional arguments that may or may not exist
         if "gaussianFilter" in d_e_params:
             d_meta["gaussianFilter"] = d_e_params["gaussianFilter"]
         if "filterSdStixels" in d_e_params:
@@ -113,10 +209,14 @@ def make_spatial_noise(
             d_meta["micronsPerPixel"] = d_e_params["micronsPerPixel"]
         if "repeating_seed" in d_e_params:
             d_meta["repeating_seed"] = int(d_e_params["repeating_seed"])
+
         e_frames, e_steps = get_spatial_noise_frames(**d_meta)
         ls_frames.append(e_frames)
         ls_steps.append(e_steps)
 
+    # TODO: If an epoch has the wrong number of frames, this will throw an error
+    # it only works if all epochs are the exact same length and have no dropped
+    # frames.
     frames = np.array(ls_frames)
     steps = np.array(ls_steps)
 
@@ -2039,3 +2139,59 @@ def make_all_doves_movies(
         print(f"Movies have different frame counts: {frame_counts}, keeping as list.")
 
     return d_out
+
+
+def get_df_dict_vals(df, key, col_name="epoch_parameters"):
+    vals = np.array([d[key] for d in df[col_name].values])
+    return vals
+
+
+def load_mp4(str_mp4, b_crop_screencap=True, display_dims=(600, 800)):
+    cap = cv2.VideoCapture(str_mp4)
+    rec_frames = []
+    while True:
+        ret, rec_frame = cap.read()
+        if not ret:
+            break
+        # Convert BGR frame to RGB
+        rec_frame = cv2.cvtColor(rec_frame, cv2.COLOR_BGR2RGB)
+        rec_frames.append(rec_frame)
+    cap.release()
+
+    rec_frames = np.array(rec_frames)
+    print(f"Loaded {len(rec_frames)} frames from {str_mp4}")
+    print(f"Frame shape: {rec_frames.shape}")
+
+    if b_crop_screencap:
+        n_rows, n_cols = display_dims
+        rec_frames = np.array([r_frame[:n_rows, :n_cols, :] for r_frame in rec_frames])
+        print(f"Cropped frame shape: {rec_frames.shape}")
+    return rec_frames
+
+
+def _resolve_pattern_mode_framerate(
+    d_display: dict,
+):
+    """Helper function to resolve the true mean frame rate of pattern mode blocks.
+    This is necessary because not all pattern mode experiments had their frame times
+    upsampled to account for pattern rate, so some have appropriate frame times and
+    others have 59.94Hz frame times.
+
+    Args:
+        d_display (dict): display params dictionary contained in a StimBlock object
+
+    Returns:
+        float: the mean frame rate after resolving for upsampling
+
+    Raises:
+        ValueError: if pattern rate or monitor refresh rate is missing or None
+    """
+
+    mean_frame_rate = d_display['mean_frame_rate']
+    upsample_rate = d_display['upsample_rate']
+
+    if d_display['mean_frame_rate'] < 65:
+        # This experiment's frame times weren't upsampled
+        mean_frame_rate = d_display['mean_frame_rate']*upsample_rate
+
+    return mean_frame_rate

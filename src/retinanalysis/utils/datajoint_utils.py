@@ -625,6 +625,7 @@ def get_display_params_for_block(
         disp_type='LED'
         stage_frame_rate = None
         mode = None
+        upsample_rate = None
     else:
         mu_per_pixel = epoch.at[0, 'parameters'].get('micronsPerPixel')
         canvas_size = epoch.at[0, 'parameters'].get('canvasSize')
@@ -682,13 +683,17 @@ def get_display_params_for_block(
                 mean_frame_rate = None
 
 
+        monitor_refresh = epoch.at[0, 'parameters'].get('monitorRefreshRate')
         # Check for pattern mode
         if (pattern_rate is not None) and (pattern_rate > 0):
             mode = 'Pattern'
             stage_frame_rate = pattern_rate
+            upsample_rate = np.round(pattern_rate/monitor_refresh).astype(int)
         else:
             mode = 'Video'
-            stage_frame_rate = epoch.at[0, 'parameters'].get('monitorRefreshRate')
+            stage_frame_rate = monitor_refresh
+            upsample_rate = 1
+
 
     if verbose:
         print(f"\nFor experiment {exp_name} and block {block_id}:")
@@ -701,6 +706,7 @@ def get_display_params_for_block(
         "n_wt": n_wt,
         "mean_frame_rate": mean_frame_rate,
         "stage_frame_rate": stage_frame_rate,
+        "upsample_rate": upsample_rate,
     }
 
     if verbose:
@@ -1049,6 +1055,15 @@ def get_epoch_data_from_exp(
     else:
         # Make frame_times_ms list using json.loads
         df["frame_times_ms"] = df["frame_times_ms"].apply(lambda x: json.loads(x))
+
+    # Not all frame times were parsed the same way, sometimes the 0 index is missing.
+    # This adds that index in if and only if the first frame time isn't 0 and the 
+    # that frame time is less than 35. This allows for a single dropped frame at the 
+    # beginning. Any more than that is probably a deadband and the 0 is not appended,
+    # since actual first frame was probably the recorded one.
+    for ft in df["frame_times_ms"]:
+        if ft[0] != 0.0 and ft[0] < 35.0:
+            ft.insert(0,0.0)
 
     # Add column for 'epoch_index'
     df.index = df.index.rename("epoch_index")
