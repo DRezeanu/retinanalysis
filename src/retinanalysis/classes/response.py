@@ -1035,11 +1035,8 @@ class MEAResponseGroup:
             return None
 
         frame_times_ms = self.d_timing["frameTimesMs"]
-        if int(self.exp_name[:8]) < 20230926:
-            marginal_frame_rate = 60.31807657  # Upper bound on the frame rate to make sure that we don't miss any frames.
-        else:
-            marginal_frame_rate = 59.941548817817917  # Upper bound on the frame rate to make sure that we don't miss any frames.
-        bin_rate = marginal_frame_rate * stride  # in Hz
+        assert self.mean_frame_rate is not None
+        bin_rate = self.mean_frame_rate * stride  # in Hz
 
         n_max_bins = self.get_max_bins_for_rate(bin_rate)
         n_cells = len(self.cell_ids)
@@ -1052,7 +1049,8 @@ class MEAResponseGroup:
                 e_sts = sts[j_epoch]
 
                 fts = frame_times_ms[j_epoch]
-                fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
+                # Removing for now, better methodology coming soon
+                # fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
                 ls_diff_frames.append(np.diff(fts))
 
                 # Interpolate by stride
