@@ -6,17 +6,16 @@ import datajoint as dj
 import os
 import pandas as pd
 import json
-import warnings
 from tqdm.auto import tqdm
 from IPython.display import display
 import h5py
-from typing import List, Optional
+from warnings import warn
 
 
 def plot_mosaics_for_datasets(
     df_exp_search: pd.DataFrame,
-    cell_types: List[str] = ["OnP", "OffP", "OnM", "OffM"],
-    preferred_typing_file: Optional[str] = None,
+    cell_types: list[str] = ["OnP", "OffP", "OnM", "OffM"],
+    preferred_typing_file: str | None = None,
     **kwargs,
 ):
     """
@@ -117,7 +116,7 @@ def djconnect(
     It still attempts an immediate connection when called explicitly.
     """
 
-    warnings.warn(
+    warn(
         "retinanalysis.djconnect() is deprecated. Configure DataJoint via "
         "datajoint.json or dj.config before calling database-backed helpers.",
         DeprecationWarning,
@@ -135,7 +134,9 @@ def djconnect(
         return None
 
 
-def populate_ndf_column(df_exp_summary):
+def populate_ndf_column(
+    df_exp_summary: pd.DataFrame
+) -> pd.DataFrame:
     """
     Helper function for pulling the NDF value (filter wheel ND being used) from
     the first epoch of each epoch block run on a given day, and adding it to the
@@ -167,7 +168,9 @@ def populate_ndf_column(df_exp_summary):
     return df_exp_summary
 
 
-def get_exp_summary(exp_name: str) -> Optional[pd.DataFrame]:
+def get_exp_summary(
+    exp_name: str,
+) -> pd.DataFrame | None:
     """
     Function for generating an experiment summary dataframe that has a list of all
     protocols run and their most relevant properties (sorting chunk, datafile name,
@@ -376,7 +379,7 @@ def search_protocol(str_search: str, verbose: bool = True):
 
 
 def get_datasets_from_protocol_names(
-    ls_protocol_names: str | List[str],
+    ls_protocol_names: str | list[str],
     b_exact_match: bool = False,
     verbose: bool = True,
 ):
@@ -653,7 +656,7 @@ def get_display_params_for_block(
             else:
                 disp_type = 'LCR'
         else:
-            warnings.warn(
+            warn(
                 f'Unknown display type, using stage class value: {stage_class}',
                 stacklevel=2,
             )
@@ -661,36 +664,23 @@ def get_display_params_for_block(
 
         frame_times = block.at[0, 'properties'].get('frameTimesMs')
         if not frame_times:
-            warnings.warn(
+            warn(
                 f'{exp_name} block {block_id} has no frame times.\n'
-                'Returning None for mean_frame_rate.'
+                'Returning None for mean_frame_rate.',
+                stacklevel=2
             )
             mean_frame_rate = None
         else:
-            elapsed = frames = 0.0
-            for e_ft in frame_times:
-                if e_ft is None or len(e_ft) < 2:
-                    continue
-                d = np.diff(e_ft)
-                elapsed += e_ft[-1] - e_ft[0]
-                frames += np.rint(d / np.median(d)).sum()   # 1 per interval, 2 across a drop
-            if frames:
-                mean_frame_rate = 1e3 * frames / elapsed
-            else:
-                warnings.warn(
-                    f'{exp_name} block {block_id} had no usable frame times.\n'
-                    'Returning None for mean_frame_rate.')
-                mean_frame_rate = None
-
+            mean_frame_rate = get_mean_frame_rate(frame_times)
 
         monitor_refresh = epoch.at[0, 'parameters'].get('monitorRefreshRate')
         # Check for pattern mode
         if (pattern_rate is not None) and (pattern_rate > 0):
-            mode = 'Pattern'
+            mode = 'pattern'
             stage_frame_rate = pattern_rate
             upsample_rate = np.round(pattern_rate/monitor_refresh).astype(int)
         else:
-            mode = 'Video'
+            mode = 'video'
             stage_frame_rate = monitor_refresh
             upsample_rate = 1
 
@@ -969,7 +959,7 @@ def get_epoch_data_from_exp(
     exp_name: str,
     block_id: int,
     b_LED: bool | None = None,
-    ls_params: Optional[List] = None,
+    ls_params: list | None = None,
     stim_time_name: str = "stimTime",
 ) -> pd.DataFrame:
 
@@ -1136,7 +1126,7 @@ def get_epochblock_timing(
         epoch_starts = d_data["block_properties"]["epochStarts"]
         epoch_ends = d_data["block_properties"]["epochEnds"]
 
-        # i think if symphony crashed during recording, there might be more 1 more start than end
+        # If symphony crashes during recording, there might be more 1 more start than end
         # this ignores the partial epoch
         if len(epoch_ends) == len(epoch_starts) - 1:
             print(
@@ -1238,27 +1228,30 @@ def get_epochblock_timing(
     df_transitions = epoch_query.to_pandas().drop_duplicates().reset_index()
 
     if len(df_transitions) != 1:
-        display(df_transitions)
+        print(df_transitions)
         raise ValueError(
             f"Expected a unique set of timing parameters for {exp_name} {block_id}, but found {len(df_transitions)}"
         )
 
     # Check if preTime, stimTime and tailTime exist, which they sometimes don't for LED stimuli.
     if df_transitions.at[0, "pre_time"] is None:
-        print(
-            f"Warning: preTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0."
+        warn(
+            f"preTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.",
+            stacklevel=2
         )
         df_transitions.loc[0, "pre_time"] = 0
 
     if df_transitions.at[0, "stim_time"] is None:
-        print(
-            f"Warning: stimTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0."
+        warn(
+            f"stimTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.",
+            stacklevel=2,
         )
         df_transitions.loc[0, "stim_time"] = 0
 
     if df_transitions.at[0, "tail_time"] is None:
-        print(
-            f"Warning: tailTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0."
+        warn(
+            f"tailTime not found for {exp_name} block {block_id}. Possible for LED stimuli, setting to 0.",
+            stacklevel=2,
         )
         df_transitions.loc[0, "tail_time"] = 0
 
@@ -1351,7 +1344,7 @@ def get_h5_file(exp_name: str) -> str:
 
 
 def get_epochblock_frame_data(
-    exp_name: str, block_id: int, str_h5: Optional[str] = None, verbose: bool = True
+    exp_name: str, block_id: int, str_h5: str | None = None, verbose: bool = True
 ):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
@@ -1414,7 +1407,10 @@ def get_epochblock_frame_data(
 
 
 def get_epochblock_amp_data(
-    exp_name: str, block_id: int, str_h5: Optional[str] = None, verbose: bool = True
+    exp_name: str,
+    block_id: int,
+    str_h5: str | None = None,
+    verbose: bool = True,
 ):
     if str_h5 is None:
         str_h5 = get_h5_file(exp_name)
@@ -1476,4 +1472,53 @@ def resolve_b_LED(
             )
 
     return has_led
+
+def get_mean_frame_rate(
+    frame_times: list | np.ndarray
+) -> float | None:
+    """Helper function for grabbing mean frame rate from a list of 
+    lists or a numpy array containing frame times for multiple epochs.
+    """
+
+    # Normalize to a list or list of lists:
+    def normalize(frame_times):
+        if isinstance(frame_times, np.ndarray) and frame_times.ndim >= 2:
+            return list(frame_times)
+       
+        first = next((ft for ft in frame_times if ft is not None), None)
+        if np.ndim(first) > 0: #type: ignore
+            return [ft for ft in frame_times if ft is not None]
+
+        return [frame_times]
+
+    frame_times = normalize(frame_times)
+
+    epochs = [e for e in frame_times if e is not None and len(e) >= 2]
+
+    if not epochs:
+        warn(
+            'No usable frame times.\n'
+            'Returning None for mean_frame_rate.',
+            stacklevel=2
+        )
+        return  None
+
+    # Get the frame period by concatenating diffs across 
+    # all epochs. Makes it less likely a crappy 3 frame epoch
+    # with a dropped frame causes problems
+    all_diffs = np.concatenate([np.diff(e) for e in epochs])
+    period = np.median(all_diffs)
+
+    # Calculate mean frame rate using diff / median 
+    # This is a nice trick, a dropped frame counts as two intervals
+    # so you're getting the mean frame interval, accounting for drops, as
+    # long as your median is ~ 1 frame length
+    elapsed = frames = 0.0
+    for e_ft in epochs:
+        d = np.diff(e_ft)
+        elapsed += e_ft[-1] - e_ft[0]
+        frames += np.rint(d / period).sum()
+
+    return 1e3 * frames / elapsed
+
 

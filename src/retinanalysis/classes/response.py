@@ -3,6 +3,7 @@ from retinanalysis.utils.datajoint_utils import (
     get_epochblock_frame_data,
     get_epochblock_timing,
     get_block_id_from_datafile,
+    get_mean_frame_rate,
     get_exp_summary,
     resolve_b_LED,
 )
@@ -18,7 +19,6 @@ import pickle
 from typing import Optional, List
 import matplotlib.pyplot as plt
 import os
-
 from warnings import warn
 
 SAMPLE_RATE = 20000  # MEA DAQ sample rate in Hz
@@ -133,6 +133,11 @@ class ResponseBlock:
         self.d_timing = get_epochblock_timing(
             self.exp_name, self.block_id, b_LED=self.b_LED
         )
+        
+        self.mean_frame_rate = None
+        if 'frameTimesMs' in self.d_timing:
+            frame_times = self.d_timing['frameTimesMs']
+            self.mean_frame_rate = get_mean_frame_rate(frame_times)
 
         if b_load_fd:
             frame_data, frame_sample_rate = get_epochblock_frame_data(
@@ -422,11 +427,15 @@ class MEAResponseBlock(ResponseBlock):
         n_max_bins = int(np.max(ls_bins))
         return n_max_bins
 
+
     def bin_spike_times_by_frames(self, stride: int = 1):
+
         if self.b_LED:
-            raise ValueError(
-                "Cannot bin spike times by frames for LED blocks, no frame data."
+            warn(
+                "Cannot bin spike times by frames for LED blocks, no frame data.\n"
+                "Returning None", stacklevel=2,
             )
+            return None
 
         frame_times_ms = self.d_timing["frameTimesMs"]
         if int(self.exp_name[:8]) < 20230926:
@@ -446,7 +455,7 @@ class MEAResponseBlock(ResponseBlock):
                 e_sts = sts[j_epoch]
 
                 fts = frame_times_ms[j_epoch]
-                fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
+                # fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
                 ls_diff_frames.append(np.diff(fts))
 
                 # Interpolate by stride
@@ -463,17 +472,18 @@ class MEAResponseBlock(ResponseBlock):
         ]
 
         self.binned_spikes = binned_spikes
-
-        # Taken from SD. Compute the mean frame rate.
-        ls_diff_frames = np.concatenate(ls_diff_frames)
-        ls_diff_frames = ls_diff_frames[ls_diff_frames < 20.0]
-        mean_frame_rate = 1000.0 / np.mean(ls_diff_frames)
-        print(f"Mean frame rate: {mean_frame_rate:.2f} Hz\n")
-        self.mean_frame_rate = mean_frame_rate
         self.bin_rate = bin_rate
         self.time_bins_ms = np.arange(0, n_max_bins) / self.bin_rate * 1000  # in ms
 
     def bin_spike_times_at_rate(self, bin_rate: float, b_count: bool = True):
+
+        if self.b_LED:
+            warn(
+                "Cannot bin spike times by frames for LED blocks, no frame data.\n"
+                "Returning None", stacklevel=2,
+            )
+            return None
+
         n_bins = self.get_max_bins_for_rate(bin_rate)
         time_bins = np.arange(n_bins + 1) / bin_rate * 1000  # in ms
         n_cells = len(self.cell_ids)
@@ -760,6 +770,12 @@ class MEAResponseGroup:
                 }
             )
 
+        self.mean_frame_rate = None
+        if 'frameTimesMs' in d_timing:
+            frame_times = d_timing['frameTimesMs']
+            self.mean_frame_rate = get_mean_frame_rate(frame_times)
+
+
         self.ls_blocks = ls_blocks
         self.block_ids = [block.block_id for block in ls_blocks]
         self.exp_name = ls_blocks[0].exp_name
@@ -1010,10 +1026,13 @@ class MEAResponseGroup:
         return n_max_bins
 
     def bin_spike_times_by_frames(self, stride: int = 1):
+
         if self.b_LED:
-            raise ValueError(
-                "Cannot bin spike times by frames for LED blocks, no frame data."
+            warn(
+                "Cannot bin spike times by frames for LED blocks, no frame data.\n"
+                "Returning None", stacklevel=2,
             )
+            return None
 
         frame_times_ms = self.d_timing["frameTimesMs"]
         if int(self.exp_name[:8]) < 20230926:
@@ -1052,15 +1071,18 @@ class MEAResponseGroup:
         self.binned_spikes = binned_spikes
 
         # Taken from SD. Compute the mean frame rate.
-        ls_diff_frames = np.concatenate(ls_diff_frames)
-        ls_diff_frames = ls_diff_frames[ls_diff_frames < 20.0]
-        mean_frame_rate = 1000.0 / np.mean(ls_diff_frames)
-        print(f"Mean frame rate: {mean_frame_rate:.2f} Hz\n")
-        self.mean_frame_rate = mean_frame_rate
         self.bin_rate = bin_rate
         self.time_bins_ms = np.arange(0, n_max_bins) / self.bin_rate * 1000  # in ms
 
     def bin_spike_times_at_rate(self, bin_rate: float, b_count: bool = True):
+
+        if self.b_LED:
+            warn(
+                "Cannot bin spike times by frames for LED blocks, no frame data.\n"
+                "Returning None", stacklevel=2,
+            )
+            return None
+
         n_bins = self.get_max_bins_for_rate(bin_rate)
         time_bins = np.arange(n_bins + 1) / bin_rate * 1000  # in ms
         n_cells = len(self.cell_ids)
