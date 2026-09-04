@@ -377,6 +377,7 @@ def compute_stas_for_chunk(
                 '    - exp_name + (chunk_name or datafile_name(s))'
             )
 
+        assert exp_name is not None
         sg, rg = get_stim_response_groups(
             exp_name=exp_name,
             chunk_name=chunk_name,
@@ -413,19 +414,14 @@ def compute_stas_for_chunk(
         # Make [N, K, T]
         bs = bs.transpose(1, 0, 2)
 
-        # Crop out pre frames
-        pre_time_s = rb.d_timing["pre_time_ms"] / 1e3
-
-        stage_frame_rate = rb.d_timing["stage_frame_rate"]
         # Count n frames where state.time (1/fr steps) is < pre_time_s
         # pre_frames = len(np.arange(0, pre_time_s, 1 / stage_frame_rate))
 
-        # MM sets visibility using state.time, but the actual checkerboard is shown using
-        # state.frame and a pre_frame offset (preF) calculated by taking floor(pre_time/1000 * 60)
-        pre_frames = np.floor(pre_time_s * 60).astype(int)
+        # Grabbing pre frames using a built in helper function that accounts for pattern
+        # mode.
+        pre_frames = regen._get_spatial_noise_pre_frames(sb.df_epochs, sb.d_display)[0]
 
         # LCR CORRECTION
-        pre_frames -= 1
         t_start = pre_frames * stride
         t_end = t_start + n_frames * stride
         if verbose:
@@ -446,6 +442,13 @@ def compute_stas_for_chunk(
 
             # Regen stim
             sb.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
+            
+            # Check that regen worked
+            if sb.stim_data is None:
+                raise ValueError(
+                    f'Unable to regenerate stimulus for {sb.exp_name} block {sb.block_id}'
+                )
+
             # [N, T, H, W, C]
             stim_frames = sb.stim_data["frames"]
 
