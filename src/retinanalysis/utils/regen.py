@@ -63,7 +63,7 @@ def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
 def get_spatial_noise_frame_sequence(
     df_epochs: pd.DataFrame,
     d_display: dict
-) -> tuple[list, list, list]:
+) -> tuple[list, list]:
     frame_times = df_epochs['frame_times_ms'].to_list()
 
     epoch_times = [
@@ -82,22 +82,16 @@ def get_spatial_noise_frame_sequence(
         )
 
     # Maximum number of frames generated per epoch
-    max_frames = [e_time*1e-3*mean_frame_rate for e_time in epoch_times]
+    max_frames = _get_spatial_noise_max_frames(
+        df_epochs=df_epochs,
+        d_display=d_display,
+    )
 
     # pull pre frames from epoch_params if it's in there
-    pre_frames = [
-        int(df_epochs.loc[i, 'epoch_parameters'].get('pre_frames')) 
-        for i in df_epochs.index
-    ] 
-
-    # Calculate it if it's not
-    if any(frame is None for frame in pre_frames):
-        pre_frames = [
-            np.round(df_epochs.loc[i, 'epoch_parameters'].get('preTime')
-            *1e-3
-            *d_display['stage_frame_rate']).astype(int) 
-            for i in df_epochs.index
-        ]
+    pre_frames = _get_spatial_noise_pre_frames(
+        df_epochs=df_epochs,
+        d_display=d_display,
+    )
 
     # Get frame sequence, tracking dropped frames
     frame_sequences = []
@@ -106,7 +100,7 @@ def get_spatial_noise_frame_sequence(
         dt = np.diff(e_fts)
         nominal_ft = 1/mean_frame_rate*1e3
         n_missed = np.round(dt/nominal_ft).astype(int) - 1
-        drop_idx = np.where(n_missed >0 )[0]
+        drop_idx = np.where(n_missed > 0)[0]
         slot_counts = np.concatenate([1 + n_missed, [1]])
         seq_idx = np.repeat(np.arange(len(e_fts)), slot_counts)
         if len(seq_idx) > max_frames[e_idx]:
@@ -2174,7 +2168,7 @@ def _resolve_pattern_mode_framerate(
 ):
     """Helper function to resolve the true mean frame rate of pattern mode blocks.
     This is necessary because not all pattern mode experiments had their frame times
-    upsampled to account for pattern rate, so some have appropriate frame times and
+    interpolated to account for pattern rate, so some have correct frame times and
     others have 59.94Hz frame times.
 
     Args:
@@ -2182,9 +2176,6 @@ def _resolve_pattern_mode_framerate(
 
     Returns:
         float: the mean frame rate after resolving for upsampling
-
-    Raises:
-        ValueError: if pattern rate or monitor refresh rate is missing or None
     """
 
     mean_frame_rate = d_display['mean_frame_rate']
@@ -2195,3 +2186,88 @@ def _resolve_pattern_mode_framerate(
         mean_frame_rate = d_display['mean_frame_rate']*upsample_rate
 
     return mean_frame_rate
+
+def _get_spatial_noise_pre_frames(
+    df_epochs: pd.DataFrame,
+    d_display: dict,
+) -> list:
+    """Helper function for determining the right amount of pre_frames
+    in a run of spatial noise. Appropriately accounts for pattern mode
+    and missing pre-frame.
+
+    Args:
+        d_display (dict): Display information dictionary contained in every stim
+            and response block.
+        df_epochs (DataFrame): df_epochs from MEAStimBlock or MEAResponseBlock
+
+    Returns:
+        list: number of pre frames per epoch, one for each epoch, accounting for
+            pattern mode interpolation. If all values are same, returns an int. 
+
+        NOTE: for now returning a list is redundant... every epoch should have the
+            same number of pre_frames. But it is possible to change the pre_time
+            per epoch if one so chooses so this function is built with that potential
+            future in mind.
+    """
+
+    mode = d_display['mode']
+    df_epochs = df_epochs.reset_index(drop=True)
+    pre_time = df_epochs.at[0, 'epoch_parameters']['preTime']
+    pre_time = [df_epochs.at[i, 'epoch_parameters']['preTime'] for i in df_epochs.index]
+    stage_frame_rate = d_display['stage_frame_rate']
+    upsample_rate = d_display['upsample_rate']
+    preset_pre_frames = [int(df_epochs.at[i, 'epoch_parameters'].get('pre_frames'))-1 for i in df_epochs.index]
+
+    if (mode == 'pattern') or (preset_pre_frames is None):
+        # Frame monitor flip rate
+        fm_rate = int(stage_frame_rate / upsample_rate)
+
+        # Nominal frame time on the frame monitor
+        nominal_fm_time = 1/fm_rate*1e3
+
+        # Number of preTime frame monitor flips, accounting for 
+        # the missing pre frame.
+        n_flips = [np.ceil(pre_time[i]/nominal_fm_time).astype(int)-1 for i in df_epochs.index]
+
+        # Upsample to appropriate frame rate
+        state_time_pre_frames = [int(n_flips[i]*upsample_rate)-1 for i in df_epochs.index]
+
+        return state_time_pre_frames
+
+    else:
+        return preset_pre_frames
+
+def _get_spatial_noise_max_frames(
+    df_epochs: pd.DataFrame,
+    d_display: dict,
+) -> list:
+    """Helper function for computing the maximum number of possible frames
+    in a spatial noise run, epoch by epoch.
+    """
+    df_epochs = df_epochs.reset_index(drop=True)
+    pre_time = [df_epochs.at[i, 'epoch_parameters'].get('preTime') for i in df_epochs.index]
+    stim_time = [df_epochs.at[i, 'epoch_parameters'].get('stimTime') for i in df_epochs.index]
+    tail_time = [df_epochs.at[i, 'epoch_parameters'].get('tailTime') for i in df_epochs.index]
+
+    if any(val is None for i in df_epochs.index for val in [pre_time[i], stim_time[i], tail_time[i]]):
+        pt_None = [i for i, x in enumerate(pre_time) if x is None]
+        st_None = [i for i, x in enumerate(stim_time) if x is None]
+        tt_None = [i for i, x in enumerate(tail_time) if x is None]
+
+        raise ValueError(
+            'Cannot compute total epoch time, pre, stim or tail time is None.\n'
+            f'    - pre_time is None for epochs: {pt_None}\n'
+            f'    - stim_time is None for epochs: {st_None}\n'
+            f'    - tail_time is None for epochs: {tt_None}\n'
+        )
+
+    total_time_ms = [pre_time[i]+stim_time[i]+tail_time[i] for i in df_epochs.index]
+    mean_frame_rate = d_display['mean_frame_rate']
+    if d_display['mode'] == 'pattern':
+        mean_frame_rate = _resolve_pattern_mode_framerate(d_display)
+    nominal_ft_ms = 1/mean_frame_rate*1e3
+
+    max_frames = [np.round(total_time_ms[i]/nominal_ft_ms).astype(int) for i in df_epochs.index]
+
+    return max_frames
+
