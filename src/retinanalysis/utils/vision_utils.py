@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from retinanalysis.classes.stim import MEAStimBlock, MEAStimGroup
     from visionloader import VisionCellDataTable
 
-from retinanalysis.utils import get_exp_summary
+from retinanalysis.utils.datajoint_utils import get_exp_summary, get_mean_frame_rate
 from retinanalysis._config import config
 
 import os
@@ -646,22 +646,49 @@ def get_spike_dict(
     return d_spike_times
 
 def bin_spike_times_by_frames(
-    resp: MEAResponseBlock | MEAResponseGroup,
+    frame_times: list | np.ndarray,
+    spike_times: list,
+    mean_frame_rate: float | None = None,
     stride: int = 1,
 ) -> list | np.ndarray:
+    """Function for binning spike times by frame times. Used inside MEAResponseBlock
+    to bin across all cells and epochs, but can be used here if a limited number of cells
+    and epochs need to be binned.
 
-    if resp.b_LED:
+    Args:
+        frame_times: list of lists or numpy array of frame time values in the shape
+            (n_epochs x n_frame_times)
+        
+        spike_times: list of lists of spike times, nested into the shape 
+            (n_cells x n_epochs x n_spike_times)
+
+        mean_frame_rate (optional): The mean frame rate to use for identifying
+            every monitor refresh, ignoring dropped frames. If None, one is computed
+            using ``retinanalysis.datajoint_utils.get_mean_frame_rate(frame_times)``
+            but if you're giving a subset of epochs for this calculation, it's better
+            to derive the mean from the whole response block. 
+
+        stride (optional): An integer step that can be used to interpolate and bin
+            at a multiple of the frame times.
+
+    Returns:
+        binned_spikes: a list of lists or numpy array of binned spike times in the shape
+            (n_cells, n_epochs, n_bins)
+
+    Raises:
+        ValueError: if the number of epochs in the frame_time array doesn't match the
+            number of epochs in each cell's spike_time array.
+    """
+
+    if mean_frame_rate is None:
+        mean_frame_rate = get_mean_frame_rate(frame_times)
+
+    if mean_frame_rate is None:
         raise ValueError(
-            'LED stimuli have no frame times.',
+            f'Unable to compute mean_frame_rate from the given frame times.'
         )
 
-    frame_times = resp.d_timing['frameTimesMs']
-    mean_frame_rate = resp.mean_frame_rate
-    assert mean_frame_rate is not None
-
     nominal_ft_ms = 1/mean_frame_rate*1e3
-    spike_times = resp.df_spike_times['spike_times'].to_list()
-
 
     if not all(len(c) == len(frame_times) for c in spike_times):
         raise ValueError(

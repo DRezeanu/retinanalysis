@@ -409,9 +409,12 @@ def compute_stas_for_chunk(
 
         # Bin spike times
         rb.bin_spike_times_by_frames(stride=stride)
+
         # [K, N, T]
         bs = rb.binned_spikes
+
         # Make [N, K, T]
+        assert isinstance(bs, np.ndarray)
         bs = bs.transpose(1, 0, 2)
 
         # Count n frames where state.time (1/fr steps) is < pre_time_s
@@ -423,11 +426,14 @@ def compute_stas_for_chunk(
 
         # LCR CORRECTION
         t_start = pre_frames * stride
+        print(f't_start is {t_start}')
+
         t_end = t_start + n_frames * stride
         if verbose:
             print(f"Block {i}: pre_frames={pre_frames}, binned_spikes shape={bs.shape}")
             print(f"Total frames: {n_frames}")
         bs = bs[:, :, t_start:t_end]
+
         if verbose:
             print(f"Cropped binned spikes shape: {bs.shape}")
 
