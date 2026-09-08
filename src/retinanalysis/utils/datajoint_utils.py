@@ -663,6 +663,8 @@ def get_display_params_for_block(
             disp_type=stage_class
 
         frame_times = block.at[0, 'properties'].get('frameTimesMs')
+        frame_times = normalize_frame_times(frame_times)
+
         if not frame_times:
             warn(
                 f'{exp_name} block {block_id} has no frame times.\n'
@@ -1045,15 +1047,8 @@ def get_epoch_data_from_exp(
     else:
         # Make frame_times_ms list using json.loads
         df["frame_times_ms"] = df["frame_times_ms"].apply(lambda x: json.loads(x))
+        df["frame_times_ms"] = normalize_frame_times(df["frame_times_ms"])
 
-    # Not all frame times were parsed the same way, sometimes the 0 index is missing.
-    # This adds that index in if and only if the first frame time isn't 0 and the 
-    # that frame time is less than 35. This allows for a single dropped frame at the 
-    # beginning. Any more than that is probably a deadband and the 0 is not appended,
-    # since actual first frame was probably the recorded one.
-    for ft in df["frame_times_ms"]:
-        if ft[0] != 0.0 and ft[0] < 35.0:
-            ft.insert(0,0.0)
 
     # Add column for 'epoch_index'
     df.index = df.index.rename("epoch_index")
@@ -1120,6 +1115,7 @@ def get_epochblock_timing(
     # For SC data, this has just frame_times_ms
     if not b_LED:
         d_timing["frameTimesMs"] = d_data["block_properties"]["frameTimesMs"]
+        d_timing["frameTimesMs"] = normalize_frame_times(d_timing["frameTimesMs"])
 
 
     if is_mea:
@@ -1521,4 +1517,34 @@ def get_mean_frame_rate(
 
     return 1e3 * frames / elapsed
 
+def normalize_frame_times(
+    frame_times: list,
+) -> list:
+    """Basic helper function that pre-pends a 0 if the first detected flip is 
+    less than 35. This allows for a dropped frame, but more than that and we 
+    assume it's a deadband.
 
+    Args:
+        frame_times (list): a list of lists in shape [n_epochs, n_frame_times]
+
+    Returns:
+        frame_times (list): sanitized frame times with 0 prepended
+
+    """
+    if not frame_times:
+        return frame_times
+    # Not all frame times were parsed the same way, sometimes the 0 index is missing.
+    # This adds that index in if and only if the first frame time isn't 0 and the 
+    # that frame time is less than 35. This allows for a single dropped frame at the 
+    # beginning. Any more than that is probably a deadband and the 0 is not appended,
+    # since actual first frame was probably the recorded one.
+
+    if any(isinstance(ft, list) for ft in frame_times):
+        for ft in frame_times:
+            if ft[0] != 0.0 and ft[0] < 35:
+                ft.insert(0, 0.0)
+    else:
+        if frame_times[0] != 0.0 and frame_times[0] < 35:
+            frame_times.insert(0,0.0)
+
+    return frame_times

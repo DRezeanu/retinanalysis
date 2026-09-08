@@ -152,7 +152,7 @@ class StimBlock:
             )
             f_regen = D_REGEN_FXNS[self.protocol_name]
             print(f"Using regeneration function: {f_regen.__name__}")
-            stim_data = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
+            stim_data = f_regen(self.df_epochs.loc[ls_epochs], self.d_display, **kwargs)
             self.stim_data = stim_data
             if isinstance(stim_data, dict):
                 print(f"Regenerated stimulus with keys: {list(stim_data.keys())}")
@@ -447,7 +447,7 @@ class MEAStimGroup:
             )
             f_regen = D_REGEN_FXNS[self.protocol_name]
             print(f"Using regeneration function: {f_regen.__name__}")
-            stim_data = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
+            stim_data = f_regen(self.df_epochs.loc[ls_epochs], self.d_display, **kwargs)
             self.stim_data = stim_data
             if isinstance(stim_data, dict):
                 print(f"Regenerated stimulus with keys: {list(stim_data.keys())}")

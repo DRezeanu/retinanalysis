@@ -10,20 +10,11 @@ import numpy as np
 from warnings import warn
 
 
-def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
+def get_n_frames_spatial_noise(df_epochs: pd.DataFrame, d_display: dict):
     ls_unique_frames = []
     ls_repeat_frames = []
 
-    # Set default none values
-    unique_frames = None
-    repeat_frames = None
-
-    # If pattern rate is > 0 we know we're in pattern mode
-    # Note: have to reset index because we sometimes give in parts of df_epochs
-    # without the index reset, so at[0, ... will throw an error because there's no
-    # index 0.
     df_epochs = df_epochs.reset_index(drop=True)
-    pattern_rate = df_epochs.at[0, 'epoch_parameters'].get('lightCrafterPatternRate')
 
     for e_idx in df_epochs.index:
         fts = df_epochs.at[e_idx, "frame_times_ms"]
@@ -32,11 +23,15 @@ def get_n_frames_spatial_noise(df_epochs: pd.DataFrame):
         unique_time = df_epochs.at[e_idx, "epoch_parameters"]["uniqueTime"]
         repeat_time = df_epochs.at[e_idx, "epoch_parameters"]["repeatTime"]
 
+        # Set default none values
+        unique_frames = None
+        repeat_frames = None
+
         # Current and recent versions of Spatial noise save out the unique_frames and repeat_frames
         # used for the actual generation of frames in 'setStixels', 'setBYStixels' and 'setRGBStixels'
         # This specifically does NOT fire for pattern mode because pattern mode uses state.time not
         # state.frame to compute flips
-        if pattern_rate == 0:
+        if d_display['mode'] == 'video':
             unique_frames = df_epochs.at[e_idx, 'epoch_parameters'].get('unique_frames')
             repeat_frames = df_epochs.at[e_idx, 'epoch_parameters'].get('repeat_frames')
 
@@ -64,15 +59,14 @@ def get_spatial_noise_frame_sequence(
     df_epochs: pd.DataFrame,
     d_display: dict
 ) -> tuple[list, list]:
+    """Function that recovers a frame sequence from frame times, accounting
+    for dropped frames. The frame squence is an index array 
+    """
+
+    df_epochs = df_epochs.reset_index(drop=True)
+
     frame_times = df_epochs['frame_times_ms'].to_list()
 
-    epoch_times = [
-        df_epochs.loc[i, 'epoch_parameters']['preTime']
-        + df_epochs.loc[i, 'epoch_parameters']['stimTime']
-        + df_epochs.loc[i, 'epoch_parameters']['tailTime']
-        for i in df_epochs.index
-    ]
-    
     # Determine if frame times were upsampled, and get an accurate
     # frame rate if pattern mode
     mean_frame_rate = d_display['mean_frame_rate']
@@ -83,12 +77,6 @@ def get_spatial_noise_frame_sequence(
 
     # Maximum number of frames generated per epoch
     max_frames = _get_spatial_noise_max_frames(
-        df_epochs=df_epochs,
-        d_display=d_display,
-    )
-
-    # pull pre frames from epoch_params if it's in there
-    pre_frames = _get_spatial_noise_pre_frames(
         df_epochs=df_epochs,
         d_display=d_display,
     )
@@ -133,9 +121,7 @@ def interpolate_pattern_mode_frames(
         )
         return frame_times
 
-    interpolated_fts = []
-
-    cycle_idx = np.concatenate([0], np.cumsum(frame_sequence))
+    cycle_idx = np.concatenate([[0], np.cumsum(frame_sequence)])
 
     frame_grid = np.arange(0, cycle_idx[-1]+1/upsample_rate, 1/upsample_rate)
     interpolated_fts = np.interp(frame_grid, cycle_idx, frame_times)
@@ -151,6 +137,7 @@ def interpolate_pattern_mode_frames(
 
 def make_spatial_noise(
     df_epochs: pd.DataFrame,
+    d_display: dict,
     center_row: int | None = None,
     center_col: int | None = None,
     n_pad: int | None = None,
@@ -159,7 +146,7 @@ def make_spatial_noise(
     # Create noise movies by epochs
     ls_frames = []
     ls_steps = []
-    ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs)
+    ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs, d_display)
 
 
     for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
@@ -890,6 +877,7 @@ def get_present_images_transitions(
 
 def load_all_present_images(
     df_epochs: pd.DataFrame,
+    d_display: dict,
     rb: MEAResponseBlock | SCResponseBlock,
     str_parent_path: str | None = None,
     ds_mu: float = 10.0,
@@ -989,6 +977,7 @@ def load_all_present_images(
 
 def make_variable_mean_bars(
     df_epochs: pd.DataFrame,
+    d_display: dict,
     exp_name: str,
     str_pkg_dir: str,
     b_lines_only: bool = True,
@@ -1156,7 +1145,11 @@ def make_variable_mean_bars(
 
 
 def make_bars_and_gain(
-    df_epochs: pd.DataFrame, exp_name: str, str_pkg_dir: str, b_lines_only: True
+    df_epochs: pd.DataFrame,
+    d_display: dict,
+    exp_name: str,
+    str_pkg_dir: str,
+    b_lines_only: bool = True,
 ):
 
     exp_name = int(exp_name[:8])
@@ -1358,9 +1351,10 @@ def regenerate_projector_gain(df_epochs, str_pkg_dir):
 
 def make_checkerboard_noise_project(
     df_epochs: pd.DataFrame,
+    d_display: dict,
     exp_name: str,
     str_pkg_dir: str,
-    b_lines_only: True,
+    b_lines_only: bool = True,
     b_noise_only: bool = True,
 ):
     exp_name = int(exp_name[:8])
@@ -1525,7 +1519,11 @@ def make_checkerboard_noise_project(
 
 
 def make_doves_perturbation_alpha(
-    df_epochs: pd.DataFrame, str_pkg_dir: str, exp_name: str, b_noise_only: bool = True
+    df_epochs: pd.DataFrame,
+    d_display: dict, 
+    str_pkg_dir: str,
+    exp_name: str,
+    b_noise_only: bool = True,
 ):
     # This protocol was basically bugged before 20250805,
     # So regen only for experiments after that date.
@@ -1693,9 +1691,10 @@ def make_doves_perturbation_alpha(
 
 def make_checkerboard_noise_project(
     df_epochs: pd.DataFrame,
+    d_display: dict,
     exp_name: str,
     str_pkg_dir: str,
-    b_lines_only: True,
+    b_lines_only: bool = True,
     b_noise_only: bool = True,
 ):
     exp_name = int(exp_name[:8])
@@ -1870,7 +1869,11 @@ def make_spot_image(ht, wt, center_row, center_col, diam, background, intensity)
     return img
 
 
-def make_expanding_spots(df_epochs: pd.DataFrame, ds_mu: float = 10.0):
+def make_expanding_spots(
+    df_epochs: pd.DataFrame,
+    d_display: dict,
+    ds_mu: float = 10.0,
+):
     # Get display parameters
     d_epoch_params = df_epochs.iloc[0]["epoch_parameters"]
     # Get screen size in (rows, cols)
@@ -2079,9 +2082,9 @@ def make_single_doves_movie(
 
 
 def make_all_doves_movies(
-    df_epochs,
+    df_epochs: pd.DataFrame,
+    d_display: dict,
     str_manookin_pkg_dir,
-    d_display,
     b_ds_to_stix=True,
     stix_dims=(127, 203),
     verbose=True,
@@ -2212,30 +2215,29 @@ def _get_spatial_noise_pre_frames(
 
     mode = d_display['mode']
     df_epochs = df_epochs.reset_index(drop=True)
-    pre_time = df_epochs.at[0, 'epoch_parameters']['preTime']
     pre_time = [df_epochs.at[i, 'epoch_parameters']['preTime'] for i in df_epochs.index]
     stage_frame_rate = d_display['stage_frame_rate']
     upsample_rate = d_display['upsample_rate']
-    preset_pre_frames = [int(df_epochs.at[i, 'epoch_parameters'].get('pre_frames'))-1 for i in df_epochs.index]
 
-    if (mode == 'pattern') or (preset_pre_frames is None):
-        # Frame monitor flip rate
-        fm_rate = int(stage_frame_rate / upsample_rate)
+    # If pre_frames are provided, pull those here
+    preset_pre_frames = [df_epochs.at[i, 'epoch_parameters'].get('pre_frames') for i in df_epochs.index]
 
-        # Nominal frame time on the frame monitor
-        nominal_fm_time = 1/fm_rate*1e3
+    # If we're in pattern mode, we don't use pre_frames, we use preTime and state.Time
+    # Similarly, if it's an older run when pre_frames was None, we use state.time based
+    # on stage's assumed frame rate
+    if (mode == 'pattern') or any(pf is None for pf in preset_pre_frames):
+        # Nominal frame time per stage clock
+        nominal_fm_time = 1/stage_frame_rate*1e3
 
-        # Number of preTime frame monitor flips, accounting for 
-        # the missing pre frame.
-        n_flips = [np.ceil(pre_time[i]/nominal_fm_time).astype(int)-1 for i in df_epochs.index]
+        # Number of preTime frame monitor flips, accounting for the missing pre_frame and for 
+        # the fact that we missed as many frames as the upsample rate because the frame monitor
+        # flips black to white at 60Hz regardless. 
+        state_time_pre_frames = [np.ceil(pre_time[i]/nominal_fm_time).astype(int)-upsample_rate for i in df_epochs.index]
 
-        # Upsample to appropriate frame rate
-        state_time_pre_frames = [int(n_flips[i]*upsample_rate)-1 for i in df_epochs.index]
-
-        return state_time_pre_frames
+        return [int(st) for st in state_time_pre_frames]
 
     else:
-        return preset_pre_frames
+        return [int(pf)-1 for pf in preset_pre_frames]
 
 def _get_spatial_noise_max_frames(
     df_epochs: pd.DataFrame,

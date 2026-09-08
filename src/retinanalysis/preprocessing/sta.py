@@ -400,7 +400,8 @@ def compute_stas_for_chunk(
 
         # Get number of frames (assuming same across epochs)
         ls_unique_frames, ls_repeat_frames = regen.get_n_frames_spatial_noise(
-            sb.df_epochs
+            sb.df_epochs,
+            sb.d_display,
         )
         total_frames = np.array(ls_unique_frames) + np.array(ls_repeat_frames)
         if len(np.unique(total_frames)) != 1:
@@ -426,7 +427,6 @@ def compute_stas_for_chunk(
 
         # LCR CORRECTION
         t_start = pre_frames * stride
-        print(f't_start is {t_start}')
 
         t_end = t_start + n_frames * stride
         if verbose:
