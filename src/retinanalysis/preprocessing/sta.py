@@ -50,6 +50,11 @@ def _get_n_splits_memory(
             for our purposes here)
         depth (int): window size for the sta (i.e. how many time bins we use)
         max_usage_frac (float, optional): Allowed memory fraction. Defaults to 0.6.
+        method (str): "matmul" or "conv". Default is matmul because it's approximately 2x faster. 
+            Both are GPU optimized but conv computes full cross corr through conv2d with a kernel
+            as long as the response, which is a bad shape for cudnn, and its peak allocation is 
+            much larger than matmul per stimulus dimension. Thus, it splits more and pays the
+            per-split cost many times. On a sample dataset, matmul took 50s to conv's 100s.
         verbose (bool, optional): Print status messages to the console. Defaults to True.
 
     Returns:
@@ -130,8 +135,13 @@ def compute_stas(
             For EI, last dims are [C] electrodes
         binned_responses_np (np.ndarray):
             Binned spikerate/spikecount of shape [N epochs, K cells, T frames]
-        stride (int): Stride for upsampling stimulus data to match binned responses. If stim_data is already upsampled, set to 1.
-        method (str): "matmul" or "conv"
+        stride (int): Stride for upsampling stimulus data to match binned responses.
+            If stim_data is already upsampled, set to 1.
+        method (str): "matmul" or "conv". Default is matmul because it's approximately 2x faster. 
+            Both are GPU optimized but conv computes full cross corr through conv2d with a kernel
+            as long as the response, which is a bad shape for cudnn, and its peak allocation is 
+            much larger than matmul per stimulus dimension. Thus, it splits more and pays the
+            per-split cost many times. On a sample dataset, matmul took 50s to conv's 100s.
 
     Returns:
         stas (np.ndarray):
