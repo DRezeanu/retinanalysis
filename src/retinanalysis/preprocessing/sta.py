@@ -19,15 +19,21 @@ from retinanalysis._config import config
 from retinanalysis.preprocessing import rfs
 import psutil
 from pathlib import Path
-from warnings import warn
+
+# cudnn and mkldnn may allocate an im2col buffer that's backend-dependent.
+# A named module-level constant keeps this visible and tunable. 
+# If you start getting torch.OutOfMemoryError, tune this up, which will 
+# increase the assumed 'cost per dim'
+CONV_WORKSPACE_FACTOR = 1.5
 
 
 def _get_n_splits_memory(
-    sd: torch.Tensor,
-    br: torch.Tensor,
-    stride: int,
+    stim_data: torch.Tensor,
+    binned_response: torch.Tensor,
     device: torch.device,
-    n_max_usage: float = 0.6,
+    stride: int = 2,
+    depth: int = 60,
+    max_usage_frac: float = 0.6,
     method: str = "matmul",
     verbose: bool = True,
 ) -> int:
@@ -35,44 +41,74 @@ def _get_n_splits_memory(
     Get number of splits for STA compute.
 
     Args:
-        sd (torch.Tensor): _description_
-        br (torch.Tensor): _description_
+        stim_data (torch.Tensor): regenerated stimulus, nd array of shape
+            (N epochs, T frames, S stim dimensions)
+        binned_response (torch.Tensor): binned spike respones, nd array with one row per epoch
         stride (int): Stride for upsampling stimulus data to match binned responses.
-        device (torch.device): _description_
-        n_max_usage (float, optional): _description_. Defaults to 0.8.
-        verbose (bool, optional): _description_. Defaults to True.
+        device (torch.device): pytorch device (cpu, cuda, or mps, though mps not yet functional
+            for our purposes here)
+        depth (int): window size for the sta (i.e. how many time bins we use)
+        max_usage_frac (float, optional): Allowed memory fraction. Defaults to 0.6.
+        verbose (bool, optional): Print status messages to the console. Defaults to True.
 
     Returns:
         int: Number of splits.
     """
-    if device.type == "cuda":
-        # Get max memory GB from available GPU
-        max_memory_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
 
+    n_epochs, n_cells, n_bins = binned_response.shape
+    n_frames = stim_data.shape[1]
+    n_bins_up = n_frames * stride
+    n_stim_dims = np.prod(stim_data.shape[2:])
+    bytes_per_float = stim_data.element_size()
+
+    if device.type == 'cuda':
+        free_bytes = torch.cuda.mem_get_info()[0] # free, not total memory
     else:
-        # cpu
-        max_memory_gb = psutil.virtual_memory().available / 1e9
+        free_bytes = psutil.virtual_memory().available
 
-    max_memory_gb *= n_max_usage
+    budget = free_bytes * max_usage_frac
 
-    # Estimate total data size
-    total_data_gb = (
-        sd.element_size() * sd.nelement() * stride + br.element_size() * br.nelement()
-    ) / 1e9
-    n_splits = int(np.ceil(total_data_gb / max_memory_gb))
-    if method == "conv":
-        # Conv uses more memory, so adding some buffer splits
-        n_splits *= 2
-    elif method == 'matmul':
-        n_splits += 1
-    
+    budget = budget - (bytes_per_float * n_epochs * n_cells * n_bins)
+
+    if budget <= 0:
+        raise MemoryError(
+            f'Insufficient memory budget: {budget/1e9}Gb'
+        )
+
+    if method == 'conv':
+        stage_upsample = n_epochs * (n_frames + n_bins_up)
+        stage_pad = n_epochs * (2 * n_bins_up + depth - 1)
+        stage_conv = n_epochs * (n_bins_up + depth - 1 + n_cells * depth)
+        stage_mean = (n_epochs + 1) * n_cells * depth
+        cost_per_dim = bytes_per_float * max(stage_upsample, stage_pad, 
+                                             stage_conv, stage_mean)
+        cost_per_dim *= CONV_WORKSPACE_FACTOR
+    else:
+        stage_upsample = n_epochs * (n_frames + n_bins_up)
+        stage_bmm = n_epochs * n_bins_up + (n_epochs + 1) * n_cells
+        cost_per_dim = bytes_per_float * max(stage_upsample, stage_bmm)
+
+    max_dims_per_split = int(np.floor(budget/cost_per_dim))
+    if max_dims_per_split < 1:
+        raise MemoryError(
+            'Insufficient memory. Cost per dim is too high for '
+            'current memory budget\n'
+            f'    -Cost per dim: {cost_per_dim/1e6:.2f}Mb\n'
+            f'    -Memory budget: {budget/1e9:.2f}Gb\n'
+        )
+
+    n_splits = int(np.ceil(n_stim_dims/max_dims_per_split))
+
     if verbose:
         print(
-            f"Total data size: {total_data_gb:.1f}GB, max available: {max_memory_gb:.1f}GB"
+            'Memory splitting output:\n'
+            f'    - Memory budget: {budget/1e9:.2f}Gb\n'
+            f'    - Cost per dim: {cost_per_dim/1e6:.2f}Mb\n'
+            f'    - Dims per split: {max_dims_per_split}\n'
+            f'    - Splits: {n_splits}\n'
         )
-        print(f"Recommending {n_splits} splits of compute.")
-    return n_splits
 
+    return n_splits
 
 def compute_stas(
     stim_data_np: np.ndarray,
@@ -125,7 +161,13 @@ def compute_stas(
         method = 'matmul'
 
     n_splits = _get_n_splits_memory(
-        stim_data, binned_responses, stride, device, method=method, verbose=verbose
+        stim_data = stim_data,
+        binned_response = binned_responses,
+        device = device,
+        stride = stride,
+        method = method,
+        depth=depth,
+        verbose=verbose,
     )
     n_split_sz = int(np.ceil(n_stim_dims / n_splits))
     stas = torch.zeros(n_cells, depth, n_stim_dims, dtype=torch.float32)
@@ -141,14 +183,14 @@ def compute_stas(
                 s_end = n_stim_dims
 
             # Put stim data chunk on device
-            sd = stim_data[:, :, s_start:s_end].to(device)
+            e_stim_data = stim_data[:, :, s_start:s_end].to(device)
             # Upsample by stride
-            sd = torch.repeat_interleave(sd, stride, dim=1)
+            e_stim_data = torch.repeat_interleave(e_stim_data, stride, dim=1)
 
             with torch.no_grad():
                 for lag in tqdm.tqdm(lags, desc="STA depth"):
                     br_lag = binned_responses[:, :, lag:]
-                    sd_lag = sd[:, : n_bins - lag, :]
+                    sd_lag = e_stim_data[:, : n_bins - lag, :]
 
                     # binned spikes [N, K, T] @ stim [N, T, S] = [N, K, S]
                     epoch_stas = torch.bmm(br_lag, sd_lag)
@@ -157,7 +199,7 @@ def compute_stas(
                     stas[:, lag, s_start:s_end] += epoch_stas.mean(axis=0).cpu()
 
             # Clear memory
-            del sd, br_lag, sd_lag, epoch_stas
+            del e_stim_data, br_lag, sd_lag, epoch_stas
             if device.type == "cuda":
                 torch.cuda.empty_cache()
             gc.collect()
@@ -182,22 +224,22 @@ def compute_stas(
                 s_end = n_stim_dims
 
             # [N, T, S]
-            sd = stim_data[:, :, s_start:s_end].to(device)
+            e_stim_data = stim_data[:, :, s_start:s_end].to(device)
             # Upsample sd by stride
-            sd = torch.repeat_interleave(sd, stride, dim=1)
+            e_stim_data = torch.repeat_interleave(e_stim_data, stride, dim=1)
             # permute to [N, S, T]
-            sd = sd.permute(0, 2, 1)
+            e_stim_data = e_stim_data.permute(0, 2, 1)
 
             # Pad stim data on left with depth-1 zeros
             # so [N, S, T+depth-1]
-            sd = torch.nn.functional.pad(sd, (depth - 1, 0))
+            e_stim_data = torch.nn.functional.pad(e_stim_data, (depth - 1, 0))
 
             # [N, 1, 1, S, T+depth-1]
-            sd = sd.unsqueeze(1).unsqueeze(1)
+            e_stim_data = e_stim_data.unsqueeze(1).unsqueeze(1)
 
             # batch over [N], conv ([1, 1, S, T+D-1], [K, 1, 1, T]) -> [N, 1, K, S, D]
             with torch.no_grad():
-                epoch_stas = batched_conv(sd, br, padding="valid")
+                epoch_stas = batched_conv(e_stim_data, br, padding="valid")
 
             # Remove singleton and swap last two dims -> [N, K, D, S]
             epoch_stas = epoch_stas.squeeze(1)
@@ -206,7 +248,7 @@ def compute_stas(
             # Avg across epochs for [K, D, S]
             stas[:, :, s_start:s_end] = epoch_stas.mean(axis=0).cpu()
 
-            del sd, epoch_stas
+            del e_stim_data, epoch_stas
             if device.type == "cuda":
                 torch.cuda.empty_cache()
             gc.collect()
@@ -365,7 +407,8 @@ def compute_stas_for_chunk(
     ss_version: str = "kilosort2.5",
     stride: int = 2,
     depth: int = 60,
-    method: str = "conv",
+    method: str = "matmul",
+    max_epochs_per_batch: int = 4,
     verbose: bool = True,
 ) -> dict:
 
@@ -390,18 +433,18 @@ def compute_stas_for_chunk(
     # TODO initialize stas with max n_cells across blocks, and keep track of cell idx to add for each block.
     stas = None
     total_sps = None
-    # Number of epochs to process in batch
-    n_epochs_batch = 4
+    n_epochs_total = 0
+
     n_blocks = len(sg.ls_blocks)
     print(f'Processing {n_blocks} blocks')
     for i in range(n_blocks):
-        sb = sg.ls_blocks[i]
-        rb = rg.ls_blocks[i]
+        stim_block = sg.ls_blocks[i]
+        response_block = rg.ls_blocks[i]
 
         # Get number of frames (assuming same across epochs)
         ls_unique_frames, ls_repeat_frames = regen.get_n_frames_spatial_noise(
-            sb.df_epochs,
-            sb.d_display,
+            stim_block.df_epochs,
+            stim_block.d_display,
         )
         total_frames = np.array(ls_unique_frames) + np.array(ls_repeat_frames)
         if len(np.unique(total_frames)) != 1:
@@ -409,88 +452,100 @@ def compute_stas_for_chunk(
         n_frames = total_frames[0]
 
         # Bin spike times
-        rb.bin_spike_times_by_frames(stride=stride)
+        response_block.bin_spike_times_by_frames(stride=stride)
 
         # [K, N, T]
-        bs = rb.binned_spikes
+        binned_spikes = response_block.binned_spikes
 
         # Make [N, K, T]
-        assert isinstance(bs, np.ndarray)
-        bs = bs.transpose(1, 0, 2)
+        assert isinstance(binned_spikes, np.ndarray)
+        binned_spikes = binned_spikes.transpose(1, 0, 2)
 
         # Count n frames where state.time (1/fr steps) is < pre_time_s
         # pre_frames = len(np.arange(0, pre_time_s, 1 / stage_frame_rate))
 
         # Grabbing pre frames using a built in helper function that accounts for pattern
         # mode.
-        pre_frames = regen._get_spatial_noise_pre_frames(sb.df_epochs, sb.d_display)[0]
+        pre_frames = regen._get_spatial_noise_pre_frames(
+            stim_block.df_epochs,
+            stim_block.d_display,
+        )[0]
 
         # LCR CORRECTION
         t_start = pre_frames * stride
 
         t_end = t_start + n_frames * stride
         if verbose:
-            print(f"Block {i}: pre_frames={pre_frames}, binned_spikes shape={bs.shape}")
+            print(f"Block {i}: pre_frames={pre_frames}, binned_spikes shape={binned_spikes.shape}")
             print(f"Total frames: {n_frames}")
-        bs = bs[:, :, t_start:t_end]
+        binned_spikes = binned_spikes[:, :, t_start:t_end]
 
         if verbose:
-            print(f"Cropped binned spikes shape: {bs.shape}")
+            print(f"Cropped binned spikes shape: {binned_spikes.shape}")
 
         # Loop across epochs in batch
-        n_epochs = len(sb.df_epochs)
-        n_batches = int(np.ceil(n_epochs / n_epochs_batch))
+        n_epochs = len(stim_block.df_epochs)
+        n_batches = int(np.ceil(n_epochs / max_epochs_per_batch))
         for j in tqdm.tqdm(np.arange(n_batches), desc="Epoch batch"):
-            e_start = j * n_epochs_batch
-            e_end = (j + 1) * n_epochs_batch
+            e_start = j * max_epochs_per_batch
+            e_end = (j + 1) * max_epochs_per_batch
             if e_end > n_epochs:
                 e_end = n_epochs
 
             # Regen stim
-            sb.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
+            stim_block.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
             
             # Check that regen worked
-            if sb.stim_data is None:
+            if stim_block.stim_data is None:
                 raise ValueError(
-                    f'Unable to regenerate stimulus for {sb.exp_name} block {sb.block_id}'
+                    'Unable to regenerate stimulus for '
+                    f'{stim_block.exp_name} block {stim_block.block_id}'
                 )
 
             # [N, T, H, W, C]
-            stim_frames = sb.stim_data["frames"]
+            stim_frames = stim_block.stim_data["frames"]
 
             # [N, K, T]
-            resp_data = bs[e_start:e_end]
+            resp_data = binned_spikes[e_start:e_end]
+
+            # Check how many epochs actually in this batch (last batch likely
+            # less than max_epochs_per_batch)
+            n_epochs_in_batch = resp_data.shape[0]
+
+            # Compute batch stas, weighted by the number of epochs in that batch
+            # without this, batches with fewer epochs will be overweighted
+            batch_stas = compute_stas(
+                stim_data_np = stim_frames,
+                binned_responses_np = resp_data,
+                depth=depth,
+                stride=stride,
+                method=method,
+                verbose=verbose,
+            ) * n_epochs_in_batch
 
             if stas is None:
-                stas = compute_stas(
-                    stim_frames,
-                    resp_data,
-                    depth=depth,
-                    stride=stride,
-                    method=method,
-                    verbose=verbose,
-                )
-
+                stas = batch_stas
             else:
-                stas += compute_stas(
-                    stim_frames,
-                    resp_data,
-                    depth=depth,
-                    stride=stride,
-                    method=method,
-                    verbose=verbose,
-                )
+                stas += batch_stas
 
-            del stim_frames, resp_data, sb.stim_data
+            n_epochs_total += n_epochs_in_batch
+
+            del stim_frames, resp_data, stim_block.stim_data
             gc.collect()
 
+    if stas is None:
+        raise ValueError(
+            f'Unable to compute STAs for {sg.exp_name} datafiles {sg.datafile_names}'
+        )
+    # Strictly not necessary because of the peak normalization that follows
+    stas /= n_epochs_total
     # Final normalize by abs max for each cell
     peaks = np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
     # Avoid div by 0
     peaks[peaks==0] = 1
     stas = stas / peaks
 
-    grid_size = sb.df_epochs.at[0, "epoch_parameters"]["gridSize"]
+    grid_size = sg.ls_blocks[0].df_epochs.at[0, "epoch_parameters"]["gridSize"]
 
     d_output = {
         "stas": stas,
