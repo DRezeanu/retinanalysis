@@ -1047,7 +1047,7 @@ def get_epoch_data_from_exp(
     else:
         # Make frame_times_ms list using json.loads
         df["frame_times_ms"] = df["frame_times_ms"].apply(lambda x: json.loads(x))
-        df["frame_times_ms"] = normalize_frame_times(df["frame_times_ms"])
+        df["frame_times_ms"] = normalize_frame_times(df["frame_times_ms"].to_list())
 
 
     # Add column for 'epoch_index'

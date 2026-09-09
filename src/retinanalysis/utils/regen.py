@@ -9,49 +9,86 @@ from retinanalysis.classes.response import MEAResponseBlock, SCResponseBlock
 import numpy as np
 from warnings import warn
 
-
 def get_n_frames_spatial_noise(df_epochs: pd.DataFrame, d_display: dict):
     ls_unique_frames = []
     ls_repeat_frames = []
 
     df_epochs = df_epochs.reset_index(drop=True)
+    exp_name = df_epochs.at[0, 'exp_name']
+    exp_date = int(exp_name[:8])
+
+    if d_display['mode'] == 'pattern':
+        resolved_rate = _resolve_pattern_mode_framerate(d_display)
+        time_multiple = max(resolved_rate/d_display['stage_frame_rate'], 1)
+        stage_frame_rate = d_display['stage_frame_rate']
 
     for e_idx in df_epochs.index:
         fts = df_epochs.at[e_idx, "frame_times_ms"]
+        epoch_params = df_epochs.at[e_idx, "epoch_parameters"]
 
-        pre_time = df_epochs.at[e_idx, "preTime"]
-        unique_time = df_epochs.at[e_idx, "epoch_parameters"]["uniqueTime"]
-        repeat_time = df_epochs.at[e_idx, "epoch_parameters"]["repeatTime"]
+        pre_time = epoch_params["preTime"]
+        stim_time = epoch_params["stimTime"]
+        unique_time = epoch_params["uniqueTime"]
+        repeat_time = epoch_params["repeatTime"]
 
-        # Set default none values
-        unique_frames = None
-        repeat_frames = None
+        if d_display['mode'] == 'pattern':
 
-        # Current and recent versions of Spatial noise save out the unique_frames and repeat_frames
-        # used for the actual generation of frames in 'setStixels', 'setBYStixels' and 'setRGBStixels'
-        # This specifically does NOT fire for pattern mode because pattern mode uses state.time not
-        # state.frame to compute flips
-        if d_display['mode'] == 'video':
-            unique_frames = df_epochs.at[e_idx, 'epoch_parameters'].get('unique_frames')
-            repeat_frames = df_epochs.at[e_idx, 'epoch_parameters'].get('repeat_frames')
+            # Option (a), we need to derive from state.time
 
-        if unique_frames is None:
-        # Use pre_time and unique_time to fetch unique_frames instead
-            unique_frames = len(
-                np.where(np.logical_and((fts > pre_time), (fts <= pre_time + unique_time)))[0]
-            )
-        if repeat_frames is None:
-        # Use pre_time and repeat_time to fetch the repeat_frames instead
-            repeat_frames = len(
-                np.where(
-                    np.logical_and(
-                        (fts > pre_time + unique_time),
-                        (fts <= pre_time + unique_time + repeat_time)
-                    ))[0]
-            )
+            # Before the 'pattern mode fix' commit applied 2026_09_08 pattern mode never showed
+            # repeat frames because the previous version switched between unique and repeat using
+            # the check if time (in seconds) <= obj.uniqueTime (in milliseconds). This has now been
+            # fixed to if time <= obj.uniqueTime*1e-3
+            if exp_date < 20260908:
+                n_unique = (
+                    np.floor((pre_time + stim_time) * time_multiple * stage_frame_rate / 1e3) #type: ignore
+                    - np.floor(pre_time * stage_frame_rate / 1e3) #type: ignore
+                ).astype(int)
+                n_repeat = int(0)
+            else:
+                n_unique =  (
+                    np.floor((pre_time + unique_time) * stage_frame_rate * 1e-3) #type: ignore
+                    - np.floor(pre_time * stage_frame_rate * 1e-3) #type: ignore
+                ).astype(int)
 
-        ls_unique_frames.append(unique_frames)
-        ls_repeat_frames.append(repeat_frames)
+                n_repeat = (
+                    np.floor((pre_time + stim_time) * time_multiple * #type: ignore
+                        stage_frame_rate * 1e-3) #type: ignore
+                        - np.floor((pre_time + unique_time) * stage_frame_rate #type: ignore
+                            * 1e-3)
+                ).astype(int)
+        else:
+            saved_u = epoch_params.get("unique_frames")
+            saved_r = epoch_params.get("repeat_frames")
+            if saved_u is not None:
+                # Option (b), we have saved out repeat and unique frames actually used
+                n_unique, n_repeat = int(saved_u), int(saved_r)
+            else:
+                # Option (c), warn about ambiguity, fall back to current behavior
+                warn(
+                    "Frame counts are approximate because of mixed state.frame and state.time "
+                    "behavior. Using best guess."
+                )
+                n_unique = len(
+                    np.where(
+                        np.logical_and(
+                            (fts > pre_time),
+                            (fts <= pre_time + unique_time)
+                        )
+                    )[0]
+                )
+
+                n_repeat = len(
+                        np.where(
+                        np.logical_and(
+                            (fts > pre_time + unique_time),
+                            (fts <= pre_time + unique_time + repeat_time)
+                        )
+                    )[0]
+                )
+
+        ls_unique_frames.append(n_unique)
+        ls_repeat_frames.append(n_repeat)
 
     return ls_unique_frames, ls_repeat_frames
 
@@ -306,16 +343,13 @@ def get_spatial_noise_frames(
     else:
         tfactor = 1
 
-    # Get the size of the time dimension; expands for chromatic stimuli.
-    numFrames = unique_frames + repeat_frames
-    tsize = np.ceil(numFrames * tfactor / frameDwell).astype(int)
-    usize = np.ceil(unique_frames * tfactor / frameDwell).astype(int)
-    rsize = np.ceil(repeat_frames * tfactor / frameDwell).astype(int)
+    # Get number of unique events:
+    n_unique_events = np.floor(unique_frames/frameDwell).astype(int)
+    n_total_events = np.floor((unique_frames+repeat_frames)/frameDwell).astype(int)
 
-    # Ensure even tsize for tfactor=2 (BY) stimuli.
-    if tfactor == 2 and (tsize % 2) != 0:
-        tsize += 1
-        rsize += 1
+    usize = int(tfactor*n_unique_events)
+    tsize = int(tfactor*n_total_events)
+    rsize = tsize-usize
 
     # Generate the random grid of stixels.
     gridValues = np.zeros((tsize, int(numXStixels * numYStixels)), dtype=np.float32)
@@ -378,8 +412,18 @@ def get_spatial_noise_frames(
     # Re-seed the number generator.
     np.random.seed(int(seed))
 
-    # Random steps range from 0-(stepsPerStixel-1)
-    steps = np.round((stepsPerStixel - 1) * np.random.rand(tsize, 2))
+    # Random steps range from 0-(stepsPerStixel-1), resetting to 'repeating_seed' once we hit repeat frames
+    if repeat_frames > 0:
+        steps = np.zeros((tsize,2))
+        # Set unique jitter
+        steps[:n_unique_events] = np.round((stepsPerStixel-1)*np.random.rand(n_unique_events,2))
+        # Reset seed between unique and repeat sections
+        np.random.seed(repeating_seed)
+        # Set repeat jitter
+        steps[n_unique_events:] = np.round((stepsPerStixel-1) * np.random.rand(tsize - n_unique_events,2))
+    else:
+        # If repeat frames == 0, set all frames using unique jitter
+        steps = np.round((stepsPerStixel-1) * np.random.rand(tsize, 2))
 
     # frameValues is downscaled version of full canvas, containing the cropped fullGrid.
 
@@ -475,12 +519,13 @@ def get_spatial_noise_frames(
 
     # Deal with the frame dwell.
     if frameDwell > 1:
+        numFrames = unique_frames + repeat_frames
+        last_event = stimulus.shape[0] - 1
         stim = np.zeros((numFrames, numYChecks, numXChecks, 3), dtype=np.float32)
         for k in range(numFrames):
-            idx = np.floor(k / frameDwell).astype(int)
+            idx = min(k // frameDwell, last_event)
             stim[k, :, :, :] = stimulus[idx, :, :, :]
         stimulus = stim
-
     # d_out = {
     #     'stimulus': stimulus,
     #     'steps': steps,
@@ -987,7 +1032,7 @@ def make_variable_mean_bars(
     if str_generator_dir is None:
         str_generator_dir = str_pkg_dir
 
-    exp_name = int(exp_name[:8])
+    exp_date = int(exp_name[:8])
     import matlab.engine  # type: ignore
 
     print("Starting matlab engine for stim regen.")
@@ -1041,11 +1086,11 @@ def make_variable_mean_bars(
     numChecksYs = matlab.double(
         [df_epochs["epoch_parameters"][i]["numChecksY"] for i in df_epochs.index]
     )
-    # if exp_name < 20250806:
+    # if exp_date < 20250806:
     if b_lines_only:
         _, line_mat = eng.util.regenerateVariableMeanBars(
             b_lines_only,
-            exp_name,
+            exp_date,
             noiseSeeds,
             numChecksXs,
             preTime,
@@ -1068,7 +1113,7 @@ def make_variable_mean_bars(
     else:
         stimulus, line_mat = eng.util.regenerateVariableMeanBars(
             b_lines_only,
-            exp_name,
+            exp_date,
             noiseSeeds,
             numChecksXs,
             preTime,
@@ -1152,7 +1197,7 @@ def make_bars_and_gain(
     b_lines_only: bool = True,
 ):
 
-    exp_name = int(exp_name[:8])
+    exp_date = int(exp_name[:8])
     import matlab.engine  # type: ignore
 
     print("Starting matlab engine for stim regen.")
@@ -1202,11 +1247,11 @@ def make_bars_and_gain(
     numChecksYs = matlab.double(
         [df_epochs["epoch_parameters"][i]["numChecksY"] for i in df_epochs.index]
     )
-    # if exp_name < 20250806:
+    # if exp_date < 20250806:
     if b_lines_only:
         _, line_mat = eng.util.regenerateVariableMeanBars(
             b_lines_only,
-            exp_name,
+            exp_date,
             noiseSeeds,
             numChecksXs,
             preTime,
@@ -1229,7 +1274,7 @@ def make_bars_and_gain(
     else:
         stimulus, line_mat = eng.util.regenerateVariableMeanBars(
             b_lines_only,
-            exp_name,
+            exp_date,
             noiseSeeds,
             numChecksXs,
             preTime,
@@ -1349,173 +1394,175 @@ def regenerate_projector_gain(df_epochs, str_pkg_dir):
     return gain_trace
 
 
-def make_checkerboard_noise_project(
-    df_epochs: pd.DataFrame,
-    d_display: dict,
-    exp_name: str,
-    str_pkg_dir: str,
-    b_lines_only: bool = True,
-    b_noise_only: bool = True,
-):
-    exp_name = int(exp_name[:8])
-    import matlab.engine  # type: ignore
-
-    print("Starting matlab engine for stim regen.")
-    eng = matlab.engine.start_matlab()
-    eng.addpath(str_pkg_dir)
-    print("Started engine and added pkg to path.")
-    preTime = matlab.double(df_epochs.loc[0, "preTime"])
-    tailTime = matlab.double(df_epochs.loc[0, "tailTime"])
-    stimTime = matlab.double(df_epochs.loc[0, "stimTime"])
-    noiseSeeds = matlab.double([df_epochs.loc[i, "noiseSeed"] for i in df_epochs.index])
-    numChecksXs = matlab.double(
-        [df_epochs["epoch_parameters"][i]["numChecksX"] for i in df_epochs.index]
-    )
-    backgroundIntensity = matlab.double(
-        [df_epochs.loc[0, "epoch_parameters"]["backgroundIntensity"]]
-    )
-    frameDwell = matlab.double([df_epochs.loc[0, "epoch_parameters"]["frameDwell"]])
-    binaryNoise = matlab.double([df_epochs.loc[0, "epoch_parameters"]["binaryNoise"]])
-    noiseStdv = matlab.double([df_epochs.loc[0, "epoch_parameters"]["noiseStdv"]])
-    if b_noise_only:
-        if exp_name < 20250806:
-            backgroundRatios = matlab.double([0 for _ in df_epochs.index])
-        else:
-            backgroundRatios = matlab.double([1.0 for _ in df_epochs.index])
-    else:
-        backgroundRatios = matlab.double(
-            [
-                df_epochs.loc[i, "epoch_parameters"]["backgroundRatio"]
-                for i in df_epochs.index
-            ]
-        )
-    backgroundFrameDwells = matlab.double(
-        [
-            df_epochs.loc[i, "epoch_parameters"]["backgroundFrameDwell"]
-            for i in df_epochs.index
-        ]
-    )
-    pairedBars = matlab.double([df_epochs.loc[0, "epoch_parameters"]["pairedBars"]])
-    if b_noise_only:
-        noSplitField = matlab.double([1.0])
-    else:
-        noSplitField = matlab.double(
-            [df_epochs.loc[0, "epoch_parameters"]["noSplitField"]]
-        )
-    contrastJumps = matlab.double(df_epochs.loc[0, "epoch_parameters"]["contrastJumps"])
-    numChecksYs = matlab.double(
-        [df_epochs["epoch_parameters"][i]["numChecksY"] for i in df_epochs.index]
-    )
-    # if exp_name < 20250806:
-    if b_lines_only:
-        stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(
-            b_noise_only,
-            exp_name,
-            preTime,
-            tailTime,
-            stimTime,
-            noiseSeeds,
-            numChecksXs,
-            backgroundIntensity,
-            frameDwell,
-            binaryNoise,
-            noiseStdv,
-            backgroundRatios,
-            backgroundFrameDwells,
-            pairedBars,
-            noSplitField,
-            contrastJumps,
-            numChecksYs,
-            nargout=3,
-        )
-    else:
-        stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(
-            exp_name,
-            preTime,
-            tailTime,
-            stimTime,
-            noiseSeeds,
-            numChecksXs,
-            backgroundIntensity,
-            frameDwell,
-            binaryNoise,
-            noiseStdv,
-            backgroundRatios,
-            backgroundFrameDwells,
-            pairedBars,
-            noSplitField,
-            contrastJumps,
-            numChecksYs,
-            nargout=3,
-        )
-        stimulus = np.array(stimulus)
-    line_mat = np.array(line_mat)
-    contrast_mat = np.array(contrast_mat)
-    eng.quit()
-
-    canvas_size_pix = df_epochs.loc[0, "epoch_parameters"]["canvasSize"]
-    stixel_size_um = df_epochs.loc[0, "epoch_parameters"]["stixelSize"]
-    mu_per_pix = df_epochs.loc[0, "microns_per_pixel"]
-    canvas_size_stix = (
-        int(np.round(canvas_size_pix[0] * mu_per_pix / stixel_size_um)),
-        int(np.round(canvas_size_pix[1] * mu_per_pix / stixel_size_um)),
-    )
-    stixel_size_pix = int(np.round(stixel_size_um / mu_per_pix))
-    x_offset_pix = df_epochs.loc[0, "epoch_parameters"]["xOffset"]
-    y_offset_pix = df_epochs.loc[0, "epoch_parameters"]["yOffset"]
-    x_offset_stix = int(np.round(x_offset_pix / stixel_size_pix))
-    y_offset_stix = int(np.round(y_offset_pix / stixel_size_pix))
-
-    if not b_lines_only:
-        stimulus_cropped = np.ones_like(stimulus) * int(
-            (255 * df_epochs.loc[0, "epoch_parameters"]["backgroundIntensity"])
-        )
-    lines_cropped = (
-        np.ones_like(line_mat)
-        * df_epochs.loc[0, "epoch_parameters"]["backgroundIntensity"]
-    )
-    if x_offset_pix > 0:
-        offset = np.abs(x_offset_stix)
-        if not b_lines_only:
-            stimulus_cropped[:, offset:, :, :] = stimulus[:, :-offset, :, :]
-        lines_cropped[offset:, :, :] = line_mat[:-offset, :, :]
-    elif x_offset_pix < 0:
-        offset = np.abs(x_offset_stix)
-        if not b_lines_only:
-            stimulus_cropped[:, :-offset, :, :] = stimulus[:, offset:, :, :]
-        lines_cropped[:-offset, :, :] = line_mat[offset:, :, :]
-    else:
-        if not b_lines_only:
-            stimulus_cropped = stimulus
-        lines_cropped = line_mat
-    if y_offset_pix != 0:
-        raise NotImplementedError("Y offset cropping not implemented yet.")
-
-    stim_transitions = []
-    for e_idx in df_epochs.index:
-        # interval = df_epochs.at[e_idx, 'backgroundFrameDwell']
-        interval = df_epochs["epoch_parameters"][e_idx]["backgroundFrameDwell"]
-        preFrames = int(np.round(60 * df_epochs.at[e_idx, "preTime"] / 1e3))
-        frame_transitions_ls = []
-        for i in range(preFrames, lines_cropped.shape[1]):
-            if i - preFrames % interval == 0:
-                frame_transitions_ls.append(i)
-        stim_transitions.append(frame_transitions_ls)
-
-    if b_lines_only:
-        d_output = {
-            "line_mat": lines_cropped,
-            "contrast_mat": contrast_mat,
-            "stim_transitions": stim_transitions,
-        }
-    else:
-        d_output = {
-            "stim_frames": stimulus_cropped,
-            "line_mat": lines_cropped,
-            "contrast_mat": contrast_mat,
-            "stim_transitions": stim_transitions,
-        }
-    return d_output
+##### THIS IS CURRENTLY SHADOWED BY SAME FUNCTION FURTHER DOWN
+# def make_checkerboard_noise_project(
+#     df_epochs: pd.DataFrame,
+#     d_display: dict,
+#     exp_name: str,
+#     str_pkg_dir: str,
+#     b_lines_only: bool = True,
+#     b_noise_only: bool = True,
+# ):
+#
+#     exp_date = int(exp_name[:8])
+#     import matlab.engine  # type: ignore
+#
+#     print("Starting matlab engine for stim regen.")
+#     eng = matlab.engine.start_matlab()
+#     eng.addpath(str_pkg_dir)
+#     print("Started engine and added pkg to path.")
+#     preTime = matlab.double(df_epochs.loc[0, "preTime"])
+#     tailTime = matlab.double(df_epochs.loc[0, "tailTime"])
+#     stimTime = matlab.double(df_epochs.loc[0, "stimTime"])
+#     noiseSeeds = matlab.double([df_epochs.loc[i, "noiseSeed"] for i in df_epochs.index])
+#     numChecksXs = matlab.double(
+#         [df_epochs["epoch_parameters"][i]["numChecksX"] for i in df_epochs.index]
+#     )
+#     backgroundIntensity = matlab.double(
+#         [df_epochs.loc[0, "epoch_parameters"]["backgroundIntensity"]]
+#     )
+#     frameDwell = matlab.double([df_epochs.loc[0, "epoch_parameters"]["frameDwell"]])
+#     binaryNoise = matlab.double([df_epochs.loc[0, "epoch_parameters"]["binaryNoise"]])
+#     noiseStdv = matlab.double([df_epochs.loc[0, "epoch_parameters"]["noiseStdv"]])
+#     if b_noise_only:
+#         if exp_date < 20250806:
+#             backgroundRatios = matlab.double([0 for _ in df_epochs.index])
+#         else:
+#             backgroundRatios = matlab.double([1.0 for _ in df_epochs.index])
+#     else:
+#         backgroundRatios = matlab.double(
+#             [
+#                 df_epochs.loc[i, "epoch_parameters"]["backgroundRatio"]
+#                 for i in df_epochs.index
+#             ]
+#         )
+#     backgroundFrameDwells = matlab.double(
+#         [
+#             df_epochs.loc[i, "epoch_parameters"]["backgroundFrameDwell"]
+#             for i in df_epochs.index
+#         ]
+#     )
+#     pairedBars = matlab.double([df_epochs.loc[0, "epoch_parameters"]["pairedBars"]])
+#     if b_noise_only:
+#         noSplitField = matlab.double([1.0])
+#     else:
+#         noSplitField = matlab.double(
+#             [df_epochs.loc[0, "epoch_parameters"]["noSplitField"]]
+#         )
+#     contrastJumps = matlab.double(df_epochs.loc[0, "epoch_parameters"]["contrastJumps"])
+#     numChecksYs = matlab.double(
+#         [df_epochs["epoch_parameters"][i]["numChecksY"] for i in df_epochs.index]
+#     )
+#     # if exp_date < 20250806:
+#     if b_lines_only:
+#         stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(
+#             b_noise_only,
+#             exp_date,
+#             preTime,
+#             tailTime,
+#             stimTime,
+#             noiseSeeds,
+#             numChecksXs,
+#             backgroundIntensity,
+#             frameDwell,
+#             binaryNoise,
+#             noiseStdv,
+#             backgroundRatios,
+#             backgroundFrameDwells,
+#             pairedBars,
+#             noSplitField,
+#             contrastJumps,
+#             numChecksYs,
+#             nargout=3,
+#         )
+#     else:
+#         stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(
+#             exp_date,
+#             preTime,
+#             tailTime,
+#             stimTime,
+#             noiseSeeds,
+#             numChecksXs,
+#             backgroundIntensity,
+#             frameDwell,
+#             binaryNoise,
+#             noiseStdv,
+#             backgroundRatios,
+#             backgroundFrameDwells,
+#             pairedBars,
+#             noSplitField,
+#             contrastJumps,
+#             numChecksYs,
+#             nargout=3,
+#         )
+#         stimulus = np.array(stimulus)
+#     line_mat = np.array(line_mat)
+#     contrast_mat = np.array(contrast_mat)
+#     eng.quit()
+#
+#     canvas_size_pix = df_epochs.loc[0, "epoch_parameters"]["canvasSize"]
+#     stixel_size_um = df_epochs.loc[0, "epoch_parameters"]["stixelSize"]
+#     mu_per_pix = df_epochs.loc[0, "microns_per_pixel"]
+#     canvas_size_stix = (
+#         int(np.round(canvas_size_pix[0] * mu_per_pix / stixel_size_um)),
+#         int(np.round(canvas_size_pix[1] * mu_per_pix / stixel_size_um)),
+#     )
+#     stixel_size_pix = int(np.round(stixel_size_um / mu_per_pix))
+#     x_offset_pix = df_epochs.loc[0, "epoch_parameters"]["xOffset"]
+#     y_offset_pix = df_epochs.loc[0, "epoch_parameters"]["yOffset"]
+#     x_offset_stix = int(np.round(x_offset_pix / stixel_size_pix))
+#     y_offset_stix = int(np.round(y_offset_pix / stixel_size_pix))
+#
+#     if not b_lines_only:
+#         stimulus_cropped = np.ones_like(stimulus) * int(
+#             (255 * df_epochs.loc[0, "epoch_parameters"]["backgroundIntensity"])
+#         )
+#     lines_cropped = (
+#         np.ones_like(line_mat)
+#         * df_epochs.loc[0, "epoch_parameters"]["backgroundIntensity"]
+#     )
+#     if x_offset_pix > 0:
+#         offset = np.abs(x_offset_stix)
+#         if not b_lines_only:
+#             stimulus_cropped[:, offset:, :, :] = stimulus[:, :-offset, :, :]
+#         lines_cropped[offset:, :, :] = line_mat[:-offset, :, :]
+#     elif x_offset_pix < 0:
+#         offset = np.abs(x_offset_stix)
+#         if not b_lines_only:
+#             stimulus_cropped[:, :-offset, :, :] = stimulus[:, offset:, :, :]
+#         lines_cropped[:-offset, :, :] = line_mat[offset:, :, :]
+#     else:
+#         if not b_lines_only:
+#             stimulus_cropped = stimulus
+#         lines_cropped = line_mat
+#     if y_offset_pix != 0:
+#         raise NotImplementedError("Y offset cropping not implemented yet.")
+#
+#     stim_transitions = []
+#     for e_idx in df_epochs.index:
+#         # interval = df_epochs.at[e_idx, 'backgroundFrameDwell']
+#         interval = df_epochs["epoch_parameters"][e_idx]["backgroundFrameDwell"]
+#         preFrames = int(np.round(60 * df_epochs.at[e_idx, "preTime"] / 1e3))
+#         frame_transitions_ls = []
+#         for i in range(preFrames, lines_cropped.shape[1]):
+#             if i - preFrames % interval == 0:
+#                 frame_transitions_ls.append(i)
+#         stim_transitions.append(frame_transitions_ls)
+#
+#     if b_lines_only:
+#         d_output = {
+#             "line_mat": lines_cropped,
+#             "contrast_mat": contrast_mat,
+#             "stim_transitions": stim_transitions,
+#         }
+#     else:
+#         d_output = {
+#             "stim_frames": stimulus_cropped,
+#             "line_mat": lines_cropped,
+#             "contrast_mat": contrast_mat,
+#             "stim_transitions": stim_transitions,
+#         }
+#     return d_output
 
 
 def make_doves_perturbation_alpha(
@@ -1527,7 +1574,8 @@ def make_doves_perturbation_alpha(
 ):
     # This protocol was basically bugged before 20250805,
     # So regen only for experiments after that date.
-    if int(exp_name[:8]) < 20250805:
+    exp_date = int(exp_name[:8])
+    if exp_date < 20250805:
         raise ValueError(
             "Regen for DovesPerturbationAlpha only valid for experiments after 20250805."
         )
@@ -1697,7 +1745,7 @@ def make_checkerboard_noise_project(
     b_lines_only: bool = True,
     b_noise_only: bool = True,
 ):
-    exp_name = int(exp_name[:8])
+    exp_date = int(exp_name[:8])
     import matlab.engine  # type: ignore
 
     print("Starting matlab engine for stim regen.")
@@ -1718,7 +1766,7 @@ def make_checkerboard_noise_project(
     binaryNoise = matlab.double([df_epochs.loc[0, "epoch_parameters"]["binaryNoise"]])
     noiseStdv = matlab.double([df_epochs.loc[0, "epoch_parameters"]["noiseStdv"]])
     if b_noise_only:
-        if exp_name < 20250806:
+        if exp_date < 20250806:
             backgroundRatios = matlab.double([0 for _ in df_epochs.index])
         else:
             backgroundRatios = matlab.double([1.0 for _ in df_epochs.index])
@@ -1746,11 +1794,11 @@ def make_checkerboard_noise_project(
     numChecksYs = matlab.double(
         [df_epochs["epoch_parameters"][i]["numChecksY"] for i in df_epochs.index]
     )
-    # if exp_name < 20250806:
+    # if exp_date < 20250806:
     if b_lines_only:
         stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(
             b_noise_only,
-            exp_name,
+            exp_date,
             preTime,
             tailTime,
             stimTime,
@@ -1770,7 +1818,7 @@ def make_checkerboard_noise_project(
         )
     else:
         stimulus, line_mat, contrast_mat = eng.util.regenerateCheckerboardProject(
-            exp_name,
+            exp_date,
             preTime,
             tailTime,
             stimTime,
@@ -2182,6 +2230,13 @@ def _resolve_pattern_mode_framerate(
     """
 
     mean_frame_rate = d_display['mean_frame_rate']
+
+    if mean_frame_rate is None:
+        raise ValueError(
+            'Mean frame rate is none, cannot resolve pattern mode '
+            'frame rate.'
+        )
+
     upsample_rate = d_display['upsample_rate']
 
     if d_display['mean_frame_rate'] < 65:
