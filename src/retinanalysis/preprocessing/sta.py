@@ -23,8 +23,9 @@ from pathlib import Path
 # cudnn and mkldnn may allocate an im2col buffer that's backend-dependent.
 # A named module-level constant keeps this visible and tunable. 
 # If you start getting torch.OutOfMemoryError, tune this up, which will 
-# increase the assumed 'cost per dim'
-CONV_WORKSPACE_FACTOR = 1.5
+# increase the assumed 'cost per dim'. If conv is slow, you can tune this
+# down. 1.2 is a good balance
+CONV_WORKSPACE_FACTOR = 1.2
 
 
 def _get_n_splits_memory(
