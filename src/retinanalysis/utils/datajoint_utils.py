@@ -83,9 +83,7 @@ class BlockData:
     upsample_rate (int | None): Stimulus controller calls per screen refresh. 1 in video
     mode, higher in pattern mode (6 for a 360 Hz pattern rate on a 60 Hz panel). 
 
-    n_epochs (int): Number of epochs in the block, from the Epoch table. Resolved here so
-    consumers don't re-derive it from epochStarts or the frame-time list.
-    """
+    n_epochs (int): Number of epochs in the block, directly from the Epoch table. """
     # Block info
     exp_name: str
     block_id: int
@@ -867,10 +865,8 @@ def get_display_params_for_block(
     block_data: BlockData,
     verbose: bool = True
 ):
-
-    if resolve_b_LED(
-        block_data=block_data
-    ):
+    
+    if block_data.mode == 'led':
         # Settings for LED Stim
         mu_per_pixel = None
         n_wt = n_ht = None
@@ -1191,16 +1187,11 @@ def add_parameters_col(df, ls_params, src_col: str = "epoch_parameters"):
 
 def get_epoch_data_from_exp(
     block_data: BlockData,
-    b_LED: bool | None = None,
     ls_params: list | None = None,
     stim_time_name: str = "stimTime",
 ) -> pd.DataFrame:
 
-    # Check that given b_LED value matches value inferred from epoch block data
-    b_LED = resolve_b_LED(
-        block_data=block_data,
-        b_LED=b_LED,
-    )
+    b_LED = block_data.mode == 'led'
 
     is_mea = block_data.is_mea
 
@@ -1297,14 +1288,9 @@ def get_epoch_data_from_exp(
 
 def get_epochblock_timing(
     block_data: BlockData,
-    b_LED: bool | None = None
 ) -> dict:
 
-    # Check that given b_LED value matches value inferred from epoch block data
-    b_LED = resolve_b_LED(
-        block_data=block_data,
-        b_LED=b_LED,
-    )
+    b_LED = block_data.mode == 'led'
 
     is_mea = block_data.is_mea
 
@@ -1313,7 +1299,7 @@ def get_epochblock_timing(
     # For MEA data, 'block_properties' has epoch_starts, epoch_ends, n_samples, and if LED frame_times_ms
     # For SC data, this has just frame_times_ms
     if not b_LED:
-        d_timing['frameTimesMs'] = block_data.corrected_frame_times
+        d_timing['frameTimesMs'] = list(block_data.corrected_frame_times)
 
 
     if is_mea:
@@ -1419,7 +1405,6 @@ def get_epochblock_timing(
         pre_time="parameters->>'$.preTime'",
         stim_time="parameters->>'$.stimTime'",
         tail_time="parameters->>'$.tailTime'",
-        stage_frame_rate="parameters->>'$.frameRate'",
     )
 
     df_transitions = epoch_query.to_pandas().drop_duplicates().reset_index()
@@ -1478,8 +1463,6 @@ def get_epochblock_timing(
         else:
             stage_frame_rate = float(stage_frame_rate)
 
-        d_timing["stage_frame_rate"] = stage_frame_rate
-
         frame_times_ms = block_data.corrected_frame_times
         assert frame_times_ms is not None
         try:
@@ -1489,7 +1472,6 @@ def get_epochblock_timing(
 
             # This assumes protocol is visible >=preTime and <preTime+stimTime.
             # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
-            n_epochs = block_data.n_epochs
             actual_onset_times_ms = [
                 frame_times_ms[i][pre_frames] for i in range(n_epochs)
             ]
@@ -1645,22 +1627,6 @@ def get_epochblock_amp_data(
     sample_rate = sample_rates[0]
 
     return amp_data, sample_rate
-
-def resolve_b_LED(
-    block_data: BlockData,
-    b_LED: bool | None = None
-) -> bool:
-
-
-    has_led = 'led' in (block_data.raw_block_params or {})
-
-    if b_LED is not None and b_LED != has_led:
-        raise ValueError(
-            f"{block_data.exp_name} epoch_block {block_data.block_id}: "
-            f"Inferred LED ({has_led}) and user-provided b_LED ({b_LED}) disagree."
-            )
-
-    return has_led
 
 def get_mean_frame_rate(
     frame_times: list | np.ndarray

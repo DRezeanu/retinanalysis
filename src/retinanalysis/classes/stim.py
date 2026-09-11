@@ -7,7 +7,6 @@ from retinanalysis.utils.datajoint_utils import (
     get_block_id_from_datafile,
     get_noise_name_by_exp,
     get_display_params_for_block,
-    resolve_b_LED,
 )
 import pandas as pd
 from typing import List
@@ -42,7 +41,6 @@ class StimBlock:
         exp_name: str | None = None,
         block_id: int | None = None,
         ls_params: list | None = None,
-        b_LED: bool | None = None,
         verbose: bool = True,
         pkl_file: str | None = None,
     ):
@@ -56,11 +54,7 @@ class StimBlock:
                 exp_name=exp_name,
                 block_id=block_id,
             )
-
-            self.b_LED = resolve_b_LED(
-                block_data=block_data,
-                b_LED = b_LED,
-            )
+            self.b_LED = block_data.mode == 'led'
 
             if verbose:
                 print(f"Initializing StimBlock for {exp_name} block {block_id}")
@@ -89,17 +83,11 @@ class StimBlock:
             if not hasattr(self, 'b_LED'):
                 # Pickle pre-dates the creation of the b_LED parameter, these objects
                 # are non-LED by default
-                self.b_LED = b_LED if b_LED is not None else False
-                if b_LED is None:
-                    warn(
-                        "Pickle predates b_LED, assuming false. "
-                        "Pass b_LED explicitly to overwrite."
-                    )
-            elif b_LED is not None and b_LED != self.b_LED:
                 warn(
-                    f"Pickle file has b_LED = {self.b_LED} but user provided {b_LED}\n"
-                    f"Using b_LED = {self.b_LED}"
+                    "Pickle predates b_LED, assuming false.\n"
+                    "Overwrite the parameter if this is wrong."
                 )
+                self.b_LED = False
 
             if verbose != self.verbose:
                 warn(
@@ -128,7 +116,6 @@ class StimBlock:
 
         df_epochs = get_epoch_data_from_exp(
             block_data=block_data,
-            b_LED=self.b_LED,
             ls_params=ls_params,
         )
 
@@ -211,7 +198,6 @@ class MEAStimBlock(StimBlock):
         exp_name: str | None = None,
         datafile_name: str | None = None,
         ls_params: list | None = None,
-        b_LED: bool | None = None,
         verbose: bool = True,
         pkl_file: str | None = None,
     ):
@@ -230,7 +216,6 @@ class MEAStimBlock(StimBlock):
         super().__init__(
             exp_name=exp_name,
             block_id=block_id,
-            b_LED=b_LED,
             ls_params=ls_params,
             verbose=verbose,
             pkl_file=pkl_file,
@@ -519,13 +504,12 @@ def create_mea_stim_group(
     exp_name,
     ls_datafile_names,
     ls_params: list | None = None,
-    b_LED: bool | None = None,
     verbose: bool = False,
 ):
 
     ls_blocks = [
         MEAStimBlock(
-            exp_name, datafile, b_LED=b_LED, ls_params=ls_params, verbose=verbose
+            exp_name, datafile, ls_params=ls_params, verbose=verbose
         )
         for datafile in ls_datafile_names
     ]

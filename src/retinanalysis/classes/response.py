@@ -6,7 +6,6 @@ from retinanalysis.utils.datajoint_utils import (
     get_block_id_from_datafile,
     get_display_params_for_block,
     get_exp_summary,
-    resolve_b_LED,
 )
 
 from retinanalysis._config import config
@@ -49,10 +48,6 @@ class ResponseBlock:
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data.
 
-        b_LED (bool | None): Whether the stimulus was delivered by an LED. Inferred from the
-        epoch block; pass a value only to assert it, which raises on disagreement.
-        LED blocks force b_load_fd to False.
-
         verbose (bool): Boolean value, if True will print status messages to console. Default True.
     """
 
@@ -63,7 +58,6 @@ class ResponseBlock:
         h5_file: str | None = None,
         pkl_file: str | dict  | None = None,
         b_load_fd: bool = True,
-        b_LED: bool | None  = None,
         verbose: bool = True,
     ):
 
@@ -80,10 +74,7 @@ class ResponseBlock:
                 block_id = block_id,
             )
 
-            self.b_LED = resolve_b_LED(
-                block_data=block_data,
-                b_LED = b_LED,
-            )
+            self.b_LED = block_data.mode == 'led'
 
             if self.verbose:
                 print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
@@ -108,18 +99,11 @@ class ResponseBlock:
             if not hasattr(self, 'b_LED'):
                 # Pickle pre-dates the creation of the b_LED parameter, these objects
                 # are non-LED by default
-                self.b_LED = b_LED if b_LED is not None else False
-                if b_LED is None:
-                    warn(
-                        "Pickle predates b_LED, assuming false. "
-                        "Pass b_LED explicitly to overwrite."
-                    )
-
-            elif b_LED is not None and b_LED != self.b_LED:
                 warn(
-                    f"Pickle file has b_LED = {self.b_LED} but user provided {b_LED}\n"
-                    f"Using b_LED = {self.b_LED}"
+                    "Pickle predates b_LED, assuming false.\n"
+                    "Overwrite the parameter if this is wrong."
                 )
+                self.b_LED = False
 
             if verbose != self.verbose:
                 warn(
@@ -142,7 +126,6 @@ class ResponseBlock:
 
         self.d_timing = get_epochblock_timing(
             block_data=block_data,
-            b_LED=self.b_LED,
         )
 
         self.d_display = get_display_params_for_block(
@@ -227,10 +210,6 @@ class SCResponseBlock(ResponseBlock):
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data.
 
-        b_LED (bool | None): Whether the stimulus was delivered by an LED. Inferred from the
-        epoch block; pass a value only to assert it, which raises on disagreement.
-        LED blocks force b_load_fd to False.
-
         verbose (bool): Boolean value, if True will print status messages to console. Default True.
 
         **detector_kwargs: kwargs to be given to the detector method in get_spike_times()
@@ -244,7 +223,6 @@ class SCResponseBlock(ResponseBlock):
         pkl_file: str | None = None,
         b_spiking: bool = False,
         b_load_fd: bool = True,
-        b_LED: bool | None = None,
         verbose: bool = True,
         **detector_kwargs,
     ):
@@ -253,7 +231,6 @@ class SCResponseBlock(ResponseBlock):
             exp_name=exp_name,
             block_id=block_id,
             h5_file=h5_file,
-            b_LED=b_LED,
             pkl_file=pkl_file,
             b_load_fd=b_load_fd,
             verbose=verbose,
@@ -319,10 +296,6 @@ class MEAResponseBlock(ResponseBlock):
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data. Default is False.
 
-        b_LED (bool | None): Whether the stimulus was delivered by an LED rather than a
-        microdisplay or lightcrafter. Inferred from the epoch block; pass a value only to
-        assert it, which raises on disagreement. LED blocks force b_load_fd to False.
-
         verbose (bool): Boolean value, if True all status messages will be printed to the console as
         the response block is created. Default is True.
     """
@@ -336,7 +309,6 @@ class MEAResponseBlock(ResponseBlock):
         h5_file: str | None = None,
         include_ei: bool = True,
         b_load_fd: bool = False,
-        b_LED: bool | None = None,
         b_load_vcd: bool = True,
         verbose: bool = True,
     ):
@@ -363,7 +335,6 @@ class MEAResponseBlock(ResponseBlock):
             block_id=block_id,
             pkl_file=pkl_file,
             h5_file=h5_file,
-            b_LED=b_LED,
             b_load_fd=b_load_fd,
             verbose=verbose,
         )
@@ -764,7 +735,6 @@ class MEAResponseGroup:
                         for block in ls_blocks
                         for times in block.d_timing["frameTimesMs"]
                     ],
-                    "stage_frame_rate": ls_blocks[0].d_timing["stage_frame_rate"],
                     "actual_onset_times_ms": [
                         onsets
                         for block in ls_blocks
@@ -1135,7 +1105,6 @@ def create_mea_response_group(
     ls_datafile_names: List[str],
     ss_version: str = "kilosort2.5",
     b_load_fd: bool = False,
-    b_LED: bool | None = None,
     b_load_vcd: bool = True,
     verbose: bool = False,
 ):
@@ -1153,10 +1122,6 @@ def create_mea_response_group(
 
         b_load_fd (bool): Boolean value, if True will load and included frame monitor data. Default False.
 
-        b_LED (bool | None): Whether the stimuli for these datafiles were delivered by an LED.
-        Inferred from the epoch block; pass a value only to assert it, which raises on
-        disagreement. LED blocks force b_load_fd to False.
-
         b_load_vcd (bool): Boolean value, if True will load the vision data table.
             Mainly for debugging purposes to skip load time.
 
@@ -1173,7 +1138,6 @@ def create_mea_response_group(
             exp_name,
             datafile_name,
             ss_version=ss_version,
-            b_LED=b_LED,
             b_load_fd=b_load_fd,
             verbose=verbose,
             b_load_vcd=b_load_vcd,
