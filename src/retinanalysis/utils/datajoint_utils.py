@@ -111,7 +111,9 @@ class BlockData:
 
 def get_block_data(
     exp_name: str,
-    datafile_name: str,
+    *,
+    datafile_name: str | None = None,
+    block_id: int | None = None,
 ):
 
     # Get block info
@@ -119,8 +121,24 @@ def get_block_data(
     is_mea = bool(experiment.at[0, 'is_mea'])
     exp_id = experiment.at[0, 'id']
     all_blocks = (schema.EpochBlock() & f'experiment_id = {exp_id}').to_pandas()
-    block = all_blocks.query(f'data_dir.str.endswith("{datafile_name}")').reset_index()
-    block_id = block.at[0,'id']
+
+    if block_id is None:
+        if datafile_name is None:
+            raise ValueError(
+                'Must provide a datafile name or a block id.'
+            )
+
+        else:
+            block = all_blocks.query(f'data_dir.str.endswith("{datafile_name}")').reset_index()
+            block_id = block.at[0,'id']
+    else:
+        if datafile_name is not None:
+            warn(
+                'User provided both block_id and datafile_name, '
+                'using block id and ignoring datafile_name'
+            )
+        block = all_blocks.query(f'id == {block_id}').reset_index()
+
     group_id = block.at[0,'parent_id']
     group_label = (
         (schema.EpochGroup() & f'id = {group_id}')
