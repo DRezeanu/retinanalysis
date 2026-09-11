@@ -3,7 +3,7 @@ from retinanalysis.utils.datajoint_utils import (
     get_epochblock_frame_data,
     get_epochblock_timing,
     get_block_id_from_datafile,
-    get_mean_frame_rate,
+    get_display_params_for_block,
     get_exp_summary,
     resolve_b_LED,
 )
@@ -137,11 +137,14 @@ class ResponseBlock:
         self.d_timing = get_epochblock_timing(
             self.exp_name, self.block_id, b_LED=self.b_LED
         )
+
+        self.d_display = get_display_params_for_block(
+            exp_name=self.exp_name,
+            block_id=self.block_id,
+            verbose=False,
+        )
         
-        self.mean_frame_rate = None
-        if 'frameTimesMs' in self.d_timing:
-            frame_times = self.d_timing['frameTimesMs']
-            self.mean_frame_rate = get_mean_frame_rate(frame_times)
+        self.mean_frame_rate = self.d_display['mean_frame_rate']
 
         if b_load_fd:
             frame_data, frame_sample_rate = get_epochblock_frame_data(
@@ -759,10 +762,17 @@ class MEAResponseGroup:
                 }
             )
 
-        self.mean_frame_rate = None
-        if 'frameTimesMs' in d_timing:
-            frame_times = d_timing['frameTimesMs']
-            self.mean_frame_rate = get_mean_frame_rate(frame_times)
+        for key in ls_blocks[0].d_display:
+            vals = [block.d_display[key] for block in ls_blocks]
+            if len(set(vals)) > 1:
+                warn(
+                    f'Not all response blocks have the same display specs.\n'
+                    f'Multiple unique {key} values: {list(set(vals))}\n' 
+                    f'Using {vals[0]}\n'
+                )
+
+        self.d_display = ls_blocks[0].d_display
+        self.mean_frame_rate = self.d_display['mean_frame_rate']
 
         self.binned_spikes: list | np.ndarray | None = None
         self.ls_blocks = ls_blocks

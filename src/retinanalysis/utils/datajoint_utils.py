@@ -10,6 +10,267 @@ from tqdm.auto import tqdm
 from IPython.display import display
 import h5py
 from warnings import warn
+from dataclasses import dataclass
+
+@dataclass(slots=True, frozen=True)
+class BlockData:
+    """
+    Everything needed to work with one epoch block's timing, resolved once from the
+    database. Built by get_block_data; frozen and self-contained, so it can be passed
+    around, pickled, and read back with no database access.
+
+    Timing lives on two grids, and the difference matters for anything that lines
+    stimulus frames up against spikes:
+
+      - raw_frame_times is measured. One entry per image the projector actually put on
+        screen, from the frame monitor.
+      - corrected_frame_times is resolved. One entry per stage frame, meaning one entry
+        per call Stage made to the stimulus controller. Dropped frames are filled in,
+        and in pattern mode each screen refresh is subdivided into the upsample_rate
+        controller calls that happened inside it.
+
+    corrected_frame_times ticks at stage_frame_rate, the same rate the protocol used for
+    its own frame arithmetic (pre_frames, numFrames). Protocol frame counts therefore
+    index it one-to-one in both video and pattern mode, and it is the series to bin
+    spikes against. corrected_frame_times[::upsample_rate] recovers the screen-refresh
+    grid if you need it.
+
+    Attributes:
+    exp_name (str): Experiment name, i.e. '20251008C'.
+
+    block_id (int): Primary key of this block in schema.EpochBlock.
+
+    datafile_name (str): Data file the block was recorded to, i.e. 'data013'.
+
+    group_label (str): Label of the parent EpochGroup.
+
+    is_mea (bool): True for MEA experiments, False for single-cell.
+
+    raw_block_properties (dict): The EpochBlock 'properties' dict, verbatim. Holds
+    epochStarts, epochEnds, and the stored frameTimesMs.
+
+    raw_block_params (dict): The EpochBlock 'parameters' dict, verbatim. Holds
+    frameRate, and 'led' on LED blocks.
+
+    raw_epoch0_params (dict): The 'parameters' dict of the block's first epoch,
+    verbatim. Read here for display geometry (canvasSize, micronsPerPixel). The rates it
+    carries are superseded by stage_frame_rate and upsample_rate; note in particular that
+    monitorRefreshRate is a nominal integer (59 on rig C) whatever the pattern rate.
+
+    mode (str): 'video', 'pattern', or 'led'. On 'led' blocks there is no display timing
+    and every field below is None.
+
+    raw_frame_times (list of lists | None): Per epoch, the measured time in ms of
+    each time the frame monitor strip on the edge of the display flipped between black
+    and white. Gaps of two or more frame periods are real dropped frames and are left in
+    place. In pattern mode it is recovered from the stored times by taking every
+    upsample_rate-th entry if the parser interpolated, or the pure raw times if it didn't.
+
+    corrected_frame_times (list of np.ndarray | None): Per epoch, the time in ms of every
+    stage frame — one entry per stimulus controller call. Dropped frames filled in,
+    pattern-mode calls interpolated within each refresh. Same grid in both modes, since
+    video mode has one call per refresh.
+
+    mean_frame_rate (float | None): Measured stage frame rate in Hz, after the fixes
+    above. In pattern mode it is the measured refresh rate times upsample_rate, because
+    the calls within a refresh are interpolated, not measured.
+
+    stage_frame_rate (float | None): Nominal stage frame rate in Hz — the protocol's
+    saved frameRate, which Stage set from getPatternRate() in pattern mode and
+    getMonitorRefreshRate() in video mode. 
+
+    upsample_rate (int | None): Stimulus controller calls per screen refresh. 1 in video
+    mode, higher in pattern mode (6 for a 360 Hz pattern rate on a 60 Hz panel). 
+
+    n_epochs (int): Number of epochs in the block, from the Epoch table. Resolved here so
+    consumers don't re-derive it from epochStarts or the frame-time list.
+    """
+    # Block info
+    exp_name: str
+    block_id: int
+    is_mea: bool
+    datafile_name: str
+    group_label: str
+
+    # Block and epoch properties
+    raw_block_properties: dict
+    raw_block_params: dict
+    raw_epoch0_params: dict
+
+    # Display properties
+    mode: str 
+    raw_frame_times: list | None 
+    corrected_frame_times: list | None
+    mean_frame_rate: float | None
+    stage_frame_rate: float | None
+    upsample_rate: int | None
+
+    # Epoch info
+    n_epochs: int
+    
+
+def get_block_data(
+    exp_name: str,
+    datafile_name: str,
+):
+
+    # Get block info
+    experiment = (schema.Experiment() & f'exp_name = "{exp_name}"').to_pandas().reset_index()
+    is_mea = bool(experiment.at[0, 'is_mea'])
+    exp_id = experiment.at[0, 'id']
+    all_blocks = (schema.EpochBlock() & f'experiment_id = {exp_id}').to_pandas()
+    block = all_blocks.query(f'data_dir.str.endswith("{datafile_name}")').reset_index()
+    block_id = block.at[0,'id']
+    group_id = block.at[0,'parent_id']
+    group_label = (
+        (schema.EpochGroup() & f'id = {group_id}')
+        .to_pandas()
+        .reset_index()
+        .at[0, 'label']
+    )
+
+    # Get epoch block properties
+    raw_block_properties = block.at[0, 'properties']
+    raw_block_params = block.at[0, 'parameters']
+
+    # Get epoch 0 properties
+    epoch = (schema.Epoch() & f'parent_id = {block_id}').to_pandas().reset_index()
+    raw_epoch0_params = epoch.at[0, 'parameters']
+
+    frame_times_ms = (raw_block_properties or {}).get('frameTimesMs')
+
+    has_led = 'led' in (raw_block_params or {})
+    no_ft = frame_times_ms is None or (len(frame_times_ms) > 0 and all(ft is None for ft in frame_times_ms))
+
+    if has_led != no_ft:
+        raise ValueError(
+            f"{exp_name} epoch_block {block_id}: LED param {'present' if has_led else 'absent'} "
+            f"but frame times {'absent' if no_ft else 'present'} - manually resolve conflict"
+        )
+
+    # Get display properties
+    if has_led:
+        mode = 'led'
+        raw_frame_times = None
+        corrected_frame_times = None
+        mean_frame_rate = None
+        stage_frame_rate = None
+        upsample_rate = None
+    else:
+        assert frame_times_ms is not None
+        frame_times_ms = normalize_frame_times(frame_times_ms)
+        raw_frame_times = frame_times_ms
+        measured_frame_rate = get_mean_frame_rate(raw_frame_times)
+        pattern_rate = raw_epoch0_params.get('lightCrafterPatternRate')
+        monitor_refresh_rate = raw_epoch0_params.get('monitorRefreshRate')
+
+        if (pattern_rate is not None) and (pattern_rate > 0):
+            mode = 'pattern'
+            stage_frame_rate = pattern_rate
+            upsample_rate = int(np.round(pattern_rate/monitor_refresh_rate))
+
+            granularity = np.round(measured_frame_rate / monitor_refresh_rate)
+            if granularity not in [1, upsample_rate]:
+                raise ValueError(
+                    'Mean frame rate is not an integer multiple of monitor refresh:\n'
+                    f'    - Mean frame rate: {measured_frame_rate}\n'
+                    f'    - Monitor refresh rate: {monitor_refresh_rate}\n'
+                )
+
+            if granularity == upsample_rate:
+                # Uninterpolate the frames
+                raw_frame_times = [fts[::upsample_rate] for fts in raw_frame_times]
+
+
+            base_frame_rate = get_mean_frame_rate(raw_frame_times)
+
+            # Interpolate
+            corrected_frame_times = get_corrected_frame_times(
+                frame_times=raw_frame_times,
+                mean_frame_rate=base_frame_rate,
+                upsample_rate=upsample_rate
+            )
+
+
+        else:
+            mode = 'video'
+            stage_frame_rate = monitor_refresh_rate 
+            upsample_rate = 1
+            raw_frame_times = frame_times_ms
+
+            corrected_frame_times = get_corrected_frame_times(
+                raw_frame_times,
+                measured_frame_rate,
+            )
+
+        mean_frame_rate = get_mean_frame_rate(corrected_frame_times)
+
+    # Epoch info
+    n_epochs = len(epoch)
+
+    return BlockData(
+        exp_name=exp_name,
+        block_id = block_id,
+        is_mea=is_mea,
+        datafile_name=datafile_name,
+        group_label=group_label,
+        raw_block_params=raw_block_params,
+        raw_block_properties=raw_block_properties,
+        raw_epoch0_params=raw_epoch0_params,
+        mode=mode,
+        raw_frame_times = raw_frame_times,
+        corrected_frame_times = corrected_frame_times,
+        mean_frame_rate = mean_frame_rate,
+        stage_frame_rate = stage_frame_rate,
+        upsample_rate=upsample_rate,
+        n_epochs=n_epochs,
+    )
+
+
+def get_corrected_frame_times(frame_times, mean_frame_rate, upsample_rate: int = 1):
+
+    nominal_ft_ms = 1/mean_frame_rate*1e3
+
+    refresh_times = []
+    for e_fts in frame_times:
+        # How close is each frame width to expected nominal frame time
+        ratio = np.diff(e_fts) / nominal_ft_ms
+        # Round that to nearest integer. Single frames = 1, one dropped frame = 2, etc.
+        cycles = np.round(ratio).astype(int)
+
+        # Check for frames that aren't 'near-integer multiples' of the expected frame period.
+        # Frames that are 1.5 expected frame periods away, for example.
+        resid = np.abs(ratio - cycles)
+
+        if np.any(resid > 0.2):
+            warn(
+                f'{np.sum(resid>0.2)} intervals are not near-integer '
+                f'multiples of the nominal frame period.',
+                stacklevel=2,
+            )
+
+        # Transform cycles into an index, prepending 0 and taking the cumulative sum.
+        # [0,1,2,3,4] = healthy epoch. [0,1,3,4,5] = dropped frames, frame 1 was repeated.
+        cycle_idx = np.concatenate([[0], np.cumsum(cycles)])
+        
+        # Number of total screen refreshes (including drops) = max val of cycle_idx + 1
+        n_refresh = cycle_idx[-1]+1
+
+        # Add synthetic frame boundary at end of cycle_idx
+        idx_tbl = np.append(cycle_idx, n_refresh)
+
+        # Add synthetic frame boundary at end of frame times array/list
+        fts_ext = np.append(e_fts, e_fts[-1] + nominal_ft_ms)
+
+        # Create interpolation grid using the max cycle index, moving at 1/stride.
+        # Avoids issues with using 1/stride as a floating point 'step' inside of
+        # np.arange. This way every stride-th value lands on an integer.
+        grid = np.arange(n_refresh*upsample_rate)/upsample_rate
+
+        # Interpolate on that grid
+        refresh_times.append(np.interp(grid, idx_tbl, fts_ext))
+
+    return refresh_times
 
 
 def plot_mosaics_for_datasets(
@@ -89,49 +350,14 @@ def plot_mosaics_for_datasets(
                 )
                 rf_axes = analysis_chunk.plot_rfs(cell_types=cell_types, **kwargs)
 
-        try:
+        if rf_axes is None:
+            print(f"\nNo RFs for {exp} {nearest_chunk}")
+        else:
             fig = rf_axes[0].get_figure()
             fig.suptitle(f"{exp} {nearest_chunk}")
             ls_rf_axes.append(rf_axes)
-        except:
-            print(f"\nNo RFs for {exp} {nearest_chunk}")
 
     return ls_rf_axes
-
-
-def djconnect(
-    host_address: str = "127.0.0.1",
-    user: str = "root",
-    password: str = "simple",
-    port: int = 3306,
-):
-    """
-    Deprecated helper for connecting to a local DataJoint database container.
-
-    DataJoint configuration is now applied lazily when the schema module is
-    loaded. Prefer configuring DataJoint through ``datajoint.json`` or by
-    setting ``dj.config`` before calling database-backed retinanalysis helpers.
-
-    This function is kept as a temporary compatibility shim for old notebooks.
-    It still attempts an immediate connection when called explicitly.
-    """
-
-    warn(
-        "retinanalysis.djconnect() is deprecated. Configure DataJoint via "
-        "datajoint.json or dj.config before calling database-backed helpers.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    try:
-        dj.config["database.host"] = host_address
-        dj.config["database.port"] = port
-        dj.config["database.user"] = user
-        dj.config["database.password"] = password
-        return dj.conn()
-    except Exception as e:
-        print(f"Could not connect to DataJoint database: {e}")
-        return None
 
 
 def populate_ndf_column(
@@ -170,7 +396,7 @@ def populate_ndf_column(
 
 def get_exp_summary(
     exp_name: str,
-) -> pd.DataFrame | None:
+) -> pd.DataFrame | pd.Series | None:
     """
     Function for generating an experiment summary dataframe that has a list of all
     protocols run and their most relevant properties (sorting chunk, datafile name,
@@ -487,7 +713,7 @@ def get_datasets_from_protocol_names(
 
 
 def get_noise_chunks_sorted_by_distance(
-    df_exp_summary: pd.DataFrame,
+    df_exp_summary: pd.DataFrame | pd.Series,
     datafile_name: str,
     noise_protocol_name: str = "manookinlab.protocols.SpatialNoise",
     verbose: bool = False,
@@ -607,7 +833,6 @@ def get_noise_name_by_exp(exp_name: str) -> str:
 
     return noise_protocol_name
 
-
 def get_display_params_for_block(
     exp_name: str,
     block_id: int,
@@ -665,16 +890,6 @@ def get_display_params_for_block(
         frame_times = block.at[0, 'properties'].get('frameTimesMs')
         frame_times = normalize_frame_times(frame_times)
 
-        if not frame_times:
-            warn(
-                f'{exp_name} block {block_id} has no frame times.\n'
-                'Returning None for mean_frame_rate.',
-                stacklevel=2
-            )
-            mean_frame_rate = None
-        else:
-            mean_frame_rate = get_mean_frame_rate(frame_times)
-
         monitor_refresh = epoch.at[0, 'parameters'].get('monitorRefreshRate')
         # Check for pattern mode
         if (pattern_rate is not None) and (pattern_rate > 0):
@@ -686,9 +901,15 @@ def get_display_params_for_block(
             stage_frame_rate = monitor_refresh
             upsample_rate = 1
 
-
-    if verbose:
-        print(f"\nFor experiment {exp_name} and block {block_id}:")
+        if not frame_times:
+            warn(
+                f'{exp_name} block {block_id} has no frame times.\n'
+                'Returning None for mean_frame_rate.',
+                stacklevel=2
+            )
+            mean_frame_rate = None
+        else:
+            mean_frame_rate = get_mean_frame_rate(frame_times)
 
     d_display = {
         "disp_type": disp_type,
@@ -702,6 +923,7 @@ def get_display_params_for_block(
     }
 
     if verbose:
+        print(f"\nFor experiment {exp_name} and block {block_id}:")
         for key, value in d_display.items():
             print(f'    -{key}: {value}')
         print()
@@ -1548,3 +1770,39 @@ def normalize_frame_times(
             frame_times.insert(0,0.0)
 
     return frame_times
+
+
+
+def djconnect(
+    host_address: str = "127.0.0.1",
+    user: str = "root",
+    password: str = "simple",
+    port: int = 3306,
+):
+    """
+    Deprecated helper for connecting to a local DataJoint database container.
+
+    DataJoint configuration is now applied lazily when the schema module is
+    loaded. Prefer configuring DataJoint through ``datajoint.json`` or by
+    setting ``dj.config`` before calling database-backed retinanalysis helpers.
+
+    This function is kept as a temporary compatibility shim for old notebooks.
+    It still attempts an immediate connection when called explicitly.
+    """
+
+    warn(
+        "retinanalysis.djconnect() is deprecated. Configure DataJoint via "
+        "datajoint.json or dj.config before calling database-backed helpers.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
+    try:
+        dj.config["database.host"] = host_address
+        dj.config["database.port"] = port
+        dj.config["database.user"] = user
+        dj.config["database.password"] = password
+        return dj.conn()
+    except Exception as e:
+        print(f"Could not connect to DataJoint database: {e}")
+        return None

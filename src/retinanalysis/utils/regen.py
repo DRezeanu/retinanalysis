@@ -139,38 +139,6 @@ def get_spatial_noise_frame_sequence(
 
     return frame_sequences, dropped_frames
 
-def interpolate_pattern_mode_frames(
-    frame_times: np.ndarray | list,
-    frame_sequence: np.ndarray | list,
-    upsample_rate: float,
-) -> np.ndarray | list:
-    """Helper function that interpolates frame times by pattern rate
-    if frame times haven't already been interpolated by the h5 parser,
-    accounting for dropped frames.
-    """
-    n_fts = len(frame_times)
-    n_actual_frames = len(frame_sequence)
-
-    if n_fts == n_actual_frames:
-        warn(
-            '\nNum frame times == num frames. No interpolatin needed. '
-            'Returning raw frame times.', stacklevel=2,
-        )
-        return frame_times
-
-    cycle_idx = np.concatenate([[0], np.cumsum(frame_sequence)])
-
-    frame_grid = np.arange(0, cycle_idx[-1]+1/upsample_rate, 1/upsample_rate)
-    interpolated_fts = np.interp(frame_grid, cycle_idx, frame_times)
-
-    if len(interpolated_fts) != n_actual_frames:
-        raise ValueError(
-            f'Something went wrong. Num interpolated frames ({len(interpolated_fts)}) '
-            f'does not match num actual frames ({n_actual_frames})'
-        )
-
-    return interpolated_fts
-
 
 def make_spatial_noise(
     df_epochs: pd.DataFrame,
