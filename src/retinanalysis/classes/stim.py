@@ -1,6 +1,7 @@
 from retinanalysis._database import schema
 import numpy as np
 from retinanalysis.utils.datajoint_utils import (
+    get_block_data,
     get_exp_summary,
     get_epoch_data_from_exp,
     get_block_id_from_datafile,
@@ -51,10 +52,14 @@ class StimBlock:
                 raise ValueError(
                     "Either exp_name and block_id or pkl_file must be provided."
                 )
+            block_data = get_block_data(
+                exp_name=exp_name,
+                block_id=block_id,
+            )
+
             self.b_LED = resolve_b_LED(
-                block_id = block_id,
+                block_data=block_data,
                 b_LED = b_LED,
-                exp_name = exp_name,
             )
 
             if verbose:
@@ -122,14 +127,16 @@ class StimBlock:
         self.d_epoch_block_params = epoch_block.fetch1("parameters")
 
         df_epochs = get_epoch_data_from_exp(
-            exp_name, block_id, b_LED=self.b_LED, ls_params=ls_params
+            block_data=block_data,
+            b_LED=self.b_LED,
+            ls_params=ls_params,
         )
+
         self.df_epochs = df_epochs
         self.parameter_names = list(df_epochs.at[0, "epoch_parameters"].keys())
 
         self.d_display = get_display_params_for_block(
-            exp_name=self.exp_name,
-            block_id=self.block_id,
+            block_data=block_data,
             verbose=self.verbose,
         )
         self.stim_data: dict | None = None
@@ -246,6 +253,7 @@ class MEAStimBlock(StimBlock):
 
         # pull relevant information from datajoint
         experiment_summary = get_exp_summary(self.exp_name)
+        assert experiment_summary is not None
 
         # Keep only rows with same prep_label
         experiment_summary = experiment_summary.query("prep_label == @self.prep_label")
@@ -340,7 +348,7 @@ class MEAStimBlock(StimBlock):
         else:
             if self.verbose:
                 print(
-                    f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n"
+                    f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n" #type: ignore
                 )
 
         return nearest_noise_chunk

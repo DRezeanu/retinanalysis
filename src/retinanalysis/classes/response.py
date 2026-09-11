@@ -1,4 +1,5 @@
 from retinanalysis.utils.datajoint_utils import (
+    get_block_data,
     get_epochblock_amp_data,
     get_epochblock_frame_data,
     get_epochblock_timing,
@@ -73,10 +74,15 @@ class ResponseBlock:
                 raise ValueError(
                     "Either exp_name and block_id or pkl_file must be provided."
                 )
-            self.b_LED = resolve_b_LED(
-                block_id = block_id,
-                b_LED = b_LED,
+
+            block_data = get_block_data(
                 exp_name = exp_name,
+                block_id = block_id,
+            )
+
+            self.b_LED = resolve_b_LED(
+                block_data=block_data,
+                b_LED = b_LED,
             )
 
             if self.verbose:
@@ -135,12 +141,12 @@ class ResponseBlock:
             b_load_fd = False
 
         self.d_timing = get_epochblock_timing(
-            self.exp_name, self.block_id, b_LED=self.b_LED
+            block_data=block_data,
+            b_LED=self.b_LED,
         )
 
         self.d_display = get_display_params_for_block(
-            exp_name=self.exp_name,
-            block_id=self.block_id,
+            block_data=block_data,
             verbose=False,
         )
         
@@ -148,7 +154,9 @@ class ResponseBlock:
 
         if b_load_fd:
             frame_data, frame_sample_rate = get_epochblock_frame_data(
-                self.exp_name, self.block_id, str_h5=self.h5_file, verbose=self.verbose
+                block_data=block_data,
+                str_h5=self.h5_file,
+                verbose=self.verbose,
             )
         else:
             frame_data = np.array([])
@@ -254,10 +262,18 @@ class SCResponseBlock(ResponseBlock):
         if pkl_file is not None:
             return
 
+        block_data = get_block_data(
+            exp_name=self.exp_name,
+            block_id=self.block_id,
+        )
+
         self.b_spiking = b_spiking
         amp_data, sample_rate = get_epochblock_amp_data(
-            self.exp_name, self.block_id, str_h5=self.h5_file, verbose=self.verbose
+            block_data=block_data,
+            str_h5=self.h5_file,
+            verbose=self.verbose,
         )
+
         self.amp_data = amp_data
         self.amp_sample_rate = sample_rate
         if b_spiking:
@@ -798,7 +814,11 @@ class MEAResponseGroup:
                 if ls_blocks[0].frame_sample_rate is None:
                     frame_monitor_data = [
                         get_epochblock_frame_data(
-                            block.exp_name, block.block_id, str_h5=block.h5_file
+                            block_data=get_block_data(
+                                block.exp_name,
+                                block_id=block.block_id,
+                            ),
+                            str_h5=block.h5_file
                         )
                         for block in ls_blocks
                     ]

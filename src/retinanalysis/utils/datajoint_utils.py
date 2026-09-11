@@ -90,8 +90,9 @@ class BlockData:
     exp_name: str
     block_id: int
     is_mea: bool
-    datafile_name: str
+    datafile_name: str | None
     protocol_name: str
+    group_id: int
     group_label: str
 
     # Block and epoch properties
@@ -140,12 +141,11 @@ def get_block_data(
                 'using block id and ignoring datafile_name'
             )
         block = all_blocks.query(f'id == {block_id}').reset_index()
-        data_dir = block.at[0, 'data_dir']
-        datafile_name = Path(data_dir).stem
+        if is_mea:
+            data_dir = block.at[0, 'data_dir']
+            datafile_name = Path(data_dir).stem
 
     assert block_id is not None
-    assert datafile_name is not None
-
     protocol_id = block.at[0, 'protocol_id']
     protocol = (schema.Protocol & f'protocol_id = {protocol_id}').to_pandas().reset_index()
     protocol_name = protocol.at[0, 'name']
@@ -241,6 +241,7 @@ def get_block_data(
         block_id = block_id,
         is_mea=is_mea,
         datafile_name=datafile_name,
+        group_id=group_id,
         group_label=group_label,
         protocol_name=protocol_name,
         raw_block_params=raw_block_params,
@@ -879,7 +880,11 @@ def get_display_params_for_block(
         mode = None
         upsample_rate = None
     else:
-        mu_per_pixel = block_data.raw_epoch0_params['micronsPerPixel']
+        mu_per_pixel = block_data.raw_epoch0_params.get('micronsPerPixel')
+        if mu_per_pixel is None:
+            raise ValueError(
+                f'{block_data.exp_name} block {block_data.block_id} has no microns_per_pixel.'
+            )
         canvas_size = block_data.raw_epoch0_params.get('canvasSize')
         if canvas_size is None:
             raise ValueError(
@@ -887,10 +892,10 @@ def get_display_params_for_block(
             )
 
         n_wt, n_ht = canvas_size
+
         # Settings for all other display types
         # Potential Values that Reveal OLED vs LCR and Video vs Pattern Mode
-        stage_class = block_data.raw_epoch0_params.get('stageClass')
-        pattern_rate = block_data.raw_epoch0_params.get('lightCrafterPatternRate')
+        stage_class = block_data.raw_block_properties.get('stageClass')
         microdisplay_brightness = block_data.raw_epoch0_params.get('microdisplayBrightness')
 
         # Assign display type using stage_class 
@@ -984,7 +989,7 @@ def get_typing_files_for_datasets(
         assert exp_summary is not None, (
             f"Failed to generate experiment summary for {exp_name}"
         )
-        df_exp: pd.DataFrame = exp_summary
+        df_exp = exp_summary
 
         noise_protocol_name: str = get_noise_name_by_exp(exp_name)
 
@@ -1191,41 +1196,50 @@ def get_epoch_data_from_exp(
     stim_time_name: str = "stimTime",
 ) -> pd.DataFrame:
 
-    epochblock_query = get_epochblock_query(
-        block_data=block_data,
-        exp_name=exp_name,
-        block_id=block_id
-    )
-
     # Check that given b_LED value matches value inferred from epoch block data
     b_LED = resolve_b_LED(
         block_data=block_data,
         b_LED=b_LED,
     )
 
-    eb_df = epochblock_query.to_pandas().reset_index()
-    is_mea = bool(eb_df.loc[0, 'is_mea'])
+    is_mea = block_data.is_mea
 
+    remove_last_epoch = False
     if is_mea:
         # Check num epoch ends matches num epoch starts
-        d_data = eb_df.loc[0].to_dict()
-        epoch_starts = d_data["block_properties"]["epochStarts"]
-        epoch_ends = d_data["block_properties"]["epochEnds"]
+        epoch_starts = block_data.raw_block_properties['epochStarts']
+        epoch_ends = block_data.raw_block_properties['epochEnds']
+        if len(epoch_ends) == len(epoch_starts) - 1:
+            print(
+                f"Warning: For {block_data.exp_name} block {block_data.block_id}\n"
+                f"Found {len(epoch_ends)} epoch ends but {len(epoch_starts)} epoch starts."
+            )
+            remove_last_epoch = True
 
-    protocol_query = epochblock_query * schema.Protocol.proj(protocol_name="name")  # type: ignore
+    epoch_query = (
+        (schema.Epoch() & f'parent_id = {block_data.block_id}')
+        .proj(
+            'experiment_id',
+            epoch_parameters='parameters',
+            block_id='parent_id',
+            epoch_id='id',
+        )
+    )
 
-    epoch_query = protocol_query * schema.Epoch.proj(
-        epoch_parameters="parameters",
-        block_id="parent_id",
-        epoch_id="id",
-        frame_times_ms="properties->>'$.frameTimesMs'",
-    )  # type: ignore
+    df = epoch_query.to_pandas().reset_index()
 
-    df = epoch_query.to_pandas()
-    df = df.reset_index()
+    df['frame_times_ms'] = block_data.corrected_frame_times
+    protocol = (schema.Protocol() & f'name = "{block_data.protocol_name}"').to_pandas().reset_index()
+
+    df['exp_name'] = block_data.exp_name
+    df['group_id'] = block_data.group_id
+    df['protocol_name'] = block_data.protocol_name
+    df['protocol_id'] = protocol.at[0, 'protocol_id']
+    df['group_label'] = block_data.group_label
 
     if is_mea:
-        df["datafile_name"] = df["data_dir"].apply(lambda x: os.path.split(x)[-1])
+        df['data_dir'] = f'{block_data.exp_name}/{block_data.datafile_name}'
+        df["datafile_name"] = block_data.datafile_name
 
     varying_params = find_varying_epoch_parameters(df)
     # Add ls_params to varying_params if provided
@@ -1266,27 +1280,17 @@ def get_epoch_data_from_exp(
         )
     df = df[ls_order]
 
-
     if b_LED:
         # Delete frame_times_ms column
         df = df.drop(columns=["frame_times_ms"])
-    else:
-        # Make frame_times_ms list using json.loads
-        df["frame_times_ms"] = df["frame_times_ms"].apply(lambda x: json.loads(x))
-        df["frame_times_ms"] = normalize_frame_times(df["frame_times_ms"].to_list())
-
 
     # Add column for 'epoch_index'
     df.index = df.index.rename("epoch_index")
     df = df.reset_index(drop=False)
 
-    if is_mea:
-        if len(epoch_ends) == len(epoch_starts) - 1:
-            print(
-                f"Warning: For {exp_name} block {block_id}, found {len(epoch_ends)} epoch ends but {len(epoch_starts)} epoch starts."
-            )
-            print(f"Removing last epoch from dataframe")
-            df = df.iloc[:-1, :]
+    if remove_last_epoch:
+        print(f"Removing last epoch from dataframe")
+        df = df.iloc[:-1, :]
 
     return df
 
@@ -1315,6 +1319,7 @@ def get_epochblock_timing(
     if is_mea:
         epoch_starts = block_data.raw_block_properties['epochStarts']
         epoch_ends = block_data.raw_block_properties['epochEnds']
+        d_timing["n_samples"] = block_data.raw_block_properties['n_samples']
 
         # If symphony crashes during recording, there might be more 1 more start than end
         # this ignores the partial epoch
@@ -1380,7 +1385,6 @@ def get_epochblock_timing(
 
         d_timing["epochStarts"] = epoch_starts
         d_timing["epochEnds"] = epoch_ends
-        n_samples = block_data.raw_block_properties['n_samples']
 
     # Get stim timing and frame rate
     epoch_query = schema.Epoch() & f"parent_id={block_data.block_id}"
@@ -1438,7 +1442,7 @@ def get_epochblock_timing(
 
     if df_transitions.at[0, "stim_time"] is None:
         warn(
-            f"stimTime not found for {block_data.exp_name} block {block_data.block_id}."
+            f"stimTime not found for {block_data.exp_name} block {block_data.block_id}.\n"
             "Possible for LED stimuli, setting to 0.",
             stacklevel=2,
         )
@@ -1446,7 +1450,7 @@ def get_epochblock_timing(
 
     if df_transitions.at[0, "tail_time"] is None:
         warn(
-            f"tailTime not found for {block_data.exp_name} block {block_data.block_id}."
+            f"tailTime not found for {block_data.exp_name} block {block_data.block_id}.\n"
             "Possible for LED stimuli, setting to 0.",
             stacklevel=2,
         )
@@ -1462,10 +1466,9 @@ def get_epochblock_timing(
 
     if not b_LED:
         stage_frame_rate = block_data.stage_frame_rate
-        assert stage_frame_rate is not None
         if stage_frame_rate is None:
             print(
-                f"Warning: for {block_data.exp_name} block {block_data.block_id}"
+                f"Warning: for {block_data.exp_name} block {block_data.block_id}.\n"
                 "Error in finding stage frame rate."
             )
             print(
@@ -1477,6 +1480,8 @@ def get_epochblock_timing(
 
         d_timing["stage_frame_rate"] = stage_frame_rate
 
+        frame_times_ms = block_data.corrected_frame_times
+        assert frame_times_ms is not None
         try:
             # Set transition times from measured frame times
             pre_frames = np.floor(pre_time_ms * 1e-3 * stage_frame_rate).astype(int)
@@ -1484,9 +1489,7 @@ def get_epochblock_timing(
 
             # This assumes protocol is visible >=preTime and <preTime+stimTime.
             # Assumption is broken in many places like SpatialNoise where it's <(preTime+stimTime) * 1.011
-            frame_times_ms = block_data.corrected_frame_times
             n_epochs = block_data.n_epochs
-            assert frame_times_ms is not None
             actual_onset_times_ms = [
                 frame_times_ms[i][pre_frames] for i in range(n_epochs)
             ]
@@ -1516,11 +1519,10 @@ def get_epochblock_response_query(
     block_data: BlockData
 ):
 
-    epoch = (schema.Epoch() & f'parent_id = {block_data.block_id}').to_pandas().reset_index()
-    response_query = (schema.Response() & f'parent_id = {epoch.at[0, "id"]}').proj(..., epoch_id='parent_id', response_id='id')
+    epoch_query = (schema.Epoch() & f'parent_id = {block_data.block_id}').proj(epoch_id='id')
+    response_query = epoch_query * schema.Response.proj(..., epoch_id='parent_id', response_id='id')
 
     return response_query
-
 
 def get_h5_file(exp_name: str) -> str:
     # First try h5 in config h5 dir
