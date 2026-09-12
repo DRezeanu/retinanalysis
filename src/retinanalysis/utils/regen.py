@@ -22,6 +22,18 @@ def get_n_frames_spatial_noise(df_epochs: pd.DataFrame, d_display: dict):
         time_multiple = max(resolved_rate/d_display['stage_frame_rate'], 1)
         stage_frame_rate = d_display['stage_frame_rate']
 
+        if df_epochs.at[0, 'epoch_parameters']['frameDwell'] != 1:
+            raise ValueError(
+                'Pattern mode frame dwell must be 1. This indicates a '
+                f'parsing error with {df_epochs.at[0, "exp_name"]} block {df_epochs.at[0, "block_id"]}'
+            )
+        
+        if df_epochs.at[0, 'epoch_parameters']['chromaticClass'] != 'achromatic':
+            raise ValueError(
+                'Pattern mode chromaticClass must be achromatic. This indicates a '
+                f'parsing error with {df_epochs.at[0, "exp_name"]} block {df_epochs.at[0, "block_id"]}'
+            )
+
     for e_idx in df_epochs.index:
         fts = df_epochs.at[e_idx, "frame_times_ms"]
         epoch_params = df_epochs.at[e_idx, "epoch_parameters"]
@@ -118,6 +130,8 @@ def get_spatial_noise_frame_sequence(
         d_display=d_display,
     )
 
+    upsample_rate = d_display['upsample_rate']
+
     # Get frame sequence, tracking dropped frames
     frame_sequences = []
     dropped_frames = []
@@ -126,8 +140,14 @@ def get_spatial_noise_frame_sequence(
         nominal_ft = 1/mean_frame_rate*1e3
         n_missed = np.round(dt/nominal_ft).astype(int) - 1
         drop_idx = np.where(n_missed > 0)[0]
-        slot_counts = np.concatenate([1 + n_missed, [1]])
-        seq_idx = np.repeat(np.arange(len(e_fts)), slot_counts)
+
+        n_blocks = len(e_fts) // upsample_rate
+        blocks = np.arange(len(e_fts)).reshape(n_blocks, upsample_rate)
+        gap_after_block = n_missed[upsample_rate - 1 :: upsample_rate]
+        block_repeats = np.ones(n_blocks, dtype=int)
+        block_repeats[:-1] += gap_after_block // upsample_rate
+
+        seq_idx = np.repeat(blocks, block_repeats, axis=0).ravel()
         if len(seq_idx) > max_frames[e_idx]:
             raise ValueError(
                 f'Error in epoch {e_idx}:\n'
@@ -148,21 +168,69 @@ def make_spatial_noise(
     n_pad: int | None = None,
     canvas_size: tuple | None = None,
 ):
+
     # Create noise movies by epochs
     ls_frames = []
     ls_steps = []
     ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs, d_display)
 
+    frame_sequence, drops = get_spatial_noise_frame_sequence(
+        df_epochs=df_epochs,
+        d_display=d_display,
+    )
+
+    # Collect block level params once and reuse
+    if canvas_size is None:
+        canvas_size = (int(d_display['n_ht']), int(d_display['n_wt']))
+
+    numXChecks = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['numXChecks']
+    numYChecks = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['numYChecks']
+    
+    gridSize = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['gridSize']
+    chromaticClass = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['chromaticClass']
+
+    gaussianFilter = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get("gaussianFilter")
+
+    filterSdStixels = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get('filterSdStixels')
+
+    micronsPerPixel = d_display['mu_per_pixel']
+
+    repeating_seed = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get('repeating_seed')
+
+    # Create row and column crop if given
+    row_slice = None
+    col_slice = None
+    if (
+        center_row is not None
+        and center_col is not None
+        and n_pad is not None
+    ):
+        row_slice = slice(
+            max(0, center_row-n_pad),
+            min(int(numYChecks), center_row+n_pad+1)
+        )
+        
+        col_slice = slice(
+            max(0,center_col-n_pad),
+            min(int(numXChecks), center_col+n_pad+1),
+        )
+
+    pre_frames = _get_spatial_noise_pre_frames(
+        df_epochs=df_epochs,
+        d_display=d_display
+    )
 
     for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
         d_e_params = df_epochs.at[e_idx, "epoch_parameters"]
+            
         d_meta = {
-            "numXStixels": d_e_params["numXStixels"],
-            "numYStixels": d_e_params["numYStixels"],
-            "numXChecks": d_e_params["numXChecks"],
-            "numYChecks": d_e_params["numYChecks"],
-            "gridSizeUm": d_e_params["gridSize"],
-            "chromaticClass": d_e_params["chromaticClass"],
+            "numXStixels": d_e_params['numXStixels'],
+            "numYStixels": d_e_params['numYStixels'],
+            "numXChecks": numXChecks,
+            "numYChecks": numYChecks,
+            "gridSizeUm": gridSize,
+            "chromaticClass": chromaticClass,
+            "canvasSize": canvas_size,
             "unique_frames": ls_unique_frames[i],
             "repeat_frames": ls_repeat_frames[i],
             "stepsPerStixel": d_e_params["stepsPerStixel"],
@@ -170,55 +238,65 @@ def make_spatial_noise(
             "frameDwell": d_e_params["frameDwell"],
         }
 
-        # Dict 'get' method returns none if key is absent
-        d_meta['canvasSize'] = d_e_params.get('canvasSize')
-
-        # If not in dict and canvas_size not given, assign default
-        if d_meta['canvasSize'] is None:
-            if canvas_size is None:
-                # Default canvas size
-                canvas_size = (1140, 1824)
-                print(
-                    f"canvasSize not in epoch params and not provided, defaulting to {canvas_size}"
-                )
-            d_meta["canvasSize"] = canvas_size
-
         # Add optional arguments that may or may not exist
-        if "gaussianFilter" in d_e_params:
-            d_meta["gaussianFilter"] = d_e_params["gaussianFilter"]
-        if "filterSdStixels" in d_e_params:
-            d_meta["filterSdStixels"] = d_e_params["filterSdStixels"]
-        if "canvasSize" in d_e_params:
-            # (x, y) to (rows, cols)
-            d_meta["canvasSize"] = tuple(d_e_params["canvasSize"][::-1])
-        if "micronsPerPixel" in d_e_params:
-            d_meta["micronsPerPixel"] = d_e_params["micronsPerPixel"]
-        if "repeating_seed" in d_e_params:
-            d_meta["repeating_seed"] = int(d_e_params["repeating_seed"])
+        if gaussianFilter is not None:
+            d_meta["gaussianFilter"] = gaussianFilter
+        if filterSdStixels is not None:
+            d_meta["filterSdStixels"] = filterSdStixels
+        if micronsPerPixel is not None:
+            d_meta["micronsPerPixel"] = micronsPerPixel
+        if repeating_seed is not None:
+            d_meta["repeating_seed"] = int(repeating_seed)
+
 
         e_frames, e_steps = get_spatial_noise_frames(**d_meta)
-        ls_frames.append(e_frames)
+        if row_slice is not None and col_slice is not None:
+            e_frames = e_frames[
+                :,
+                row_slice,
+                col_slice,
+                :,
+            ].copy()
+
+        ft_idx = np.asarray(frame_sequence[i])
+        generation_idx = ft_idx - pre_frames[i]
+        mask = (generation_idx >= 0) & (generation_idx < len(e_frames))
+        presented = np.zeros((len(ft_idx),) + e_frames.shape[1:], dtype=np.float32)
+        presented[mask] = e_frames[generation_idx[mask]]
+
+        # Note, presented now includes pre_frames, steps does not
+        ls_frames.append(presented)
         ls_steps.append(e_steps)
 
-    # TODO: If an epoch has the wrong number of frames, this will throw an error
-    # it only works if all epochs are the exact same length and have no dropped
-    # frames.
-    frames = np.array(ls_frames)
-    steps = np.array(ls_steps)
+    # Check for ragged epoch lengths
+    epoch_lengths = {len(e_frames) for e_frames in ls_frames}
+    if len(epoch_lengths) == 1:
+        frames = np.array(ls_frames)
+    else:
+        warn(
+            'Not all epochs have same number of frames. Returning list '
+            'of Numpy arrays instead.',
+            stacklevel=2,
+        )
+        frames = ls_frames
 
-    # Checking all optional variables for more accurate static type checking
-    if center_row is not None and center_col is not None and n_pad is not None:
-        # Crop frames around the cell center
-        frames = frames[
-            :,
-            :,
-            center_row - n_pad : center_row + n_pad + 1,
-            center_col - n_pad : center_col + n_pad + 1,
-            :,
-        ]
+    # Check for ragged step lengths
+    step_lengths = {len(e_steps) for e_steps in ls_steps}
+    if len(step_lengths) == 1:
+        steps = np.array(ls_steps)
+    else:
+        warn(
+            'Not all epochs have same number of jitter events. Returning list '
+            'of Numpy arrays instead.',
+            stacklevel=2,
+        )
+        steps = ls_steps
+
     d_out = {
-        "frames": frames,
-        "steps": steps,
+        "frames": frames,                   # Per epoch, all frames, including pre_frames
+        "frame_sequence" : frame_sequence,  # Per epoch, each slot is a frame time index
+        "dropped_frames" : drops,           # Per epoch, frame time index followed by a drop
+        "steps": steps,                     # One entry per EVENT
         "canvas_size": canvas_size,
     }
 
@@ -382,16 +460,16 @@ def get_spatial_noise_frames(
 
     # Random steps range from 0-(stepsPerStixel-1), resetting to 'repeating_seed' once we hit repeat frames
     if repeat_frames > 0:
-        steps = np.zeros((tsize,2))
+        steps = np.zeros((n_total_events,2))
         # Set unique jitter
         steps[:n_unique_events] = np.round((stepsPerStixel-1)*np.random.rand(n_unique_events,2))
         # Reset seed between unique and repeat sections
         np.random.seed(repeating_seed)
         # Set repeat jitter
-        steps[n_unique_events:] = np.round((stepsPerStixel-1) * np.random.rand(tsize - n_unique_events,2))
+        steps[n_unique_events:] = np.round((stepsPerStixel-1) * np.random.rand(n_total_events - n_unique_events,2))
     else:
         # If repeat frames == 0, set all frames using unique jitter
-        steps = np.round((stepsPerStixel-1) * np.random.rand(tsize, 2))
+        steps = np.round((stepsPerStixel-1) * np.random.rand(n_total_events, 2))
 
     # frameValues is downscaled version of full canvas, containing the cropped fullGrid.
 
