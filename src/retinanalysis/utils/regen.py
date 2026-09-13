@@ -2332,6 +2332,15 @@ def _get_spatial_noise_pre_frames(
     # If pre_frames are provided, pull those here
     preset_pre_frames = [df_epochs.at[i, 'epoch_parameters'].get('pre_frames') for i in df_epochs.index]
 
+    # Read per epoch. frameDwell cycles through obj.frameDwells in the protocol,
+    # and this function already returns a list per epoch for that reason.
+    dwell = [df_epochs.at[i, 'epoch_parameters']['frameDwell'] for i in df_epochs.index]
+
+    # MATLAB's first draw is at state.frame == preF + frameDwell, while the
+    # regenerated array puts it at index 0. The conventions differ by frameDwell,
+    # which is (frameDwell - 1) relative to the D = 1 case measured at the prep.
+    dwell_term = [0 if mode == 'pattern' else int(d) - 1 for d in dwell]
+
     # If we're in pattern mode, we don't use pre_frames, we use preTime and state.Time
     # Similarly, if it's an older run when pre_frames was None, we use state.time based
     # on stage's assumed frame rate
@@ -2344,7 +2353,7 @@ def _get_spatial_noise_pre_frames(
         # flips black to white at 60Hz regardless. 
         state_time_pre_frames = [np.ceil(pre_time[i]/nominal_fm_time).astype(int)-upsample_rate for i in df_epochs.index]
 
-        return [int(st) for st in state_time_pre_frames]
+        return [int(st)+dwell_term[idx] for idx, st in enumerate(state_time_pre_frames)]
 
     else:
-        return [int(pf)-1 for pf in preset_pre_frames]
+        return [int(pf)-1+dwell_term[idx] for idx, pf in enumerate(preset_pre_frames)]
