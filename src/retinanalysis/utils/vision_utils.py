@@ -747,7 +747,7 @@ def bin_spike_times_by_frames(
             # slot == -1 (before the first edge) would wrap around in numpy indexing
             # so we throw it out.
             valid = (slot>=0) & (slot < n_bins)
-            cell_times.append(np.bincount(slot[valid], minlength=n_bins))
+            cell_times.append(np.bincount(slot[valid], minlength=n_bins).astype(np.int16))
 
         binned_times.append(cell_times)
 

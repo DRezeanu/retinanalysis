@@ -476,8 +476,7 @@ def compute_stas_for_chunk(
 
             # When all epochs are the same lengths, we build the batches as contiguous sets
             # of epochs
-            chunks = [list(range(e_starts[i],e_ends[i])) for i in range(n_batches)]
-            batches = [(idx, binned_spikes[idx]) for idx in chunks]
+            batches = [(list(range(s,e)), binned_spikes[s:e]) for s,e in zip(e_starts, e_ends)]
             
         else:
             binned_spikes = [binned_spikes[r] for r in rows]

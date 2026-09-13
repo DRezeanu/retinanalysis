@@ -2334,7 +2334,7 @@ def _get_spatial_noise_pre_frames(
 
     # Read per epoch. frameDwell cycles through obj.frameDwells in the protocol,
     # and this function already returns a list per epoch for that reason.
-    dwell = [df_epochs.at[i, 'epoch_parameters']['frameDwell'] for i in df_epochs.index]
+    dwell = [df_epochs.at[i, 'epoch_parameters'].get('frameDwell') for i in df_epochs.index]
 
     # MATLAB's first draw is at state.frame == preF + frameDwell, while the
     # regenerated array puts it at index 0. The conventions differ by frameDwell,
