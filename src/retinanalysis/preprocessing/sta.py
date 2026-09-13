@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 import tqdm.auto as tqdm
-from retinanalysis import regen
 import argparse
 from retinanalysis._database import schema
 from retinanalysis.classes import qc
@@ -441,9 +440,8 @@ def compute_stas_for_chunk(
         )
 
     # STA input gen and calc loop
-    # TODO initialize stas with max n_cells across blocks, and keep track of cell idx to add for each block.
     stas = None
-    total_sps = None
+    total_sps = np.zeros(len(rg.cell_ids))
     n_epochs_total = 0
 
     n_blocks = len(sg.ls_blocks)
@@ -452,59 +450,79 @@ def compute_stas_for_chunk(
         stim_block = sg.ls_blocks[i]
         response_block = rg.ls_blocks[i]
 
-        # Get number of frames (assuming same across epochs)
-        ls_unique_frames, ls_repeat_frames = regen.get_n_frames_spatial_noise(
-            stim_block.df_epochs,
-            stim_block.d_display,
-        )
-        total_frames = np.array(ls_unique_frames) + np.array(ls_repeat_frames)
-        if len(np.unique(total_frames)) != 1:
-            raise ValueError(f"Uneven number of frames across epochs! {total_frames}")
-        n_frames = total_frames[0]
-
         # Bin spike times
         response_block.bin_spike_times_by_frames(stride=stride)
 
-        # [K, N, T]
+        # [Cell, Epoch, TimeBin]
         binned_spikes = response_block.binned_spikes
+        if binned_spikes is None:
+            raise ValueError(
+                f'Could not bin spikes for {exp_name} block {sg.ls_blocks[i].block_id}.'
+            )
 
-        # Make [N, K, T]
-        assert isinstance(binned_spikes, np.ndarray)
-        binned_spikes = binned_spikes.transpose(1, 0, 2)
+        row_of = {cid: r for r, cid in enumerate(response_block.df_spike_times['cell_id'])}
+        rows = [row_of[cid] for cid in rg.cell_ids]
 
-        # Count n frames where state.time (1/fr steps) is < pre_time_s
-        # pre_frames = len(np.arange(0, pre_time_s, 1 / stage_frame_rate))
+        n_epochs = len(stim_block.df_epochs)
+        # Make [Epoch, Cell, TimeBin]
+        if isinstance(binned_spikes, np.ndarray):
+            binned_spikes = binned_spikes[rows]
+            block_sps = np.sum(binned_spikes, axis = (1,2))
 
-        # Grabbing pre frames using a built in helper function that accounts for pattern
-        # mode.
-        pre_frames = regen._get_spatial_noise_pre_frames(
-            stim_block.df_epochs,
-            stim_block.d_display,
-        )[0]
+            binned_spikes = binned_spikes.transpose(1, 0, 2)
+            n_batches = int(np.ceil(n_epochs / max_epochs_per_batch))
+            e_starts = [j * max_epochs_per_batch for j in range(n_batches)]
+            e_ends = [min((j+1) * max_epochs_per_batch,n_epochs) for j in range(n_batches)] 
 
-        # LCR CORRECTION
-        t_start = pre_frames * stride
+            # When all epochs are the same lengths, we build the batches as contiguous sets
+            # of epochs
+            chunks = [list(range(e_starts[i],e_ends[i])) for i in range(n_batches)]
+            batches = [(idx, binned_spikes[idx]) for idx in chunks]
+            
+        else:
+            binned_spikes = [binned_spikes[r] for r in rows]
+            block_sps = np.array([sum(e.sum() for e in cell_rows) for cell_rows in binned_spikes])
+            # Get a list of unique Time dimension lengths. By definition all
+            # Cells inside an epoch will have the same number of time bins so 
+            # we don't need to iterate over every cell.
+            unique_lengths = {len(e_spikes) for e_spikes in binned_spikes[0]}
+            all_lengths = [len(e_spikes) for e_spikes in binned_spikes[0]]
+            time_groups = []
+            group_indices = []
+            for length in sorted(unique_lengths):
+                # Mask by ragged T dim
+                mask = [al == length for al in all_lengths]
+                group_idx = [idx for idx, val in enumerate(mask) if val]
+                group_indices.append(group_idx)
+                # Group by time domain and arrange as Epoch, Cell, TimeBin (replaces transpose above)
+                group = np.asarray([[c_spikes[j] for c_spikes in binned_spikes] for j in group_idx])
+                # append to spike_groups list
+                time_groups.append(group)
 
-        t_end = t_start + n_frames * stride
-        if verbose:
-            print(f"Block {i}: pre_frames={pre_frames}, binned_spikes shape={binned_spikes.shape}")
-            print(f"Total frames: {n_frames}")
-        binned_spikes = binned_spikes[:, :, t_start:t_end]
 
-        if verbose:
-            print(f"Cropped binned spikes shape: {binned_spikes.shape}")
+            binned_spikes = time_groups
+
+            # When all epochs are not the same length, we build the batches as lists
+            # of epochs with the same number of time bins. If any of the lists is 
+            # greater than max_epochs_per_batch, we split those up
+            batches = []
+            for g_idx, time_group in enumerate(binned_spikes):
+                group_idx = group_indices[g_idx]
+                epochs_per_group = time_group.shape[0]
+                n_batches = int(np.ceil(epochs_per_group / max_epochs_per_batch))
+                for j in range(n_batches):
+                    e_start = j * max_epochs_per_batch
+                    e_end = min((j+1) * max_epochs_per_batch, epochs_per_group)
+                    batch = group_idx[e_start:e_end]
+                    spikes = time_group[e_start:e_end]
+                    batches.append((batch, spikes))
+
+        total_sps += block_sps
 
         # Loop across epochs in batch
-        n_epochs = len(stim_block.df_epochs)
-        n_batches = int(np.ceil(n_epochs / max_epochs_per_batch))
-        for j in tqdm.tqdm(np.arange(n_batches), desc="Epoch batch"):
-            e_start = j * max_epochs_per_batch
-            e_end = (j + 1) * max_epochs_per_batch
-            if e_end > n_epochs:
-                e_end = n_epochs
-
+        for batch, resp_data in tqdm.tqdm(batches, desc="Epoch batch"):
             # Regen stim
-            stim_block.regenerate_stimulus(ls_epochs=list(range(e_start, e_end)))
+            stim_block.regenerate_stimulus(ls_epochs=batch)
             
             # Check that regen worked
             if stim_block.stim_data is None:
@@ -516,12 +534,15 @@ def compute_stas_for_chunk(
             # [N, T, H, W, C]
             stim_frames = stim_block.stim_data["frames"]
 
-            # [N, K, T]
-            resp_data = binned_spikes[e_start:e_end]
-
             # Check how many epochs actually in this batch (last batch likely
             # less than max_epochs_per_batch)
             n_epochs_in_batch = resp_data.shape[0]
+
+            if stim_frames.shape[1] * stride != resp_data.shape[2]:
+                raise ValueError(
+                    "Stimulus and spike array time dims don't match for epochs"
+                    f"{batch} in {stim_block.exp_name} block {stim_block.block_id}."
+                )
 
             # Compute batch stas, weighted by the number of epochs in that batch
             # without this, batches with fewer epochs will be overweighted
@@ -563,7 +584,7 @@ def compute_stas_for_chunk(
         "cell_ids": rg.cell_ids,
         "grid_size": grid_size,
         # Total spikes that went into STA calc. Should be <= overall spike counts bc of grey periods.
-        "sta_n_sps": np.squeeze(total_sps),
+        "sta_n_sps": total_sps,
     }
 
     return d_output

@@ -6,7 +6,6 @@ import numpy as np
 import datajoint as dj
 import os
 import pandas as pd
-import json
 from tqdm.auto import tqdm
 from IPython.display import display
 import h5py
@@ -102,6 +101,7 @@ class BlockData:
     mode: str 
     raw_frame_times: list | None 
     corrected_frame_times: list | None
+    frames_per_image: list | None
     mean_frame_rate: float | None
     stage_frame_rate: float | None
     upsample_rate: int | None
@@ -179,6 +179,7 @@ def get_block_data(
         mode = 'led'
         raw_frame_times = None
         corrected_frame_times = None
+        frames_per_image = None
         mean_frame_rate = None
         stage_frame_rate = None
         upsample_rate = None
@@ -209,12 +210,16 @@ def get_block_data(
 
 
             base_frame_rate = get_mean_frame_rate(raw_frame_times)
+            assert base_frame_rate is not None, (
+                f"Frame rate calculation for {exp_name} block {block_id} returned None"
+            )
+            
 
             # Interpolate
-            corrected_frame_times = get_corrected_frame_times(
-                frame_times=raw_frame_times,
+            corrected_frame_times, frames_per_image = get_corrected_frame_times(
+                raw_frame_times=raw_frame_times,
                 mean_frame_rate=base_frame_rate,
-                upsample_rate=upsample_rate
+                upsample_rate=upsample_rate,
             )
 
 
@@ -224,9 +229,13 @@ def get_block_data(
             upsample_rate = 1
             raw_frame_times = frame_times_ms
 
-            corrected_frame_times = get_corrected_frame_times(
-                raw_frame_times,
-                measured_frame_rate,
+            assert measured_frame_rate is not None, (
+                f"Frame rate calculation for {exp_name} block {block_id} returned None"
+            )
+
+            corrected_frame_times, frames_per_image = get_corrected_frame_times(
+                raw_frame_times =raw_frame_times,
+                mean_frame_rate = measured_frame_rate,
             )
 
         mean_frame_rate = get_mean_frame_rate(corrected_frame_times)
@@ -248,6 +257,7 @@ def get_block_data(
         mode=mode,
         raw_frame_times = raw_frame_times,
         corrected_frame_times = corrected_frame_times,
+        frames_per_image = frames_per_image,
         mean_frame_rate = mean_frame_rate,
         stage_frame_rate = stage_frame_rate,
         upsample_rate=upsample_rate,
@@ -255,16 +265,47 @@ def get_block_data(
     )
 
 
-def get_corrected_frame_times(frame_times, mean_frame_rate, upsample_rate: int = 1):
+def get_corrected_frame_times(
+    raw_frame_times: list,
+    mean_frame_rate: float,
+    upsample_rate: int = 1,
+):
+    """Helper function for filling in dropped frames and interpolating pattern mode
+    frame times. Returns a corrected frame_times_ms array with no drops and consistent
+    interpolation for pattern mode.
+
+    Args:
+        frame_times (list): A list of lists, one per epoch, with frame times in milliseconds
+
+        mean_frame_rate (float): Mean frame rate, calculated by get_mean_frame_rate() method
+            to account for drops.
+
+        upsample_rate (int): 1 for video mode or 60hz pattern mode, 2 or higher for faster
+            pattern mode runs. Calculated from stage_frame_rate / monitor_refresh_rate.
+
+    Returns:
+        corrected_frame_times (list): A list of lists, one per epoch, with corrected
+            frame times in ms. No drops, interpolated if pattern mode and upsample_rate > 1
+
+        frames_per_image (list): A cycle index that covers how many 60Hz frame slots this image
+            was shown. NOTE that one 'image' in pattern mode holds multiple images shown on scrren.
+            E.g. At 120Hz, a normal 60Hz frame gap shows 2 images (always in order 1, 2). If a frame
+            is dropped, the sequence is repeated. So frames_per_image = 2 translates into the frame
+            sequence [1,2,1,2].
+    """
 
     nominal_ft_ms = 1/mean_frame_rate*1e3
 
     refresh_times = []
-    for e_fts in frame_times:
+    frames_per_image = []
+    for e_fts in raw_frame_times:
         # How close is each frame width to expected nominal frame time
         ratio = np.diff(e_fts) / nominal_ft_ms
         # Round that to nearest integer. Single frames = 1, one dropped frame = 2, etc.
         cycles = np.round(ratio).astype(int)
+
+        # Collect the frames_per_image array for each epoch
+        frames_per_image.append(cycles)
 
         # Check for frames that aren't 'near-integer multiples' of the expected frame period.
         # Frames that are 1.5 expected frame periods away, for example.
@@ -298,7 +339,7 @@ def get_corrected_frame_times(frame_times, mean_frame_rate, upsample_rate: int =
         # Interpolate on that grid
         refresh_times.append(np.interp(grid, idx_tbl, fts_ext))
 
-    return refresh_times
+    return refresh_times, frames_per_image
 
 
 def plot_mosaics_for_datasets(
@@ -1220,6 +1261,7 @@ def get_epoch_data_from_exp(
     df = epoch_query.to_pandas().reset_index()
 
     df['frame_times_ms'] = block_data.corrected_frame_times
+    df['frames_per_image'] = block_data.frames_per_image
     protocol = (schema.Protocol() & f'name = "{block_data.protocol_name}"').to_pandas().reset_index()
 
     df['exp_name'] = block_data.exp_name
@@ -1250,6 +1292,7 @@ def get_epoch_data_from_exp(
                 "group_label",
                 "protocol_name",
                 "frame_times_ms",
+                "frames_per_image",
                 "epoch_parameters",
                 "data_dir",
             ]
@@ -1264,6 +1307,7 @@ def get_epoch_data_from_exp(
                 "group_label",
                 "protocol_name",
                 "frame_times_ms",
+                "frames_per_image",
                 "epoch_parameters",
             ]
             + ls_time_cols
@@ -1274,6 +1318,7 @@ def get_epoch_data_from_exp(
     if b_LED:
         # Delete frame_times_ms column
         df = df.drop(columns=["frame_times_ms"])
+        df = df.drop(columns=["frames_per_image"])
 
     # Add column for 'epoch_index'
     df.index = df.index.rename("epoch_index")
@@ -1299,6 +1344,7 @@ def get_epochblock_timing(
     # For MEA data, 'block_properties' has epoch_starts, epoch_ends, n_samples, and if LED frame_times_ms
     # For SC data, this has just frame_times_ms
     if not b_LED:
+        assert block_data.corrected_frame_times is not None
         d_timing['frameTimesMs'] = list(block_data.corrected_frame_times)
 
 

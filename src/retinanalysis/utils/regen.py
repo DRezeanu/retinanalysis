@@ -108,51 +108,59 @@ def get_spatial_noise_frame_sequence(
     df_epochs: pd.DataFrame,
     d_display: dict
 ) -> tuple[list, list]:
-    """Function that recovers a frame sequence from frame times, accounting
-    for dropped frames. The frame squence is an index array 
+    """Function that recovers a frame sequence from a frames_per_image array, accounting
+    for dropped frames. The frame squence is an index array [0, 1,2,3,4] for a healthy epoch
+    and [0,1,2,2,3,4] for one where there was a drop between frame two and three, so frame 2
+    was shown twice. See comments for how this affects pattern mode.
+
+    Args:
+        df_epochs (DataFrame): Standard df_epochs dataframe contained inside every StimBlock
+            object. Contains epoch-indexed metadata about the stimulus. 
+
+        d_display (dict): Standard d_display dictionary contained inside very StimBlock
+            object. Contains info about the display (type, frame rate, etc.)
+
+    Returns:
+        frame_sequences (list): One sequence per epoch, in a nested list. 
+
+        dropped_frames (list): One list per epoch, indicating the index of a render that was held.
+            This will be a list of empty lists if no epochs had dropped renders.
     """
 
     df_epochs = df_epochs.reset_index(drop=True)
 
-    frame_times = df_epochs['frame_times_ms'].to_list()
+    frames_per_image = df_epochs['frames_per_image'].to_list()
 
-    # Determine if frame times were upsampled, and get an accurate
-    # frame rate if pattern mode
-    mean_frame_rate = d_display['mean_frame_rate']
-    if d_display['mode'] == 'pattern':
-        mean_frame_rate = _resolve_pattern_mode_framerate(
-            d_display=d_display,
-        )
-
-    # Maximum number of frames generated per epoch
-    max_frames = _get_spatial_noise_max_frames(
-        df_epochs=df_epochs,
-        d_display=d_display,
-    )
 
     upsample_rate = d_display['upsample_rate']
 
     # Get frame sequence, tracking dropped frames
     frame_sequences = []
     dropped_frames = []
-    for e_idx, e_fts in enumerate(frame_times):
-        dt = np.diff(e_fts)
-        nominal_ft = 1/mean_frame_rate*1e3
-        n_missed = np.round(dt/nominal_ft).astype(int) - 1
-        drop_idx = np.where(n_missed > 0)[0]
+    for e_fpi in frames_per_image:
+        # Pull indices where we have a dropped frame, per the frames_per_image list.
+        drop_idx = np.where(e_fpi>1)[0]
 
-        n_blocks = len(e_fts) // upsample_rate
-        blocks = np.arange(len(e_fts)).reshape(n_blocks, upsample_rate)
-        gap_after_block = n_missed[upsample_rate - 1 :: upsample_rate]
-        block_repeats = np.ones(n_blocks, dtype=int)
-        block_repeats[:-1] += gap_after_block // upsample_rate
+        # The more technically correct name for frames_per_image: number of screen refreshes per 
+        # rendered 24-bit image from GPU. Append one because this was generated with a diff
+        refreshes_per_render = np.append(e_fpi, 1)
+        n_renders = len(refreshes_per_render)
 
-        seq_idx = np.repeat(blocks, block_repeats, axis=0).ravel()
-        if len(seq_idx) > max_frames[e_idx]:
-            raise ValueError(
-                f'Error in epoch {e_idx}:\n'
-                f'More frames detected ({len(seq_idx)}) than possible ({max_frames[e_idx]}).'
-            )
+        # In pattern mode at frame rates above 60, there is more than one displayed image drawn
+        # per image. At 120, two 12-bit images are packed into the one 24-bit output. At 240, four 
+        # 6-bit images are packed into 24, etc. Multiplying by sample rate and reshaping gives us 
+        # the number of draws per render. This line creates the appropriate number of draws given
+        # the pattern rate and then reshapes them so every row has one 'sequence'.
+        # For 120Hz pattern mode: [[0,1], [2,3], [4,5]]... etc.
+        draws_per_render = np.arange(n_renders * upsample_rate).reshape(n_renders, upsample_rate)
+
+        # Transform this into a sequence index. In pattern mode at 120Hz, values are shown as
+        # [[0,1],[2,3],[4,5]] with each internal list representing one render (two draws per render).
+        # A dropped frame reshows the full sequence, in order, so you get [[0,1], [0,1], [2,3]] and 
+        # NOT [[0,1], [1,2], [3,4]]. This line repeats the draws per render refreshes_per_render-times, 
+        # and then unravels them back into appropriate order. This way the plain draws_per_render becomes
+        # a true sequence index
+        seq_idx = np.repeat(draws_per_render, refreshes_per_render, axis=0).ravel()
 
         frame_sequences.append(seq_idx.tolist())
         dropped_frames.append(drop_idx.tolist())
@@ -1441,6 +1449,7 @@ def regenerate_projector_gain(df_epochs, str_pkg_dir):
 
 
 ##### THIS IS CURRENTLY SHADOWED BY SAME FUNCTION FURTHER DOWN
+##### Can we delete this?
 # def make_checkerboard_noise_project(
 #     df_epochs: pd.DataFrame,
 #     d_display: dict,
@@ -2339,38 +2348,3 @@ def _get_spatial_noise_pre_frames(
 
     else:
         return [int(pf)-1 for pf in preset_pre_frames]
-
-def _get_spatial_noise_max_frames(
-    df_epochs: pd.DataFrame,
-    d_display: dict,
-) -> list:
-    """Helper function for computing the maximum number of possible frames
-    in a spatial noise run, epoch by epoch.
-    """
-    df_epochs = df_epochs.reset_index(drop=True)
-    pre_time = [df_epochs.at[i, 'epoch_parameters'].get('preTime') for i in df_epochs.index]
-    stim_time = [df_epochs.at[i, 'epoch_parameters'].get('stimTime') for i in df_epochs.index]
-    tail_time = [df_epochs.at[i, 'epoch_parameters'].get('tailTime') for i in df_epochs.index]
-
-    if any(val is None for i in df_epochs.index for val in [pre_time[i], stim_time[i], tail_time[i]]):
-        pt_None = [i for i, x in enumerate(pre_time) if x is None]
-        st_None = [i for i, x in enumerate(stim_time) if x is None]
-        tt_None = [i for i, x in enumerate(tail_time) if x is None]
-
-        raise ValueError(
-            'Cannot compute total epoch time, pre, stim or tail time is None.\n'
-            f'    - pre_time is None for epochs: {pt_None}\n'
-            f'    - stim_time is None for epochs: {st_None}\n'
-            f'    - tail_time is None for epochs: {tt_None}\n'
-        )
-
-    total_time_ms = [pre_time[i]+stim_time[i]+tail_time[i] for i in df_epochs.index]
-    mean_frame_rate = d_display['mean_frame_rate']
-    if d_display['mode'] == 'pattern':
-        mean_frame_rate = _resolve_pattern_mode_framerate(d_display)
-    nominal_ft_ms = 1/mean_frame_rate*1e3
-
-    max_frames = [np.round(total_time_ms[i]/nominal_ft_ms).astype(int) for i in df_epochs.index]
-
-    return max_frames
-
