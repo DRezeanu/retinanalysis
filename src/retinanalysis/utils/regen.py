@@ -290,7 +290,7 @@ def make_spatial_noise(
     n_epochs = len(df_epochs.index)
     if len(epoch_lengths) == 1:
         frames = np.full(
-            (n_epochs, list(epoch_lengths)[0], rows[1]-rows[0], cols[1]-cols[0], 3),
+            (n_epochs, int(list(epoch_lengths)[0]), int(rows[1]-rows[0]), int(cols[1]-cols[0]), 3),
             128,
             dtype=np.uint8,
         )
