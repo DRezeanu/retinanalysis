@@ -171,14 +171,50 @@ def get_spatial_noise_frame_sequence(
 def make_spatial_noise(
     df_epochs: pd.DataFrame,
     d_display: dict,
-    center_row: int | None = None,
-    center_col: int | None = None,
-    n_pad: int | None = None,
+    crop_fraction: float | None = None,
+    crop_window: dict | None = None,
     canvas_size: tuple | None = None,
 ):
+    """Main spatial noise regeneration function that calls all other helpers. Takes
+    df_epochs and d_display from a StimBlock object, runs get_spatial_noise_frames()
+    and returns a dictionary with frames, a frame sequence, dropped frame indices, 
+    jitter steps, and canvas size.
+
+    Args:
+        df_epochs (pd.DataFrame): Standard df_epochs dataframe contained in all 
+            retinanalysis StimBlock objects
+
+        d_display (dict): Dictionary of display parameters contained in all
+            retinanalysis StimBlock and ResponseBlock objects
+
+        crop_fraction (float, Optional): a linear crop fraction between 0 and 1 that crops
+            this percentage in both x and y. Default is None.
+
+        crop_window (dict, Optional): a dict with keys "center_row", "center_col",
+            "n_rows", "n_cols" used to crop the output. Default is None. 
+
+        canvas_size (tuple, Optional): a tuple describing the size of the display canvas in 
+            (height, width) orientation. 
+
+    Returns:
+        d_out (dict): Dictionary with keys "frames" "frame_sequence", "dropped_frames", "steps"
+            and "canvas_size".
+            - frames: uint8 array of frames actually produced by Stage. To recover contrast units,
+                convert to float, divide by 255, multiply by 2 and subtract 1.
+            - frame_sequence: index sequence that describes which frame was shown in each frame time
+                slot
+            - dropped_frames: indices of dropped frames in frame monitor space
+            - steps: jitter steps for each time point
+            - rows: tuple that describes the rows covered by the stimulus. (0, numYChecks) when no crop.
+            - cols: tuple that describes the columns covered by the stimulus. (0, numXChecks) when no crop.
+            - canvas_size: The canvas size in pixels in orientation (height, width)
+
+    Raises:
+        ValueError:
+            If both crop_fraction and crop_window are provided. User can only provide one.
+    """
 
     # Create noise movies by epochs
-    ls_frames = []
     ls_steps = []
     ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs, d_display)
 
@@ -186,6 +222,7 @@ def make_spatial_noise(
         df_epochs=df_epochs,
         d_display=d_display,
     )
+
 
     # Collect block level params once and reuse
     if canvas_size is None:
@@ -205,45 +242,85 @@ def make_spatial_noise(
 
     repeating_seed = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get('repeating_seed')
 
-    # Create row and column crop if given
-    row_slice = None
-    col_slice = None
-    if (
-        center_row is not None
-        and center_col is not None
-        and n_pad is not None
-    ):
-        row_slice = slice(
-            max(0, center_row-n_pad),
-            min(int(numYChecks), center_row+n_pad+1)
+    if crop_window is not None and crop_fraction is not None:
+        raise ValueError(
+            'Provide crop_window OR crop_fraction, but NOT both'
+        )
+
+    rows = None
+    cols = None
+    # Apply Crop 
+    if crop_fraction is not None:
+        center_row = int(np.round(numYChecks/2))
+        center_col = int(np.round(numXChecks/2))
+        n_rows = int(np.round(crop_fraction * numYChecks))
+        n_cols = int(np.round(crop_fraction * numXChecks))
+
+        rows = (
+            max(0, center_row - int(n_rows/2)),
+            min(int(numYChecks), center_row + int(n_rows/2)+1),
+        )
+
+        cols = (
+            max(0, center_col - int(n_cols/2)),
+            min(int(numXChecks), center_col + int(n_cols/2)+1),
+        )
+
+    elif crop_window is not None:
+
+        rows = (
+            max(0, crop_window['center_row']-int(crop_window['n_rows']/2)),
+            min(int(numYChecks), crop_window['center_row']+int(crop_window['n_rows']/2)+1)
         )
         
-        col_slice = slice(
-            max(0,center_col-n_pad),
-            min(int(numXChecks), center_col+n_pad+1),
+        cols = (
+            max(0,crop_window['center_col']-int(crop_window['n_cols']/2)),
+            min(int(numXChecks), crop_window['center_col']+int(crop_window['n_cols']/2)+1),
         )
+    else:
+        rows = (0, numYChecks)
+        cols = (0, numXChecks)
 
     pre_frames = _get_spatial_noise_pre_frames(
         df_epochs=df_epochs,
         d_display=d_display
     )
 
+    epoch_lengths = {len(fs) for fs in frame_sequence}
+    n_epochs = len(df_epochs.index)
+    if len(epoch_lengths) == 1:
+        frames = np.full(
+            (n_epochs, list(epoch_lengths)[0], rows[1]-rows[0], cols[1]-cols[0], 3),
+            128,
+            dtype=np.uint8,
+        )
+    else:
+        warn(
+            'Not all epochs have same number of frames. Returning list '
+            'of Numpy arrays instead.',
+            stacklevel=2,
+        )
+        frames = []
+
+
     for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
         d_e_params = df_epochs.at[e_idx, "epoch_parameters"]
             
         d_meta = {
-            "numXStixels": d_e_params['numXStixels'],
-            "numYStixels": d_e_params['numYStixels'],
-            "numXChecks": numXChecks,
-            "numYChecks": numYChecks,
+            "numXStixels": int(d_e_params['numXStixels']),
+            "numYStixels": int(d_e_params['numYStixels']),
+            "numXChecks": int(numXChecks),
+            "numYChecks": int(numYChecks),
             "gridSizeUm": gridSize,
             "chromaticClass": chromaticClass,
             "canvasSize": canvas_size,
-            "unique_frames": ls_unique_frames[i],
-            "repeat_frames": ls_repeat_frames[i],
-            "stepsPerStixel": d_e_params["stepsPerStixel"],
+            "unique_frames": int(ls_unique_frames[i]),
+            "repeat_frames": int(ls_repeat_frames[i]),
+            "stepsPerStixel": int(d_e_params["stepsPerStixel"]),
             "seed": int(d_e_params["seed"]),
-            "frameDwell": d_e_params["frameDwell"],
+            "frameDwell": int(d_e_params["frameDwell"]),
+            "rows" : rows,
+            "cols" : cols,
         }
 
         # Add optional arguments that may or may not exist
@@ -257,36 +334,21 @@ def make_spatial_noise(
             d_meta["repeating_seed"] = int(repeating_seed)
 
 
-        e_frames, e_steps = get_spatial_noise_frames(**d_meta)
-        if row_slice is not None and col_slice is not None:
-            e_frames = e_frames[
-                :,
-                row_slice,
-                col_slice,
-                :,
-            ].copy()
+        e_frames, e_steps = _get_spatial_noise_events(**d_meta)
 
         ft_idx = np.asarray(frame_sequence[i])
         generation_idx = ft_idx - pre_frames[i]
-        mask = (generation_idx >= 0) & (generation_idx < len(e_frames))
-        presented = np.zeros((len(ft_idx),) + e_frames.shape[1:], dtype=np.float32)
-        presented[mask] = e_frames[generation_idx[mask]]
+        mask = (generation_idx >= 0) & (generation_idx < (ls_unique_frames[i] + ls_repeat_frames[i]))
 
         # Note, presented now includes pre_frames, steps does not
-        ls_frames.append(presented)
-        ls_steps.append(e_steps)
+        if isinstance(frames, np.ndarray):
+            frames[i][mask] = e_frames[np.minimum(generation_idx[mask] // d_meta['frameDwell'], len(e_frames) - 1)]
+        else:
+            presented = np.full((len(ft_idx),) + e_frames.shape[1:], 128, dtype=np.uint8)
+            presented[mask] = e_frames[np.minimum(generation_idx[mask] // d_meta['frameDwell'], len(e_frames) - 1)]
+            frames.append(presented) 
 
-    # Check for ragged epoch lengths
-    epoch_lengths = {len(e_frames) for e_frames in ls_frames}
-    if len(epoch_lengths) == 1:
-        frames = np.array(ls_frames)
-    else:
-        warn(
-            'Not all epochs have same number of frames. Returning list '
-            'of Numpy arrays instead.',
-            stacklevel=2,
-        )
-        frames = ls_frames
+        ls_steps.append(e_steps)
 
     # Check for ragged step lengths
     step_lengths = {len(e_steps) for e_steps in ls_steps}
@@ -305,6 +367,8 @@ def make_spatial_noise(
         "frame_sequence" : frame_sequence,  # Per epoch, each slot is a frame time index
         "dropped_frames" : drops,           # Per epoch, frame time index followed by a drop
         "steps": steps,                     # One entry per EVENT
+        "rows" : rows,
+        "cols" : cols,
         "canvas_size": canvas_size,
     }
 
@@ -334,11 +398,14 @@ def get_spatial_noise_frames(
     canvasSize: tuple | None = None,
     micronsPerPixel: float | None = None,
     repeating_seed: int | None = None,
+    rows: tuple | None = None,
+    cols: tuple | None = None,
 ):
     """
-    Get the frame sequence for the FastNoiseStimulus.
-    From symphony_data.py
-    Parameters:
+    Wrapper function that calls _get_spatial_noise_events() and then applies
+    frameDwell expansion on top of it. Originally from symphony_data, the function
+    has been expanded and debugged significantly on 09/13/2026
+    Args:
         numXStixels: number of stixels in the x direction.
         numYStixels: number of stixels in the y direction.
         numXChecks: number of checks in the x direction.
@@ -350,240 +417,47 @@ def get_spatial_noise_frames(
         frameDwell: number of frames to dwell on each frame.
 
     Returns:
-    frames: 4D array of frames (n_frames, x, y, n_colors).
+        stimulus: 4D array of frames (n_frames, x, y, n_colors) as uint8 array.
+        steps: jitter steps to apply when stepsPerStixel > 0
     """
-    # Print input params
-    if canvasSize is None:
-        canvasSize = (1140, 1824)
-        print(f"canvasSize not provided, defaulting to {canvasSize}")
-    if micronsPerPixel is None:
-        micronsPerPixel = 3.37
-        print(f"micronsPerPixel not provided, defaulting to {micronsPerPixel}")
-    if repeating_seed is None:
-        repeating_seed = 1
-        print(f"repeating_seed not provided, defaulting to {repeating_seed}")
+    stimulus, steps = _get_spatial_noise_events(
+        numXStixels=numXStixels,
+        numYStixels=numYStixels,
+        numXChecks=numXChecks,
+        numYChecks=numYChecks,
+        gridSizeUm=gridSizeUm,
+        chromaticClass=chromaticClass,
+        unique_frames=unique_frames,
+        repeat_frames=repeat_frames,
+        stepsPerStixel=stepsPerStixel,
+        seed=seed,
+        frameDwell=frameDwell,
+        gaussianFilter=gaussianFilter,
+        filterSdStixels=filterSdStixels,
+        canvasSize=canvasSize,
+        micronsPerPixel=micronsPerPixel,
+        repeating_seed=repeating_seed,
+        rows=rows,
+        cols=cols,
+    )
 
-    # Cast to ints
-    numXStixels = int(numXStixels)
-    numYStixels = int(numYStixels)
-    numXChecks = int(numXChecks)
-    numYChecks = int(numYChecks)
-    unique_frames = int(unique_frames)
-    repeat_frames = int(repeat_frames)
-    seed = int(seed)
-    stepsPerStixel = int(stepsPerStixel)
-    frameDwell = int(frameDwell)
+    if rows is None:
+        rows = (0, numYChecks)
+    if cols is None:
+        cols = (0, numXChecks)
 
-    # print(f'numXStixels: {numXStixels}, numYStixels: {numYStixels}, numXChecks: {numXChecks}, numYChecks: {numYChecks}')
-    # print(f'chromaticClass: {chromaticClass}, unique_frames: {unique_frames}, repeat_frames: {repeat_frames}')
-    # print(f'stepsPerStixel: {stepsPerStixel}, seed: {seed}, frameDwell: {frameDwell}')
-    # print(f'gaussianFilter: {gaussianFilter}, filterSdStixels: {filterSdStixels}')
-
-    # Compute gridSizePix, stixelSizePix.
-    gridSizePix = lcr_video_device_um_to_pix(gridSizeUm, micronsPerPixel)
-    stixelSizePix = gridSizePix * stepsPerStixel
-    # print(f'Grid size: {gridSizePix} pix, Stixel size: {stixelSizePix} pix')
-
-    # Seed the random number generator.
-    np.random.seed(int(seed))
-
-    # Chromatic class determines time factor
-    # Eg-2 for BY first generates 2*num_frames, then splits into B and Y frames.
-    if chromaticClass == "BY":
-        tfactor = 2
-    elif chromaticClass == "RGB":
-        tfactor = 3
-    # Black/white checks
-    else:
-        tfactor = 1
-
-    # Get number of unique events:
-    n_unique_events = np.floor(unique_frames/frameDwell).astype(int)
-    n_total_events = np.floor((unique_frames+repeat_frames)/frameDwell).astype(int)
-
-    usize = int(tfactor*n_unique_events)
-    tsize = int(tfactor*n_total_events)
-    rsize = tsize-usize
-
-    # Generate the random grid of stixels.
-    gridValues = np.zeros((tsize, int(numXStixels * numYStixels)), dtype=np.float32)
-    # print(f'gridValues: {gridValues.shape}')
-
-    # Set unique sequence.
-    gridValues[:usize, :] = np.random.rand(usize, int(numXStixels * numYStixels))
-
-    # Set repeating sequence.
-    if repeat_frames > 0:
-        # Reseed the generator.
-        np.random.seed(repeating_seed)
-        gridValues[usize:, :] = np.random.rand(rsize, int(numXStixels * numYStixels))
-
-    # Reshape to (t, y, x)
-    gridValues = np.reshape(gridValues, (tsize, int(numXStixels), int(numYStixels)))
-    gridValues = np.transpose(gridValues, (0, 2, 1))
-
-    # Binarize to 0 and 1, then convert to contrast (-1 to 1)
-    gridValues = np.round(gridValues)
-    gridValues = (2 * gridValues - 1).astype(np.float32)
-    # print(f'gridValues: {gridValues.shape}')
-
-    # Filter the stixels if indicated.
-    if gaussianFilter:
-        for i in range(tsize):
-            frame_tmp = gaussian_filter(
-                gridValues[i, :, :], sigma=filterSdStixels, order=0, mode="wrap"
-            )
-            gridValues[i, :, :] = 0.5 * frame_tmp / np.std(frame_tmp)
-        gridValues[gridValues > 1.0] = 1.0
-        gridValues[gridValues < -1.0] = -1.0
-
-    # Upscale to the fullGrid of stixels.
-    # Each element represents stixelSizePix pixels on the display.
-    # This is typically larger than the canvas so it can be jittered without clipping.
-    full_shape = np.array(gridValues.shape)
-    full_shape[1:] *= stepsPerStixel
-    fullGrid = np.zeros(full_shape, dtype=np.float32)
-
-    # Set fullGrid values by repeating stixel values. TODO: Optimize
-    for k in range(fullGrid.shape[1]):
-        yindex = np.floor(k / stepsPerStixel).astype(int)
-        for m in range(fullGrid.shape[2]):
-            xindex = np.floor(m / stepsPerStixel).astype(int)
-            fullGrid[:, k, m] = gridValues[:, yindex, xindex]
-
-    # For debugging: full pixel space
-    # fullGrid = np.zeros((tsize,int(numYStixels*stixelSizePix),int(numXStixels*stixelSizePix)), dtype=np.float32)
-    # rs_shape = (fullGrid.shape[1], fullGrid.shape[2])
-    # for t in range(tsize):
-    #     fullGrid[t,:,:] = cv2.resize(
-    #         gridValues[t,:,:],
-    #         rs_shape[::-1],
-    #         interpolation=cv2.INTER_NEAREST_EXACT)
-
-    # print(f'fullGrid: {fullGrid.shape}')
-
-    ## Generate the motion trajectory of the larger stixels.
-    # Re-seed the number generator.
-    np.random.seed(int(seed))
-
-    # Random steps range from 0-(stepsPerStixel-1), resetting to 'repeating_seed' once we hit repeat frames
-    if repeat_frames > 0:
-        steps = np.zeros((n_total_events,2))
-        # Set unique jitter
-        steps[:n_unique_events] = np.round((stepsPerStixel-1)*np.random.rand(n_unique_events,2))
-        # Reset seed between unique and repeat sections
-        np.random.seed(repeating_seed)
-        # Set repeat jitter
-        steps[n_unique_events:] = np.round((stepsPerStixel-1) * np.random.rand(n_total_events - n_unique_events,2))
-    else:
-        # If repeat frames == 0, set all frames using unique jitter
-        steps = np.round((stepsPerStixel-1) * np.random.rand(n_total_events, 2))
-
-    # frameValues is downscaled version of full canvas, containing the cropped fullGrid.
-
-    frameValues = np.zeros((tsize, numYChecks, numXChecks), dtype=np.float32)
-
-    # For debugging: full pixel space
-    # frameValues = np.zeros((tsize,canvasSize[0], canvasSize[1]),dtype=np.float32)
-    # print(f'frameValues: {frameValues.shape}')
-
-    # Compute crop amounts so fullGrid is centered on frameValues canvas.
-    crop_Y = (fullGrid.shape[1] - frameValues.shape[1]) / 2
-    crop_X = (fullGrid.shape[2] - frameValues.shape[2]) / 2
-    # print(f'Precise Crop X: {crop_X:.2f}, Crop Y: {crop_Y:.2f}')
-    crop_Y = np.round(crop_Y).astype(int)
-    crop_X = np.round(crop_X).astype(int)
-    # print(f'Rounded Crop X: {crop_X}, Crop Y: {crop_Y}')
-
-    # Apply the jittered cropping to get frameValues from fullGrid.
-    for k in range(tsize):
-        x_offset = steps[np.floor(k / tfactor).astype(int), 0].astype(int)
-        y_offset = steps[np.floor(k / tfactor).astype(int), 1].astype(int)
-
-        # For debugging: full pixel space
-        # print(f'Frame {k}: x_offset: {x_offset}, y_offset: {y_offset}')
-        # x_offset *= gridSizePix
-        # y_offset *= gridSizePix
-
-        # Y jitter moves up and adds to crop from the top.
-        y_offset += crop_Y
-
-        # X jitter moves right, so subtracts from crop from the left.
-        x_offset = crop_X - x_offset
-
-        # X start and ends
-        grid_x_start = x_offset
-        grid_x_end = x_offset + numXChecks
-        frame_x_start = 0
-        frame_x_end = numXChecks
-
-        # Y start and ends
-        grid_y_start = y_offset
-        grid_y_end = y_offset + numYChecks
-        frame_y_start = 0
-        frame_y_end = numYChecks
-
-        # For X, need to check if grid_x_start< 0
-        # If so, then get frameValues index for leaving left edge gray.
-        if grid_x_start < 0:
-            frame_x_start = -grid_x_start
-            grid_x_start = 0
-            grid_x_end = numXChecks - frame_x_start
-
-        # For both X and Y, need to check if grid_end > fullGrid
-        # If so, then get frameValues index for leaving right/bottom edge gray.
-        if grid_y_end > fullGrid.shape[1]:
-            n_bottom_gray = grid_y_end - fullGrid.shape[1]
-            frame_y_end = numYChecks - n_bottom_gray
-            grid_y_end = fullGrid.shape[1]
-
-        if grid_x_end > fullGrid.shape[2]:
-            n_right_gray = grid_x_end - fullGrid.shape[2]
-            frame_x_end = numXChecks - n_right_gray
-            grid_x_end = fullGrid.shape[2]
-
-        # Assign the larger grid values to the final display frame values.
-        frameValues[k, frame_y_start:frame_y_end, frame_x_start:frame_x_end] = fullGrid[
-            k, grid_y_start:grid_y_end, grid_x_start:grid_x_end
-        ]
-
-        # For debugging: full pixel space
-        # frameValues[k,:,:] = fullGrid[k, y_offset : canvasSize[0]+y_offset, x_offset : canvasSize[1]+x_offset]
-
-    # Create your output stimulus. (t, y, x, 3 color channels)
-    t_downsampled = np.ceil(tsize / tfactor).astype(int)
-    stimulus = np.zeros((t_downsampled, numYChecks, numXChecks, 3), dtype=np.float32)
-
-    # For debugging: full pixel space
-    # stimulus = np.zeros((np.ceil(tsize/tfactor).astype(int), canvasSize[0], canvasSize[1], 3), dtype=np.float32)
-    # print(f'stimulus: {stimulus.shape}')
-    # Get the pixel values into the proper color channels
-    if chromaticClass == "BY":
-        stimulus[:, :, :, 0] = frameValues[0::2, :, :]
-        stimulus[:, :, :, 1] = frameValues[0::2, :, :]
-        stimulus[:, :, :, 2] = frameValues[1::2, :, :]
-    elif chromaticClass == "RGB":
-        stimulus[:, :, :, 0] = frameValues[0::3, :, :]
-        stimulus[:, :, :, 1] = frameValues[1::3, :, :]
-        stimulus[:, :, :, 2] = frameValues[2::3, :, :]
-    else:  # Black/white checks
-        stimulus[:, :, :, 0] = frameValues
-        stimulus[:, :, :, 1] = frameValues
-        stimulus[:, :, :, 2] = frameValues
-
+    n_rows = rows[1]-rows[0]
+    n_cols = cols[1]-cols[0]
+    
     # Deal with the frame dwell.
     if frameDwell > 1:
         numFrames = unique_frames + repeat_frames
         last_event = stimulus.shape[0] - 1
-        stim = np.zeros((numFrames, numYChecks, numXChecks, 3), dtype=np.float32)
+        stim = np.full((numFrames, n_rows, n_cols, 3), 128, dtype=np.uint8)
         for k in range(numFrames):
             idx = min(k // frameDwell, last_event)
             stim[k, :, :, :] = stimulus[idx, :, :, :]
         stimulus = stim
-    # d_out = {
-    #     'stimulus': stimulus,
-    #     'steps': steps,
-    # }
 
     return stimulus, steps
 
@@ -2357,3 +2231,245 @@ def _get_spatial_noise_pre_frames(
 
     else:
         return [int(pf)-1+dwell_term[idx] for idx, pf in enumerate(preset_pre_frames)]
+
+
+def _get_spatial_noise_events(
+    numXStixels: int,
+    numYStixels: int,
+    numXChecks: int,
+    numYChecks: int,
+    gridSizeUm: float,
+    chromaticClass: str,
+    unique_frames: int,
+    repeat_frames: int,
+    stepsPerStixel: int,
+    seed: int,
+    frameDwell: int,
+    gaussianFilter: bool = False,
+    filterSdStixels: float = 1.0,
+    canvasSize: tuple | None = None,
+    micronsPerPixel: float | None = None,
+    repeating_seed: int | None = None,
+    rows: tuple | None = None,
+    cols: tuple | None = None,
+):
+    """
+    Get the frame sequence for the SpatialNoise.m. Originally a copy from symphony_data.py
+    Heavily edited, refactored, and updated by 09/13/2026. This private helper function
+    does most of the work, and the original get_spatial_noise_frames() is a wrapper that calls
+    this function and then does the frameDwell expansion on top of it. This saves a massive amount
+    of memory for frameDwell > 1 during STA calc, since we don't need to store the full frameDwell 
+    expanded version in memory first.
+
+    Args:
+        numXStixels: number of stixels in the x direction.
+        numYStixels: number of stixels in the y direction.
+        numXChecks: number of checks in the x direction.
+        numYChecks: number of checks in the y direction.
+        chromaticClass: chromatic class of the stimulus.
+        numFrames: number of frames in the stimulus.
+        stepsPerStixel: number of steps per stixel.
+        seed: seed for the random number generator.
+        frameDwell: number of frames to dwell on each frame.
+
+    Returns:
+        stimulus: 4D array of frames (n_frames, x, y, n_colors) as uint8 array.
+        steps: array of jitter steps to apply if stepsPerStixel > 0
+    """
+    # Print input params
+    if canvasSize is None:
+        canvasSize = (1140, 1824)
+        print(f"canvasSize not provided, defaulting to {canvasSize}")
+    if micronsPerPixel is None:
+        micronsPerPixel = 3.37
+        print(f"micronsPerPixel not provided, defaulting to {micronsPerPixel}")
+    if repeating_seed is None:
+        repeating_seed = 1
+        print(f"repeating_seed not provided, defaulting to {repeating_seed}")
+
+    if rows is None:
+        rows = (0, numYChecks)
+    if cols is None:
+        cols = (0, numXChecks)
+
+    n_rows = int(rows[1]-rows[0])
+    n_cols = int(cols[1]-cols[0])
+
+    # print(f'numXStixels: {numXStixels}, numYStixels: {numYStixels}, numXChecks: {numXChecks}, numYChecks: {numYChecks}')
+    # print(f'chromaticClass: {chromaticClass}, unique_frames: {unique_frames}, repeat_frames: {repeat_frames}')
+    # print(f'stepsPerStixel: {stepsPerStixel}, seed: {seed}, frameDwell: {frameDwell}')
+    # print(f'gaussianFilter: {gaussianFilter}, filterSdStixels: {filterSdStixels}')
+
+    # Compute gridSizePix, stixelSizePix.
+    gridSizePix = lcr_video_device_um_to_pix(gridSizeUm, micronsPerPixel)
+    stixelSizePix = gridSizePix * stepsPerStixel
+    # print(f'Grid size: {gridSizePix} pix, Stixel size: {stixelSizePix} pix')
+
+    # Seed the random number generator.
+    np.random.seed(int(seed))
+
+    # Chromatic class determines time factor
+    # Eg-2 for BY first generates 2*num_frames, then splits into B and Y frames.
+    if chromaticClass == "BY":
+        tfactor = 2
+    elif chromaticClass == "RGB":
+        tfactor = 3
+    # Black/white checks
+    else:
+        tfactor = 1
+
+    # Get number of unique events:
+    n_unique_events = np.floor(unique_frames/frameDwell).astype(int)
+    n_total_events = np.floor((unique_frames+repeat_frames)/frameDwell).astype(int)
+
+    usize = int(tfactor*n_unique_events)
+    tsize = int(tfactor*n_total_events)
+    rsize = tsize-usize
+
+    # Generate the random grid of stixels.
+    gridValues = np.zeros((tsize, int(numXStixels * numYStixels)), dtype=np.float32)
+    # print(f'gridValues: {gridValues.shape}')
+
+    # Set unique sequence.
+    gridValues[:usize, :] = np.random.rand(usize, int(numXStixels * numYStixels))
+
+    # Set repeating sequence.
+    if repeat_frames > 0:
+        # Reseed the generator.
+        np.random.seed(repeating_seed)
+        gridValues[usize:, :] = np.random.rand(rsize, int(numXStixels * numYStixels))
+
+    # Reshape to (t, y, x)
+    gridValues = np.reshape(gridValues, (tsize, int(numXStixels), int(numYStixels)))
+    gridValues = np.transpose(gridValues, (0, 2, 1))
+
+    # Binarize to 0 and 1, then convert to contrast (-1 to 1)
+    gridValues = np.round(gridValues)
+    gridValues = (2 * gridValues - 1).astype(np.float32)
+    # print(f'gridValues: {gridValues.shape}')
+
+    # Filter the stixels if indicated.
+    if gaussianFilter:
+        for i in range(tsize):
+            frame_tmp = gaussian_filter(
+                gridValues[i, :, :], sigma=filterSdStixels, order=0, mode="wrap"
+            )
+            gridValues[i, :, :] = 0.5 * frame_tmp / np.std(frame_tmp)
+        gridValues[gridValues > 1.0] = 1.0
+        gridValues[gridValues < -1.0] = -1.0
+
+    gridValues = np.round(127.5 * gridValues + 127.5).astype(np.uint8)
+
+    ## Generate the motion trajectory of the larger stixels.
+    # Re-seed the number generator.
+    np.random.seed(int(seed))
+
+    # Random steps range from 0-(stepsPerStixel-1), resetting to 'repeating_seed' once we hit repeat frames
+    if repeat_frames > 0:
+        steps = np.zeros((n_total_events,2))
+        # Set unique jitter
+        steps[:n_unique_events] = np.round((stepsPerStixel-1)*np.random.rand(n_unique_events,2))
+        # Reset seed between unique and repeat sections
+        np.random.seed(repeating_seed)
+        # Set repeat jitter
+        steps[n_unique_events:] = np.round((stepsPerStixel-1) * np.random.rand(n_total_events - n_unique_events,2))
+    else:
+        # If repeat frames == 0, set all frames using unique jitter
+        steps = np.round((stepsPerStixel-1) * np.random.rand(n_total_events, 2))
+
+    # frameValues is downscaled version of full canvas, containing the cropped fullGrid.
+
+    frameValues = np.full((tsize, n_rows, n_cols), 128, dtype=np.uint8)
+
+    # For debugging: full pixel space
+    # frameValues = np.zeros((tsize,canvasSize[0], canvasSize[1]),dtype=np.float32)
+    # print(f'frameValues: {frameValues.shape}')
+
+    fullGrid_Y = numYStixels * stepsPerStixel
+    fullGrid_X = numXStixels * stepsPerStixel
+
+    # Compute crop amounts so fullGrid is centered on frameValues canvas.
+    crop_Y = (fullGrid_Y - numYChecks) / 2
+    crop_X = (fullGrid_X - numXChecks) / 2
+    # print(f'Precise Crop X: {crop_X:.2f}, Crop Y: {crop_Y:.2f}')
+    crop_Y = np.round(crop_Y).astype(int)
+    crop_X = np.round(crop_X).astype(int)
+    # print(f'Rounded Crop X: {crop_X}, Crop Y: {crop_Y}')
+
+    # Apply the jittered cropping to get frameValues from fullGrid.
+    for k in range(tsize):
+        x_offset = steps[np.floor(k / tfactor).astype(int), 0].astype(int)
+        y_offset = steps[np.floor(k / tfactor).astype(int), 1].astype(int)
+
+        # For debugging: full pixel space
+        # print(f'Frame {k}: x_offset: {x_offset}, y_offset: {y_offset}')
+        # x_offset *= gridSizePix
+        # y_offset *= gridSizePix
+
+        # Y jitter moves up and adds to crop from the top.
+        y_offset += crop_Y
+
+        # X jitter moves right, so subtracts from crop from the left.
+        x_offset = crop_X - x_offset
+
+        # X start and ends
+        grid_x_start = x_offset + cols[0]
+        grid_x_end = grid_x_start + n_cols
+        frame_x_start = 0
+        frame_x_end = n_cols
+
+        # Y start and ends
+        grid_y_start = y_offset + rows[0]
+        grid_y_end = grid_y_start + n_rows
+        frame_y_start = 0
+        frame_y_end = n_rows
+
+        # For X, need to check if grid_x_start< 0
+        # If so, then get frameValues index for leaving left edge gray.
+        if grid_x_start < 0:
+            frame_x_start = -grid_x_start
+            grid_x_start = 0
+            grid_x_end = n_cols - frame_x_start
+
+        # For both X and Y, need to check if grid_end > fullGrid
+        # If so, then get frameValues index for leaving right/bottom edge gray.
+        if grid_y_end > fullGrid_Y:
+            n_bottom_gray = grid_y_end - fullGrid_Y
+            frame_y_end = n_rows - n_bottom_gray
+            grid_y_end = fullGrid_Y
+
+        if grid_x_end > fullGrid_X:
+            n_right_gray = grid_x_end - fullGrid_X
+            frame_x_end = n_cols - n_right_gray
+            grid_x_end = fullGrid_X
+
+        # Assign the larger grid values to the final display frame values.
+        row_ix = np.arange(grid_y_start, grid_y_end) // stepsPerStixel
+        col_ix = np.arange(grid_x_start, grid_x_end) // stepsPerStixel
+        frameValues[k, frame_y_start:frame_y_end, frame_x_start:frame_x_end] = gridValues[k][np.ix_(row_ix, col_ix)]
+
+        # For debugging: full pixel space
+        # frameValues[k,:,:] = fullGrid[k, y_offset : canvasSize[0]+y_offset, x_offset : canvasSize[1]+x_offset]
+
+    # Create your output stimulus. (t, y, x, 3 color channels)
+    t_downsampled = np.ceil(tsize / tfactor).astype(int)
+    stimulus = np.full((t_downsampled, n_rows, n_cols, 3), 128, dtype=np.uint8)
+
+    # For debugging: full pixel space
+    # stimulus = np.zeros((np.ceil(tsize/tfactor).astype(int), canvasSize[0], canvasSize[1], 3), dtype=np.float32)
+    # print(f'stimulus: {stimulus.shape}')
+    # Get the pixel values into the proper color channels
+    if chromaticClass == "BY":
+        stimulus[:, :, :, 0] = frameValues[0::2, :, :]
+        stimulus[:, :, :, 1] = frameValues[0::2, :, :]
+        stimulus[:, :, :, 2] = frameValues[1::2, :, :]
+    elif chromaticClass == "RGB":
+        stimulus[:, :, :, 0] = frameValues[0::3, :, :]
+        stimulus[:, :, :, 1] = frameValues[1::3, :, :]
+        stimulus[:, :, :, 2] = frameValues[2::3, :, :]
+    else:  # Black/white checks
+        stimulus[:, :, :, 0] = frameValues
+        stimulus[:, :, :, 1] = frameValues
+        stimulus[:, :, :, 2] = frameValues
+
+    return stimulus, steps

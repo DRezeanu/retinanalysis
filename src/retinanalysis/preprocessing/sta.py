@@ -64,7 +64,7 @@ def _get_n_splits_memory(
     n_frames = stim_data.shape[1]
     n_bins_up = n_frames * stride
     n_stim_dims = np.prod(stim_data.shape[2:])
-    bytes_per_float = stim_data.element_size()
+    bytes_per_float = 4
 
     if device.type == 'cuda':
         free_bytes = torch.cuda.mem_get_info()[0] # free, not total memory
@@ -132,6 +132,9 @@ def compute_stas(
             Stimulus data of shape [N epochs, T frames, *]
             For noise stim, last dims are [H, W, C]
             For EI, last dims are [C] electrodes
+            If stim_data is uint8, the value is converted to float and 128 is subtracted
+            to re-center on gray.
+            All other dtypes are float converted unchanged.
         binned_responses_np (np.ndarray):
             Binned spikerate/spikecount of shape [N epochs, K cells, T frames]
         stride (int): Stride for upsampling stimulus data to match binned responses.
@@ -149,12 +152,12 @@ def compute_stas(
             For EI, [C]
     """
     # [N epochs, T frames, H, W, C]
-    stim_data = torch.from_numpy(stim_data_np).float()
+    stim_data = torch.from_numpy(stim_data_np)
     # [N epochs, K cells, T frames]
     binned_responses = torch.from_numpy(binned_responses_np).float()
 
     stim_dims = stim_data.shape[2:]
-    n_stim_dims = np.prod(stim_dims)
+    n_stim_dims = int(np.prod(stim_dims))
     n_epochs, n_cells, n_bins = binned_responses.shape
 
     n_frames = stim_data.shape[1]
@@ -183,6 +186,9 @@ def compute_stas(
     stas = torch.zeros(n_cells, depth, n_stim_dims, dtype=torch.float32)
 
     binned_responses = binned_responses.to(device)
+    
+    # If value is uint8, set stim offset to 128.
+    stim_offset = 128.0 if stim_data.dtype == torch.uint8 else 0.0
 
     if method == "matmul":
         lags = np.arange(depth)
@@ -196,6 +202,10 @@ def compute_stas(
             e_stim_data = stim_data[:, :, s_start:s_end].to(device)
             # Upsample by stride
             e_stim_data = torch.repeat_interleave(e_stim_data, stride, dim=1)
+
+            # Convert to float and subtract offset
+            e_stim_data = e_stim_data.float()
+            e_stim_data -= stim_offset
 
             with torch.no_grad():
                 for lag in tqdm.tqdm(lags, desc="STA depth"):
@@ -235,8 +245,14 @@ def compute_stas(
 
             # [N, T, S]
             e_stim_data = stim_data[:, :, s_start:s_end].to(device)
+
             # Upsample sd by stride
             e_stim_data = torch.repeat_interleave(e_stim_data, stride, dim=1)
+
+            # Convert to float and subtract offset
+            e_stim_data = e_stim_data.float()
+            e_stim_data -= stim_offset 
+
             # permute to [N, S, T]
             e_stim_data = e_stim_data.permute(0, 2, 1)
 
