@@ -188,7 +188,9 @@ def make_spatial_noise(
             retinanalysis StimBlock and ResponseBlock objects
 
         crop_fraction (float, Optional): a linear crop fraction between 0 and 1 that crops
-            this percentage in both x and y. Default is None.
+            the frame to this percentage in both x and y. e.g. 1.0 is the full image, 0.75
+            will generate 75% of the image, and 0.25 will generate 25% of the image, cropping
+            evenly towards the center. Default is None (i.e. no crop).
 
         crop_window (dict, Optional): a dict with keys "center_row", "center_col",
             "n_rows", "n_cols" used to crop the output. Default is None. 
