@@ -435,6 +435,8 @@ def compute_stas_for_chunk(
     depth: int = 61,
     method: str = "matmul",
     max_epochs_per_batch: int = 4,
+    crop_fraction: float | None = None,
+    crop_window: dict | None = None,
     verbose: bool = True,
 ) -> dict:
 
@@ -537,7 +539,11 @@ def compute_stas_for_chunk(
         # Loop across epochs in batch
         for batch, resp_data in tqdm.tqdm(batches, desc="Epoch batch"):
             # Regen stim
-            stim_block.regenerate_stimulus(ls_epochs=batch)
+            stim_block.regenerate_stimulus(
+                ls_epochs=batch,
+                crop_fraction=crop_fraction,
+                crop_window=crop_window,
+            )
             
             # Check that regen worked
             if stim_block.stim_data is None:
@@ -546,7 +552,7 @@ def compute_stas_for_chunk(
                     f'{stim_block.exp_name} block {stim_block.block_id}'
                 )
 
-            # [N, T, H, W, C]
+            # [Epoch_Idx, Time_Bin, Height, Width, Color]
             stim_frames = stim_block.stim_data["frames"]
 
             # Check how many epochs actually in this batch (last batch likely

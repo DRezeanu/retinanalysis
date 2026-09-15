@@ -214,78 +214,40 @@ def make_spatial_noise(
             If both crop_fraction and crop_window are provided. User can only provide one.
     """
 
-    # Create noise movies by epochs
-    ls_steps = []
+    
+    # Pull list of unique and repeat frames per epoch
     ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(df_epochs, d_display)
 
+    # Pull the frame sequence and frame drops from the raw frame indices
+    # stored in df_epochs
     frame_sequence, drops = get_spatial_noise_frame_sequence(
         df_epochs=df_epochs,
         d_display=d_display,
     )
 
+    # Collect epoch block params
+    block_params = _get_spatial_noise_block_params(
+        df_epochs=df_epochs,
+        d_display=d_display,
+        canvas_size=canvas_size,
+    )
 
-    # Collect block level params once and reuse
-    if canvas_size is None:
-        canvas_size = (int(d_display['n_ht']), int(d_display['n_wt']))
-
-    numXChecks = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['numXChecks']
-    numYChecks = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['numYChecks']
+    # Build crop window
+    rows, cols = _resolve_crop_window(
+        numXChecks=block_params['numXChecks'],
+        numYChecks=block_params['numYChecks'],
+        crop_fraction=crop_fraction,
+        crop_window=crop_window,
+    )
     
-    gridSize = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['gridSize']
-    chromaticClass = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['chromaticClass']
-
-    gaussianFilter = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get("gaussianFilter")
-
-    filterSdStixels = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get('filterSdStixels')
-
-    micronsPerPixel = d_display['mu_per_pixel']
-
-    repeating_seed = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get('repeating_seed')
-
-    if crop_window is not None and crop_fraction is not None:
-        raise ValueError(
-            'Provide crop_window OR crop_fraction, but NOT both'
-        )
-
-    rows = None
-    cols = None
-    # Apply Crop 
-    if crop_fraction is not None:
-        center_row = int(np.round(numYChecks/2))
-        center_col = int(np.round(numXChecks/2))
-        n_rows = int(np.round(crop_fraction * numYChecks))
-        n_cols = int(np.round(crop_fraction * numXChecks))
-
-        rows = (
-            max(0, center_row - int(n_rows/2)),
-            min(int(numYChecks), center_row + int(n_rows/2)+1),
-        )
-
-        cols = (
-            max(0, center_col - int(n_cols/2)),
-            min(int(numXChecks), center_col + int(n_cols/2)+1),
-        )
-
-    elif crop_window is not None:
-
-        rows = (
-            max(0, crop_window['center_row']-int(crop_window['n_rows']/2)),
-            min(int(numYChecks), crop_window['center_row']+int(crop_window['n_rows']/2)+1)
-        )
-        
-        cols = (
-            max(0,crop_window['center_col']-int(crop_window['n_cols']/2)),
-            min(int(numXChecks), crop_window['center_col']+int(crop_window['n_cols']/2)+1),
-        )
-    else:
-        rows = (0, numYChecks)
-        cols = (0, numXChecks)
-
+    # Resolve pre frames
     pre_frames = _get_spatial_noise_pre_frames(
         df_epochs=df_epochs,
         d_display=d_display
     )
 
+    # If all epochs are same length, pre-allocate a numpy array.
+    # Otherwise warn and create an empty list.
     epoch_lengths = {len(fs) for fs in frame_sequence}
     n_epochs = len(df_epochs.index)
     if len(epoch_lengths) == 1:
@@ -302,18 +264,19 @@ def make_spatial_noise(
         )
         frames = []
 
-
+    # Iterate over epochs
+    ls_steps = []
     for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
         d_e_params = df_epochs.at[e_idx, "epoch_parameters"]
-            
+
         d_meta = {
             "numXStixels": int(d_e_params['numXStixels']),
             "numYStixels": int(d_e_params['numYStixels']),
-            "numXChecks": int(numXChecks),
-            "numYChecks": int(numYChecks),
-            "gridSizeUm": gridSize,
-            "chromaticClass": chromaticClass,
-            "canvasSize": canvas_size,
+            "numXChecks": block_params['numXChecks'],
+            "numYChecks": block_params['numYChecks'],
+            "gridSizeUm": block_params['gridSizeUm'],
+            "chromaticClass": block_params['chromaticClass'],
+            "canvasSize": block_params['canvas_size'],
             "unique_frames": int(ls_unique_frames[i]),
             "repeat_frames": int(ls_repeat_frames[i]),
             "stepsPerStixel": int(d_e_params["stepsPerStixel"]),
@@ -324,14 +287,14 @@ def make_spatial_noise(
         }
 
         # Add optional arguments that may or may not exist
-        if gaussianFilter is not None:
-            d_meta["gaussianFilter"] = gaussianFilter
-        if filterSdStixels is not None:
-            d_meta["filterSdStixels"] = filterSdStixels
-        if micronsPerPixel is not None:
-            d_meta["micronsPerPixel"] = micronsPerPixel
-        if repeating_seed is not None:
-            d_meta["repeating_seed"] = int(repeating_seed)
+        if block_params['gaussianFilter'] is not None:
+            d_meta["gaussianFilter"] = block_params['gaussianFilter']
+        if block_params['filterSdStixels'] is not None:
+            d_meta["filterSdStixels"] = block_params['filterSdStixels']
+        if block_params['micronsPerPixel'] is not None:
+            d_meta["micronsPerPixel"] = block_params['micronsPerPixel']
+        if block_params['repeating_seed'] is not None:
+            d_meta["repeating_seed"] = int(block_params['repeating_seed'])
 
 
         e_frames, e_steps = _get_spatial_noise_events(**d_meta)
@@ -2300,13 +2263,6 @@ def _get_spatial_noise_events(
     # print(f'stepsPerStixel: {stepsPerStixel}, seed: {seed}, frameDwell: {frameDwell}')
     # print(f'gaussianFilter: {gaussianFilter}, filterSdStixels: {filterSdStixels}')
 
-    # Compute gridSizePix, stixelSizePix.
-    gridSizePix = lcr_video_device_um_to_pix(gridSizeUm, micronsPerPixel)
-    stixelSizePix = gridSizePix * stepsPerStixel
-    # print(f'Grid size: {gridSizePix} pix, Stixel size: {stixelSizePix} pix')
-
-    # Seed the random number generator.
-    np.random.seed(int(seed))
 
     # Chromatic class determines time factor
     # Eg-2 for BY first generates 2*num_frames, then splits into B and Y frames.
@@ -2325,6 +2281,32 @@ def _get_spatial_noise_events(
     usize = int(tfactor*n_unique_events)
     tsize = int(tfactor*n_total_events)
     rsize = tsize-usize
+
+    #### ------- Generate the motion trajectory of the larger stixels. ------ ####
+    # Seed the number generator.
+    np.random.seed(int(seed))
+
+    # Compute gridSizePix, stixelSizePix.
+    gridSizePix = lcr_video_device_um_to_pix(gridSizeUm, micronsPerPixel)
+    stixelSizePix = gridSizePix * stepsPerStixel
+    # print(f'Grid size: {gridSizePix} pix, Stixel size: {stixelSizePix} pix')
+
+    # Random steps range from 0-(stepsPerStixel-1), resetting to 'repeating_seed' once we hit repeat frames
+    if repeat_frames > 0:
+        steps = np.zeros((n_total_events,2))
+        # Set unique jitter
+        steps[:n_unique_events] = np.round((stepsPerStixel-1)*np.random.rand(n_unique_events,2))
+        # Reset seed between unique and repeat sections
+        np.random.seed(repeating_seed)
+        # Set repeat jitter
+        steps[n_unique_events:] = np.round((stepsPerStixel-1) * np.random.rand(n_total_events - n_unique_events,2))
+    else:
+        # If repeat frames == 0, set all frames using unique jitter
+        steps = np.round((stepsPerStixel-1) * np.random.rand(n_total_events, 2))
+
+    ##### ------ Generate grid and frame values ------ #####
+    # Re-Seed the random number generator.
+    np.random.seed(int(seed))
 
     # Generate the random grid of stixels.
     gridValues = np.zeros((tsize, int(numXStixels * numYStixels)), dtype=np.float32)
@@ -2360,22 +2342,6 @@ def _get_spatial_noise_events(
 
     gridValues = np.round(127.5 * gridValues + 127.5).astype(np.uint8)
 
-    ## Generate the motion trajectory of the larger stixels.
-    # Re-seed the number generator.
-    np.random.seed(int(seed))
-
-    # Random steps range from 0-(stepsPerStixel-1), resetting to 'repeating_seed' once we hit repeat frames
-    if repeat_frames > 0:
-        steps = np.zeros((n_total_events,2))
-        # Set unique jitter
-        steps[:n_unique_events] = np.round((stepsPerStixel-1)*np.random.rand(n_unique_events,2))
-        # Reset seed between unique and repeat sections
-        np.random.seed(repeating_seed)
-        # Set repeat jitter
-        steps[n_unique_events:] = np.round((stepsPerStixel-1) * np.random.rand(n_total_events - n_unique_events,2))
-    else:
-        # If repeat frames == 0, set all frames using unique jitter
-        steps = np.round((stepsPerStixel-1) * np.random.rand(n_total_events, 2))
 
     # frameValues is downscaled version of full canvas, containing the cropped fullGrid.
 
@@ -2473,3 +2439,88 @@ def _get_spatial_noise_events(
         stimulus[:, :, :, 2] = frameValues
 
     return stimulus, steps
+
+def _resolve_crop_window(
+    numXChecks: int,
+    numYChecks: int,
+    crop_fraction: float | None = None,
+    crop_window: dict | None = None,
+) -> tuple:
+
+    if crop_window is not None and crop_fraction is not None:
+        raise ValueError(
+            'Provide crop_window OR crop_fraction, but NOT both'
+        )
+
+    # Apply Crop 
+    if crop_fraction is not None:
+        center_row = int(np.round(numYChecks/2))
+        center_col = int(np.round(numXChecks/2))
+        n_rows = int(np.round(crop_fraction * numYChecks))
+        n_cols = int(np.round(crop_fraction * numXChecks))
+
+        rows = (
+            max(0, center_row - int(n_rows/2)),
+            min(int(numYChecks), center_row + int(n_rows/2)+1),
+        )
+
+        cols = (
+            max(0, center_col - int(n_cols/2)),
+            min(int(numXChecks), center_col + int(n_cols/2)+1),
+        )
+
+    elif crop_window is not None:
+
+        rows = (
+            max(0, crop_window['center_row']-int(crop_window['n_rows']/2)),
+            min(int(numYChecks), crop_window['center_row']+int(crop_window['n_rows']/2)+1)
+        )
+        
+        cols = (
+            max(0,crop_window['center_col']-int(crop_window['n_cols']/2)),
+            min(int(numXChecks), crop_window['center_col']+int(crop_window['n_cols']/2)+1),
+        )
+    else:
+        rows = (0, numYChecks)
+        cols = (0, numXChecks)
+
+    return rows, cols
+
+def _get_spatial_noise_block_params(
+    df_epochs: pd.DataFrame,
+    d_display: dict,
+    canvas_size: tuple | None = None,
+) -> dict:
+
+    # Collect block level params once and reuse
+    if canvas_size is None:
+        canvas_size = (int(d_display['n_ht']), int(d_display['n_wt']))
+
+    numXChecks = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['numXChecks']
+    numYChecks = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['numYChecks']
+    
+    gridSize = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['gridSize']
+    chromaticClass = df_epochs.at[df_epochs.index[0], 'epoch_parameters']['chromaticClass']
+
+    gaussianFilter = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get("gaussianFilter")
+
+    filterSdStixels = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get('filterSdStixels')
+
+    micronsPerPixel = d_display['mu_per_pixel']
+
+    repeating_seed = df_epochs.at[df_epochs.index[0], 'epoch_parameters'].get('repeating_seed')
+
+
+    d_out = {
+        'canvas_size': canvas_size,
+        'numXChecks': int(numXChecks),
+        'numYChecks': int(numYChecks),
+        'gridSizeUm': gridSize,
+        'chromaticClass': chromaticClass,
+        'gaussianFilter': gaussianFilter,
+        'filterSdStixels': filterSdStixels,
+        'micronsPerPixel': micronsPerPixel,
+        'repeating_seed': repeating_seed,
+    }
+
+    return d_out
