@@ -681,7 +681,7 @@ def compute_stas_streaming(
                     chunk_stas = resp_lag @ stim_lag
 
                     # Avg across epochs for [K, S]
-                    stas[:, lag, s_start:s_end] += chunk_stas.cpu()
+                    stas[:, depth - 1 - lag, s_start:s_end] += chunk_stas.cpu()
 
             # Clear memory
             del e_stim_data, resp_lag, stim_lag, chunk_stas
@@ -690,9 +690,6 @@ def compute_stas_streaming(
             gc.collect()
 
         prev_chunk=max(prev_chunk, current_chunk)
-
-    # Reverse time dim for standard convention
-    stas = torch.flip(stas, dims=[1])
     
     # Reshape back to full stim dims
     stas = stas.reshape(n_cells, depth, *stim_dims)
