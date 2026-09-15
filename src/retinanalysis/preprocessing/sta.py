@@ -450,7 +450,7 @@ def compute_stas_for_chunk(
         # Loop across epochs in batch
         for batch, resp_data in tqdm.tqdm(batches, desc="Epoch batch"):
 
-            batch_stas = []
+            batch_stas = None 
             if stream_setup is not None:
 
                 if method == 'conv':
@@ -508,10 +508,7 @@ def compute_stas_for_chunk(
                         depth=depth,
                     )
 
-                    batch_stas.append(epoch_stas)
-
-
-                batch_stas = np.sum(np.stack(batch_stas), axis=0)
+                    batch_stas = epoch_stas if batch_stas is None else batch_stas + epoch_stas
 
             else:
                 # Regen stim
