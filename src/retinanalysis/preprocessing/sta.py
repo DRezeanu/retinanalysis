@@ -11,6 +11,11 @@ from retinanalysis.classes.response import (
     create_mea_response_group,
 )
 from retinanalysis.classes.stim import MEAStimGroup, create_mea_stim_group
+from retinanalysis.utils.regen import (
+    _prepare_streaming_block,
+    _build_spatial_noise_epoch_dict,
+    SpatialNoiseStimulusStream,
+)
 import gc
 from visionwriter import STAWriter, ParamsWriter, GlobalsFileWriter
 import visionloader as vl
@@ -114,6 +119,596 @@ def _get_n_splits_memory(
         )
 
     return n_splits
+
+
+
+def get_noise_datafiles(exp_name: str, chunk_name: str) -> list:
+    exp_id = schema.Experiment() & {"exp_name": exp_name}
+    if len(exp_id) != 1:
+        raise ValueError(f"{len(exp_id)} exps found for given exp_name: {exp_name}")
+    exp_id = exp_id.to_arrays("id")[0]
+    chunk_id = schema.SortingChunk() & {
+        "experiment_id": exp_id,
+        "chunk_name": chunk_name,
+    }
+    chunk_id = chunk_id.to_arrays("id")[0]
+    noise_protocol = get_noise_name_by_exp(exp_name)
+    protocol_id = schema.Protocol() & {"name": noise_protocol}
+    protocol_id = protocol_id.to_arrays("protocol_id")[0]
+
+    epoch_blocks = schema.EpochBlock() & {
+        "experiment_id": exp_id,
+        "chunk_id": chunk_id,
+        "protocol_id": protocol_id,
+    }
+
+    noise_data_dirs = epoch_blocks.to_arrays("data_dir")
+    datafile_name = [os.path.basename(path) for path in noise_data_dirs]
+    print(f'Found noise datafiles: {datafile_name}')
+    
+    # Filter out zero contrast datafiles
+    eb_contrasts = epoch_blocks.proj(contrast="parameters->>'$.contrast'").fetch('contrast').astype(float)
+    non_zero_contrast = np.where(eb_contrasts != 0)[0]
+    
+    if len(non_zero_contrast) == 0:
+        raise ValueError("No non-zero contrast datafiles found for given exp and chunk!")
+    elif len(non_zero_contrast) < len(datafile_name):
+        datafile_name = [datafile_name[i] for i in non_zero_contrast]
+        print(f'Filtered out zero contrast datafiles, remaining: {datafile_name}')
+
+    return datafile_name
+
+
+def get_stim_response_groups(
+    exp_name: str,
+    chunk_name: str | None = None,
+    datafile_name: list | str | np.ndarray | None = None,
+    ss_version: str = "kilosort2.5",
+    verbose: bool = True,
+) -> tuple[MEAStimGroup, MEAResponseGroup]:
+
+    if isinstance(datafile_name, str):
+        datafile_name = [datafile_name]
+    elif isinstance(datafile_name, np.ndarray):
+        datafile_name = list(datafile_name)
+
+    # If datafile name(s) not given, get noise datafiles
+    if datafile_name is None:
+        if chunk_name is None:
+            raise ValueError(
+                f'Must provide a datafile_name(s) or chunk_name'
+            )
+        else:
+            datafile_name = get_noise_datafiles(exp_name, chunk_name)
+            if verbose:
+                print(f"Found noise datafile(s): {datafile_name}")
+
+    sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
+    rg = create_mea_response_group(
+        exp_name, datafile_name, ss_version, b_load_fd=True, verbose=verbose
+    )
+    return sg, rg
+
+
+def get_data_for_chunk(
+    exp_name: str | None = None,
+    chunk_name: str | None = None,
+    datafile_name: list | str | np.ndarray | None = None,
+    sg: MEAStimGroup | None = None,
+    rg: MEAResponseGroup | None = None,
+    ss_version: str = "kilosort2.5",
+    verbose: bool = True,
+) -> dict:
+
+    if isinstance(datafile_name, str):
+        datafile_name = [datafile_name]
+    elif isinstance(datafile_name, np.ndarray):
+        datafile_name = list(datafile_name)
+
+    if sg is None or rg is None:
+        if exp_name is None:
+            raise ValueError(
+                'Must provide one of the following pairs:\n'
+                '    - stim_group + response_group\n'
+                '    - exp_name + (chunk_name or datafile_name(s))'
+            )
+        if chunk_name is None and datafile_name is None:
+            raise ValueError(
+                'Must provide one of the following pairs:\n'
+                '    - stim_group + response_group\n'
+                '    - exp_name + (chunk_name or datafile_name(s))'
+            )
+        else:
+            sg, rg = get_stim_response_groups(
+                exp_name=exp_name,
+                chunk_name=chunk_name,
+                datafile_name=datafile_name,
+                ss_version=ss_version,
+                verbose = verbose,
+            )
+
+    # Collect spike counts
+    spike_counts = qc.get_nsps(rg, rg.cell_ids)
+    spike_counts = np.array(spike_counts)
+
+    # Collect ISIs for saving in .params file
+    isi_dt = 0.5  # ms
+    isi_bin_edges = np.arange(0, 300, isi_dt)
+    d_isi = qc.get_isi(rg, rg.cell_ids, isi_bin_edges)
+    # Convert to array
+    isi_array = np.zeros((len(rg.cell_ids), len(isi_bin_edges) - 1))
+    for i, cell_id in enumerate(rg.cell_ids):
+        isi_array[i, :] = d_isi[cell_id]
+
+    d_output = {
+        "sg": sg,
+        "rg": rg,
+        "cell_ids": rg.cell_ids,
+        "spike_counts": spike_counts,
+        "isi": isi_array,
+        "isi_bin_edges": isi_bin_edges,
+        "isi_dt": isi_dt,
+    }
+
+    return d_output
+
+def compute_stas_for_chunk(
+    exp_name: str | None = None,
+    chunk_name: str | None = None,
+    datafile_name: list | str | np.ndarray | None = None,
+    sg: MEAStimGroup | None = None,
+    rg: MEAResponseGroup | None= None,
+    *,
+    ss_version: str = "kilosort2.5",
+    stride: int = 2,
+    depth: int = 61,
+    method: str = "matmul",
+    max_epochs_per_batch: int = 4,
+    crop_fraction: float | None = None,
+    crop_window: dict | None = None,
+    streaming: bool = False,
+    chunk_size: float = 2.0,
+    verbose: bool = True,
+) -> dict:
+    """Compute Spike Triggered Averages for all Cells in a noise chunk. The function 
+    can take a stim group and response group, or some combination of experiment name
+    and either chunk_name or datafile_name. For very large stimuli, set ``streaming``
+    to True and define a ``chunk_size`` in gigabytes.
+
+    Args:
+        exp_name (str): Optional. Experiment name string (e.g. '20260506C')
+
+        chunk_name (str): Optional. Chunk name string (e.g. 'chunk2')
+
+        datafile_name (list[str], array[str], str): Optional. a string, list of strings,
+            or array of datafile name strings (e.g. ['data001', 'data002'])
+
+        sg (MEAStimGroup): Optional. Retinanalysis stim group object
+
+        rg (MEAResponseGroup): Optional. Retinanalysis response group object
+
+    NOTE: The above arguments all None by default, but you must provide EITHER a stim
+        group and a response group, OR an experiment name and a chunk_name or datafile_name
+
+        ss_version (str): spike sorter version used. Default 'kilosort2.5'
+
+        stride (int): upsampling stride for STA time bins. Default 2. 1 = one bin per frame
+
+        depth (int): number of time bins to use (i.e. the time window of the STA). 
+            Default is 61 or approximately 500ms at 60fps and stride = 2
+
+        method (str): computation method, either 'matmul' or 'conv'. Default is 'matmul'.
+            If you are computing on a CPU and select 'conv', it will be switched to 'matmul'
+            and a warning is printed. Our pytorch 'conv' method is not available on CPUs.
+
+        max_epochs_per_batch (int): maximum number of epochs to regenerate in each epoch
+            batch. The larger your stimulus dimensions, the smaller this number should be
+            if you want to avoid out of memory errors. 
+
+        crop_fraction (float): Value between 0 and 1 that specifies how much to crop the
+            STA. For large stimuli and displays that run well past array bounds, it's often
+            safe and more memory efficient to apply a crop. Default is no crop.
+
+        crop_window (dict): a crop window dictionary with keys 'center_row', 'center_col',
+            'n_rows', 'n_cols'. This allows you to apply a custom, non-centered crop.
+
+        streaming (bool): If true, regenerate the stimulus in streaming chunks rather
+            than all at once. This is sometimes necessary for very large stimuli.
+
+        chunk_size (float): Size of stimulus chunks to create in streaming mode, in Gigabytes.
+            Only used if streaming = True. Default is 2.0. 
+
+        verbose (bool): If true, print status messages to the console during STA computation.
+
+    Returns:
+        dict: Dictionary with keys "stas" (ndarray), "cell_ids" (ndarray), "grid_size" (float),
+            and "sta_n_sps" (ndarray). Each array contains values per cell, in the same order as
+            the "cell_ids" array.
+
+    Raises:
+        ValueError if sg or rg is None and use did not provide an 
+            exp_name and (a chunk_name or a datafile_name)
+
+        ValueError if spike binning for any of the response blocks inside rg fail
+
+        ValueError if the code is unable to regenerate the stimulus using the 
+            stim group's regen function
+
+        ValueError if length of binned spikes doesn't match length of regenerated
+            stimulus for a given epoch.
+
+        ValueError if STAs failed to compute.
+    """
+
+    if sg is None or rg is None:
+        if exp_name is None and (chunk_name is None or datafile_name is None):
+            raise ValueError(
+                'Must provide one of the following parirs:\n'
+                '    - stim_group + response_group\n'
+                '    - exp_name + (chunk_name or datafile_name(s))'
+            )
+
+        assert exp_name is not None
+        sg, rg = get_stim_response_groups(
+            exp_name=exp_name,
+            chunk_name=chunk_name,
+            datafile_name=datafile_name,
+            ss_version=ss_version,
+            verbose=verbose,
+        )
+    
+    # STA input gen and calc loop
+    stas = None
+    total_sps = np.zeros(len(rg.cell_ids))
+    n_epochs_total = 0
+
+    n_blocks = len(sg.ls_blocks)
+    print(f'Processing {n_blocks} blocks')
+    for i in range(n_blocks):
+        stim_block = sg.ls_blocks[i]
+        response_block = rg.ls_blocks[i]
+
+        # Bin spike times
+        response_block.bin_spike_times_by_frames(stride=stride)
+
+        # [Cell, Epoch, TimeBin]
+        binned_spikes = response_block.binned_spikes
+        if binned_spikes is None:
+            raise ValueError(
+                f'Could not bin spikes for {exp_name} block {sg.ls_blocks[i].block_id}.'
+            )
+
+        row_of = {cid: r for r, cid in enumerate(response_block.df_spike_times['cell_id'])}
+        rows = [row_of[cid] for cid in rg.cell_ids]
+
+        n_epochs = len(stim_block.df_epochs)
+        # Make [Epoch, Cell, TimeBin]
+        if isinstance(binned_spikes, np.ndarray):
+            binned_spikes = binned_spikes[rows]
+            block_sps = np.sum(binned_spikes, axis = (1,2))
+
+            binned_spikes = binned_spikes.transpose(1, 0, 2)
+            n_batches = int(np.ceil(n_epochs / max_epochs_per_batch))
+            e_starts = [j * max_epochs_per_batch for j in range(n_batches)]
+            e_ends = [min((j+1) * max_epochs_per_batch,n_epochs) for j in range(n_batches)] 
+
+            # When all epochs are the same lengths, we build the batches as contiguous sets
+            # of epochs
+            batches = [(list(range(s,e)), binned_spikes[s:e]) for s,e in zip(e_starts, e_ends)]
+            
+        else:
+            binned_spikes = [binned_spikes[r] for r in rows]
+            block_sps = np.array([sum(e.sum() for e in cell_rows) for cell_rows in binned_spikes])
+            # Get a list of unique Time dimension lengths. By definition all
+            # Cells inside an epoch will have the same number of time bins so 
+            # we don't need to iterate over every cell.
+            unique_lengths = {len(e_spikes) for e_spikes in binned_spikes[0]}
+            all_lengths = [len(e_spikes) for e_spikes in binned_spikes[0]]
+            time_groups = []
+            group_indices = []
+            for length in sorted(unique_lengths):
+                # Mask by ragged T dim
+                mask = [al == length for al in all_lengths]
+                group_idx = [idx for idx, val in enumerate(mask) if val]
+                group_indices.append(group_idx)
+                # Group by time domain and arrange as Epoch, Cell, TimeBin (replaces transpose above)
+                group = np.asarray([[c_spikes[j] for c_spikes in binned_spikes] for j in group_idx])
+                # append to spike_groups list
+                time_groups.append(group)
+
+
+            binned_spikes = time_groups
+
+            # When all epochs are not the same length, we build the batches as lists
+            # of epochs with the same number of time bins. If any of the lists is 
+            # greater than max_epochs_per_batch, we split those up
+            batches = []
+            for g_idx, time_group in enumerate(binned_spikes):
+                group_idx = group_indices[g_idx]
+                epochs_per_group = time_group.shape[0]
+                n_batches = int(np.ceil(epochs_per_group / max_epochs_per_batch))
+                for j in range(n_batches):
+                    e_start = j * max_epochs_per_batch
+                    e_end = min((j+1) * max_epochs_per_batch, epochs_per_group)
+                    batch = group_idx[e_start:e_end]
+                    spikes = time_group[e_start:e_end]
+                    batches.append((batch, spikes))
+
+        total_sps += block_sps
+        stream_setup = None
+        if streaming:
+            df_epochs = stim_block.df_epochs
+            d_display = stim_block.d_display
+            stream_setup = _prepare_streaming_block(
+                df_epochs=df_epochs,
+                d_display=d_display,
+                chunk_size=chunk_size,
+                crop_fraction=crop_fraction,
+                crop_window=crop_window,
+
+            )
+        # Loop across epochs in batch
+        for batch, resp_data in tqdm.tqdm(batches, desc="Epoch batch"):
+
+            batch_stas = []
+            if stream_setup is not None:
+
+                if method == 'conv':
+                    raise ValueError(
+                        'Conv method not possible when streaming = True, use "matmul"'
+                    )
+
+                n_epochs_in_batch = resp_data.shape[0]
+
+                for i, epoch in enumerate(batch):
+                    # Pull params
+                    epoch_params = stim_block.df_epochs.at[epoch, 'epoch_parameters']
+                    d_meta = _build_spatial_noise_epoch_dict(
+                        epoch_params=epoch_params,
+                        block_params=stream_setup['block_params'],
+                        unique_frames=stream_setup['ls_unique_frames'][epoch],
+                        repeat_frames=stream_setup['ls_repeat_frames'][epoch],
+                        rows=stream_setup['rows'],
+                        cols=stream_setup['cols'],
+                    )
+
+
+                    # Generate stream
+                    stream = SpatialNoiseStimulusStream(**d_meta)
+
+                    # Generate event_idx
+                    n_total_events = stream_setup['ls_unique_frames'][epoch] + stream_setup['ls_repeat_frames'][epoch]
+                    generation_index = np.array(stream_setup['frame_sequence'][epoch])-stream_setup['pre_frames'][epoch]
+                    mask = (generation_index >= 0) & (generation_index < n_total_events)
+                    valid_slots = np.flatnonzero(mask)
+
+                    assert valid_slots[-1]-valid_slots[0] == len(valid_slots)-1
+
+                    event_idx = np.minimum(
+                        generation_index[mask] // epoch_params['frameDwell'],
+                        stream.n_total_events - 1,
+                    ).astype(int)
+
+                    max_events = max(int(stream_setup['slots_per_chunk'] / epoch_params['frameDwell']), 1)
+
+                    if resp_data[i].shape[1] != len(stream_setup['frame_sequence'][epoch])*stride:
+                        raise ValueError(
+                            "Stimulus and spike array time dims don't match for epochs"
+                            f"{batch} in {stim_block.exp_name} block {stim_block.block_id}."
+                        )
+
+
+                    epoch_stas = compute_stas_streaming(
+                        stream=stream,
+                        event_idx=event_idx,
+                        max_events=max_events,
+                        valid_slots=valid_slots,
+                        resp_epoch=resp_data[i],
+                        stride=stride,
+                        depth=depth,
+                    )
+
+                    batch_stas.append(epoch_stas)
+
+
+                batch_stas = np.sum(np.stack(batch_stas), axis=0)
+
+            else:
+                # Regen stim
+                stim_block.regenerate_stimulus(
+                    ls_epochs=batch,
+                    crop_fraction=crop_fraction,
+                    crop_window=crop_window,
+                )
+                
+                # Check that regen worked
+                if stim_block.stim_data is None:
+                    raise ValueError(
+                        'Unable to regenerate stimulus for '
+                        f'{stim_block.exp_name} block {stim_block.block_id}'
+                    )
+
+                # [Epoch_Idx, Time_Bin, Height, Width, Color]
+                stim_frames = stim_block.stim_data["frames"]
+
+                # Check how many epochs actually in this batch (last batch likely
+                # less than max_epochs_per_batch)
+                n_epochs_in_batch = resp_data.shape[0]
+
+                if stim_frames.shape[1] * stride != resp_data.shape[2]:
+                    raise ValueError(
+                        "Stimulus and spike array time dims don't match for epochs"
+                        f"{batch} in {stim_block.exp_name} block {stim_block.block_id}."
+                    )
+
+                # Compute batch stas, weighted by the number of epochs in that batch
+                # without this, batches with fewer epochs will be overweighted
+                batch_stas = compute_stas(
+                    stim_data_np = stim_frames,
+                    binned_responses_np = resp_data,
+                    depth=depth,
+                    stride=stride,
+                    method=method,
+                    verbose=verbose,
+                ) * n_epochs_in_batch
+
+                del stim_frames, stim_block.stim_data
+
+            if stas is None:
+                stas = batch_stas
+            else:
+                stas += batch_stas
+
+            n_epochs_total += n_epochs_in_batch
+
+            del resp_data 
+            gc.collect()
+
+    if stas is None:
+        raise ValueError(
+            f'Unable to compute STAs for {sg.exp_name} datafiles {sg.datafile_names}'
+        )
+    # Strictly not necessary because of the peak normalization that follows
+    stas /= n_epochs_total
+    # Final normalize by abs max for each cell
+    peaks = np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
+    # Avoid div by 0
+    peaks[peaks==0] = 1
+    stas = stas / peaks
+
+    grid_size = sg.ls_blocks[0].df_epochs.at[0, "epoch_parameters"]["gridSize"]
+
+    d_output = {
+        "stas": stas,
+        "cell_ids": rg.cell_ids,
+        "grid_size": grid_size,
+        "sta_n_sps": total_sps,
+    }
+
+    return d_output
+
+
+def compute_stas_streaming(
+    stream: SpatialNoiseStimulusStream,
+    event_idx: np.ndarray,
+    valid_slots: np.ndarray,
+    max_events: int,
+    resp_epoch: np.ndarray,
+    stride: int = 2,
+    depth: int = 61,
+    verbose: bool = True,
+) -> np.ndarray:
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+    response = torch.from_numpy(resp_epoch).float()
+    response = response.to(device)
+    n_cells, n_bins = response.shape
+    stim_dims = stream.n_rows, stream.n_cols, 3
+    n_stim_dims = int(np.prod(stim_dims))
+    stas = torch.zeros(n_cells, depth, n_stim_dims, dtype=torch.float32)
+
+    n_splits = None
+    prev_chunk = 0
+
+    # While streaming, convert event_idx to slot idx using search sorted
+    # And fill up preallocated frames array with the appropriate events
+    while stream.cursor < stream.n_total_events:
+        e_lo, e_hi, events = stream.next_chunk(max_events)
+        current_chunk = e_hi-e_lo
+
+        # Find e_lo and e_hi locations inside event_idx array
+        p_lo = np.searchsorted(event_idx, e_lo)
+        p_hi = np.searchsorted(event_idx, e_hi)
+
+        # Only the tail chunk can be empty
+        if p_lo == p_hi:
+            break
+
+        # Pull relevant events
+        stim = events[event_idx[p_lo:p_hi]-e_lo]
+
+        # Used to index into response
+        slot_lo = valid_slots[p_lo]
+        b_lo = slot_lo * stride
+        T_up = (p_hi-p_lo)*stride
+
+        stim_data = torch.from_numpy(stim)
+        n_frames = stim_data.shape[0]
+        stim_data = stim_data.reshape(n_frames, -1)
+
+        if n_splits is None or (current_chunk > prev_chunk):
+            n_splits = _get_n_splits_memory(
+                stim_data = stim_data.unsqueeze(0),
+                binned_response = response.unsqueeze(0),
+                device = device,
+                stride = stride,
+                method = 'matmul',
+                depth=depth,
+                verbose=verbose,
+            )
+
+        n_split_sz = int(np.ceil(n_stim_dims / n_splits))
+    
+        # If value is uint8, set stim offset to 128.
+        stim_offset = 128.0 if stim_data.dtype == torch.uint8 else 0.0
+        
+        lags = np.arange(depth)
+        for i in tqdm.tqdm(np.arange(n_splits), desc="STA compute chunk"):
+            s_start = i * n_split_sz
+            s_end = (i + 1) * n_split_sz
+            if s_end > n_stim_dims:
+                s_end = n_stim_dims
+
+            # Put stim data chunk on device
+            e_stim_data = stim_data[:, s_start:s_end].to(device)
+            # Upsample by stride
+            e_stim_data = torch.repeat_interleave(e_stim_data, stride, dim=0)
+
+            # Convert to float and subtract offset
+            e_stim_data = e_stim_data.float()
+            e_stim_data -= stim_offset
+
+            with torch.no_grad():
+                for lag in lags:
+                    n_valid = min(T_up, n_bins - lag - b_lo)
+                    if n_valid <= 0:
+                        break
+
+                    resp_lag = response[:, b_lo+lag:b_lo+lag+n_valid]
+                    stim_lag = e_stim_data[:n_valid , :]
+
+                    chunk_stas = resp_lag @ stim_lag
+
+                    # Avg across epochs for [K, S]
+                    stas[:, lag, s_start:s_end] += chunk_stas.cpu()
+
+            # Clear memory
+            del e_stim_data, resp_lag, stim_lag, chunk_stas
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+            gc.collect()
+
+        prev_chunk=max(prev_chunk, current_chunk)
+
+    # Reverse time dim for standard convention
+    stas = torch.flip(stas, dims=[1])
+    
+    # Reshape back to full stim dims
+    stas = stas.reshape(n_cells, depth, *stim_dims)
+    stas = stas.numpy()
+    
+    # Final clean up
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    gc.collect()
+
+    return stas
+
+
 
 def compute_stas(
     stim_data_np: np.ndarray,
@@ -293,324 +888,6 @@ def compute_stas(
 
     return stas
 
-
-def get_noise_datafiles(exp_name: str, chunk_name: str) -> list:
-    exp_id = schema.Experiment() & {"exp_name": exp_name}
-    if len(exp_id) != 1:
-        raise ValueError(f"{len(exp_id)} exps found for given exp_name: {exp_name}")
-    exp_id = exp_id.to_arrays("id")[0]
-    chunk_id = schema.SortingChunk() & {
-        "experiment_id": exp_id,
-        "chunk_name": chunk_name,
-    }
-    chunk_id = chunk_id.to_arrays("id")[0]
-    noise_protocol = get_noise_name_by_exp(exp_name)
-    protocol_id = schema.Protocol() & {"name": noise_protocol}
-    protocol_id = protocol_id.to_arrays("protocol_id")[0]
-
-    epoch_blocks = schema.EpochBlock() & {
-        "experiment_id": exp_id,
-        "chunk_id": chunk_id,
-        "protocol_id": protocol_id,
-    }
-
-    noise_data_dirs = epoch_blocks.to_arrays("data_dir")
-    datafile_name = [os.path.basename(path) for path in noise_data_dirs]
-    print(f'Found noise datafiles: {datafile_name}')
-    
-    # Filter out zero contrast datafiles
-    eb_contrasts = epoch_blocks.proj(contrast="parameters->>'$.contrast'").fetch('contrast').astype(float)
-    non_zero_contrast = np.where(eb_contrasts != 0)[0]
-    
-    if len(non_zero_contrast) == 0:
-        raise ValueError("No non-zero contrast datafiles found for given exp and chunk!")
-    elif len(non_zero_contrast) < len(datafile_name):
-        datafile_name = [datafile_name[i] for i in non_zero_contrast]
-        print(f'Filtered out zero contrast datafiles, remaining: {datafile_name}')
-
-    return datafile_name
-
-
-def get_stim_response_groups(
-    exp_name: str,
-    chunk_name: str | None = None,
-    datafile_name: list | str | np.ndarray | None = None,
-    ss_version: str = "kilosort2.5",
-    verbose: bool = True,
-) -> tuple[MEAStimGroup, MEAResponseGroup]:
-
-    if isinstance(datafile_name, str):
-        datafile_name = [datafile_name]
-    elif isinstance(datafile_name, np.ndarray):
-        datafile_name = list(datafile_name)
-
-    # If datafile name(s) not given, get noise datafiles
-    if datafile_name is None:
-        if chunk_name is None:
-            raise ValueError(
-                f'Must provide a datafile_name(s) or chunk_name'
-            )
-        else:
-            datafile_name = get_noise_datafiles(exp_name, chunk_name)
-            if verbose:
-                print(f"Found noise datafile(s): {datafile_name}")
-
-    sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
-    rg = create_mea_response_group(
-        exp_name, datafile_name, ss_version, b_load_fd=True, verbose=verbose
-    )
-    return sg, rg
-
-
-def get_data_for_chunk(
-    exp_name: str | None = None,
-    chunk_name: str | None = None,
-    datafile_name: list | str | np.ndarray | None = None,
-    sg: MEAStimGroup | None = None,
-    rg: MEAResponseGroup | None = None,
-    ss_version: str = "kilosort2.5",
-    verbose: bool = True,
-) -> dict:
-
-    if isinstance(datafile_name, str):
-        datafile_name = [datafile_name]
-    elif isinstance(datafile_name, np.ndarray):
-        datafile_name = list(datafile_name)
-
-    if sg is None or rg is None:
-        if exp_name is None:
-            raise ValueError(
-                'Must provide one of the following pairs:\n'
-                '    - stim_group + response_group\n'
-                '    - exp_name + (chunk_name or datafile_name(s))'
-            )
-        if chunk_name is None and datafile_name is None:
-            raise ValueError(
-                'Must provide one of the following pairs:\n'
-                '    - stim_group + response_group\n'
-                '    - exp_name + (chunk_name or datafile_name(s))'
-            )
-        else:
-            sg, rg = get_stim_response_groups(
-                exp_name=exp_name,
-                chunk_name=chunk_name,
-                datafile_name=datafile_name,
-                ss_version=ss_version,
-                verbose = verbose,
-            )
-
-    # Collect spike counts
-    spike_counts = qc.get_nsps(rg, rg.cell_ids)
-    spike_counts = np.array(spike_counts)
-
-    # Collect ISIs for saving in .params file
-    isi_dt = 0.5  # ms
-    isi_bin_edges = np.arange(0, 300, isi_dt)
-    d_isi = qc.get_isi(rg, rg.cell_ids, isi_bin_edges)
-    # Convert to array
-    isi_array = np.zeros((len(rg.cell_ids), len(isi_bin_edges) - 1))
-    for i, cell_id in enumerate(rg.cell_ids):
-        isi_array[i, :] = d_isi[cell_id]
-
-    d_output = {
-        "sg": sg,
-        "rg": rg,
-        "cell_ids": rg.cell_ids,
-        "spike_counts": spike_counts,
-        "isi": isi_array,
-        "isi_bin_edges": isi_bin_edges,
-        "isi_dt": isi_dt,
-    }
-
-    return d_output
-
-def compute_stas_for_chunk(
-    exp_name: str | None = None,
-    chunk_name: str | None = None,
-    datafile_name: list | str | np.ndarray | None = None,
-    sg: MEAStimGroup | None = None,
-    rg: MEAResponseGroup | None= None,
-    ss_version: str = "kilosort2.5",
-    stride: int = 2,
-    depth: int = 61,
-    method: str = "matmul",
-    max_epochs_per_batch: int = 4,
-    crop_fraction: float | None = None,
-    crop_window: dict | None = None,
-    verbose: bool = True,
-) -> dict:
-
-    if sg is None or rg is None:
-        if exp_name is None and (chunk_name is None or datafile_name is None):
-            raise ValueError(
-                'Must provide one of the following parirs:\n'
-                '    - stim_group + response_group\n'
-                '    - exp_name + (chunk_name or datafile_name(s))'
-            )
-
-        assert exp_name is not None
-        sg, rg = get_stim_response_groups(
-            exp_name=exp_name,
-            chunk_name=chunk_name,
-            datafile_name=datafile_name,
-            ss_version=ss_version,
-            verbose=verbose,
-        )
-
-    # STA input gen and calc loop
-    stas = None
-    total_sps = np.zeros(len(rg.cell_ids))
-    n_epochs_total = 0
-
-    n_blocks = len(sg.ls_blocks)
-    print(f'Processing {n_blocks} blocks')
-    for i in range(n_blocks):
-        stim_block = sg.ls_blocks[i]
-        response_block = rg.ls_blocks[i]
-
-        # Bin spike times
-        response_block.bin_spike_times_by_frames(stride=stride)
-
-        # [Cell, Epoch, TimeBin]
-        binned_spikes = response_block.binned_spikes
-        if binned_spikes is None:
-            raise ValueError(
-                f'Could not bin spikes for {exp_name} block {sg.ls_blocks[i].block_id}.'
-            )
-
-        row_of = {cid: r for r, cid in enumerate(response_block.df_spike_times['cell_id'])}
-        rows = [row_of[cid] for cid in rg.cell_ids]
-
-        n_epochs = len(stim_block.df_epochs)
-        # Make [Epoch, Cell, TimeBin]
-        if isinstance(binned_spikes, np.ndarray):
-            binned_spikes = binned_spikes[rows]
-            block_sps = np.sum(binned_spikes, axis = (1,2))
-
-            binned_spikes = binned_spikes.transpose(1, 0, 2)
-            n_batches = int(np.ceil(n_epochs / max_epochs_per_batch))
-            e_starts = [j * max_epochs_per_batch for j in range(n_batches)]
-            e_ends = [min((j+1) * max_epochs_per_batch,n_epochs) for j in range(n_batches)] 
-
-            # When all epochs are the same lengths, we build the batches as contiguous sets
-            # of epochs
-            batches = [(list(range(s,e)), binned_spikes[s:e]) for s,e in zip(e_starts, e_ends)]
-            
-        else:
-            binned_spikes = [binned_spikes[r] for r in rows]
-            block_sps = np.array([sum(e.sum() for e in cell_rows) for cell_rows in binned_spikes])
-            # Get a list of unique Time dimension lengths. By definition all
-            # Cells inside an epoch will have the same number of time bins so 
-            # we don't need to iterate over every cell.
-            unique_lengths = {len(e_spikes) for e_spikes in binned_spikes[0]}
-            all_lengths = [len(e_spikes) for e_spikes in binned_spikes[0]]
-            time_groups = []
-            group_indices = []
-            for length in sorted(unique_lengths):
-                # Mask by ragged T dim
-                mask = [al == length for al in all_lengths]
-                group_idx = [idx for idx, val in enumerate(mask) if val]
-                group_indices.append(group_idx)
-                # Group by time domain and arrange as Epoch, Cell, TimeBin (replaces transpose above)
-                group = np.asarray([[c_spikes[j] for c_spikes in binned_spikes] for j in group_idx])
-                # append to spike_groups list
-                time_groups.append(group)
-
-
-            binned_spikes = time_groups
-
-            # When all epochs are not the same length, we build the batches as lists
-            # of epochs with the same number of time bins. If any of the lists is 
-            # greater than max_epochs_per_batch, we split those up
-            batches = []
-            for g_idx, time_group in enumerate(binned_spikes):
-                group_idx = group_indices[g_idx]
-                epochs_per_group = time_group.shape[0]
-                n_batches = int(np.ceil(epochs_per_group / max_epochs_per_batch))
-                for j in range(n_batches):
-                    e_start = j * max_epochs_per_batch
-                    e_end = min((j+1) * max_epochs_per_batch, epochs_per_group)
-                    batch = group_idx[e_start:e_end]
-                    spikes = time_group[e_start:e_end]
-                    batches.append((batch, spikes))
-
-        total_sps += block_sps
-
-        # Loop across epochs in batch
-        for batch, resp_data in tqdm.tqdm(batches, desc="Epoch batch"):
-            # Regen stim
-            stim_block.regenerate_stimulus(
-                ls_epochs=batch,
-                crop_fraction=crop_fraction,
-                crop_window=crop_window,
-            )
-            
-            # Check that regen worked
-            if stim_block.stim_data is None:
-                raise ValueError(
-                    'Unable to regenerate stimulus for '
-                    f'{stim_block.exp_name} block {stim_block.block_id}'
-                )
-
-            # [Epoch_Idx, Time_Bin, Height, Width, Color]
-            stim_frames = stim_block.stim_data["frames"]
-
-            # Check how many epochs actually in this batch (last batch likely
-            # less than max_epochs_per_batch)
-            n_epochs_in_batch = resp_data.shape[0]
-
-            if stim_frames.shape[1] * stride != resp_data.shape[2]:
-                raise ValueError(
-                    "Stimulus and spike array time dims don't match for epochs"
-                    f"{batch} in {stim_block.exp_name} block {stim_block.block_id}."
-                )
-
-            # Compute batch stas, weighted by the number of epochs in that batch
-            # without this, batches with fewer epochs will be overweighted
-            batch_stas = compute_stas(
-                stim_data_np = stim_frames,
-                binned_responses_np = resp_data,
-                depth=depth,
-                stride=stride,
-                method=method,
-                verbose=verbose,
-            ) * n_epochs_in_batch
-
-            if stas is None:
-                stas = batch_stas
-            else:
-                stas += batch_stas
-
-            n_epochs_total += n_epochs_in_batch
-
-            del stim_frames, resp_data, stim_block.stim_data
-            gc.collect()
-
-    if stas is None:
-        raise ValueError(
-            f'Unable to compute STAs for {sg.exp_name} datafiles {sg.datafile_names}'
-        )
-    # Strictly not necessary because of the peak normalization that follows
-    stas /= n_epochs_total
-    # Final normalize by abs max for each cell
-    peaks = np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
-    # Avoid div by 0
-    peaks[peaks==0] = 1
-    stas = stas / peaks
-
-    grid_size = sg.ls_blocks[0].df_epochs.at[0, "epoch_parameters"]["gridSize"]
-
-    d_output = {
-        "stas": stas,
-        "cell_ids": rg.cell_ids,
-        "grid_size": grid_size,
-        # Total spikes that went into STA calc. Should be <= overall spike counts bc of grey periods.
-        "sta_n_sps": total_sps,
-    }
-
-    return d_output
-
-
 def load_stas_from_vcd(vcd: vl.VisionCellDataTable, cell_ids: np.ndarray) -> np.ndarray:
     # Collect STAs for each cell
     stas = []
@@ -774,6 +1051,7 @@ def write_globals_file(
         gfw.write_run_time_movie_params(runtime_movie_params)
 
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="sta.py", description="Compute STAs for given experiment and chunk."
@@ -925,3 +1203,4 @@ if __name__ == "__main__":
         mean_frame_rate=d_display["mean_frame_rate"],
         stride=args.stride,
     )
+

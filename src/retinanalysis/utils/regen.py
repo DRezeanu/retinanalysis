@@ -271,33 +271,14 @@ def make_spatial_noise(
     for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
         d_e_params = df_epochs.at[e_idx, "epoch_parameters"]
 
-        d_meta = {
-            "numXStixels": int(d_e_params['numXStixels']),
-            "numYStixels": int(d_e_params['numYStixels']),
-            "numXChecks": block_params['numXChecks'],
-            "numYChecks": block_params['numYChecks'],
-            "gridSizeUm": block_params['gridSizeUm'],
-            "chromaticClass": block_params['chromaticClass'],
-            "canvasSize": block_params['canvas_size'],
-            "unique_frames": int(ls_unique_frames[i]),
-            "repeat_frames": int(ls_repeat_frames[i]),
-            "stepsPerStixel": int(d_e_params["stepsPerStixel"]),
-            "seed": int(d_e_params["seed"]),
-            "frameDwell": int(d_e_params["frameDwell"]),
-            "rows" : rows,
-            "cols" : cols,
-        }
-
-        # Add optional arguments that may or may not exist
-        if block_params['gaussianFilter'] is not None:
-            d_meta["gaussianFilter"] = block_params['gaussianFilter']
-        if block_params['filterSdStixels'] is not None:
-            d_meta["filterSdStixels"] = block_params['filterSdStixels']
-        if block_params['micronsPerPixel'] is not None:
-            d_meta["micronsPerPixel"] = block_params['micronsPerPixel']
-        if block_params['repeating_seed'] is not None:
-            d_meta["repeating_seed"] = int(block_params['repeating_seed'])
-
+        d_meta = _build_spatial_noise_epoch_dict(
+            epoch_params = d_e_params,
+            block_params = block_params,
+            unique_frames = ls_unique_frames[i],
+            repeat_frames = ls_repeat_frames[i],
+            rows = rows,
+            cols = cols,
+        )
 
         e_frames, e_steps = _get_spatial_noise_events(**d_meta)
 
@@ -2581,3 +2562,94 @@ class SpatialNoiseStimulusStream:
         self.cursor = e_hi
 
         return e_lo, e_hi, stimulus
+
+
+def _build_spatial_noise_epoch_dict(
+    epoch_params: dict,
+    block_params: dict,
+    unique_frames: int,
+    repeat_frames: int,
+    rows: int,
+    cols: int,
+) -> dict:
+    d_meta = {
+        "numXStixels": int(epoch_params['numXStixels']),
+        "numYStixels": int(epoch_params['numYStixels']),
+        "numXChecks": block_params['numXChecks'],
+        "numYChecks": block_params['numYChecks'],
+        "gridSizeUm": block_params['gridSizeUm'],
+        "chromaticClass": block_params['chromaticClass'],
+        "canvasSize": block_params['canvas_size'],
+        "unique_frames": int(unique_frames),
+        "repeat_frames": int(repeat_frames),
+        "stepsPerStixel": int(epoch_params["stepsPerStixel"]),
+        "seed": int(epoch_params["seed"]),
+        "frameDwell": int(epoch_params["frameDwell"]),
+        "rows" : rows,
+        "cols" : cols,
+    }
+
+    # Add optional arguments that may or may not exist
+    if block_params['gaussianFilter'] is not None:
+        d_meta["gaussianFilter"] = block_params['gaussianFilter']
+    if block_params['filterSdStixels'] is not None:
+        d_meta["filterSdStixels"] = block_params['filterSdStixels']
+    if block_params['micronsPerPixel'] is not None:
+        d_meta["micronsPerPixel"] = block_params['micronsPerPixel']
+    if block_params['repeating_seed'] is not None:
+        d_meta["repeating_seed"] = int(block_params['repeating_seed'])
+
+    return d_meta
+
+def _prepare_streaming_block(
+    df_epochs: pd.DataFrame,
+    d_display: dict,
+    chunk_size: float,
+    crop_fraction: float | None,
+    crop_window: dict | None,
+) -> dict:
+
+    ls_unique_frames, ls_repeat_frames = get_n_frames_spatial_noise(
+        df_epochs=df_epochs,
+        d_display=d_display,
+    )
+
+    frame_sequence, _ = get_spatial_noise_frame_sequence(
+        df_epochs=df_epochs,
+        d_display=d_display,
+    )
+
+    pre_frames = _get_spatial_noise_pre_frames(
+        df_epochs=df_epochs,
+        d_display=d_display,
+    )
+
+    block_params = _get_spatial_noise_block_params(
+        df_epochs=df_epochs,
+        d_display=d_display,
+    )
+
+    rows, cols = _resolve_crop_window(
+        numXChecks=block_params['numXChecks'],
+        numYChecks=block_params['numYChecks'],
+        crop_fraction = crop_fraction,
+        crop_window=crop_window,
+    )
+
+    n_rows = int(rows[1]-rows[0])
+    n_cols = int(cols[1]-cols[0])
+    chunk_bytes = chunk_size*1e9 # convert from Gb to bytes
+    slots_per_chunk = chunk_bytes / (n_rows*n_cols*3)
+
+    d_out = {
+        'ls_unique_frames' : ls_unique_frames,
+        'ls_repeat_frames' : ls_repeat_frames,
+        'frame_sequence' : frame_sequence,
+        'pre_frames': pre_frames,
+        'block_params': block_params,
+        'rows': rows,
+        'cols': cols,
+        'slots_per_chunk': slots_per_chunk,
+    }
+    
+    return d_out
