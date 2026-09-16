@@ -110,7 +110,7 @@ def _get_n_splits_memory(
     n_splits = int(np.ceil(n_stim_dims/max_dims_per_split))
 
     if verbose:
-        print(
+        tqdm.tqdm.write(
             'Memory splitting output:\n'
             f'    - Memory budget: {budget/1e9:.2f}Gb\n'
             f'    - Cost per dim: {cost_per_dim/1e6:.2f}Mb\n'
@@ -460,7 +460,9 @@ def compute_stas_for_chunk(
 
                 n_epochs_in_batch = resp_data.shape[0]
 
-                for i, epoch in enumerate(batch):
+                epoch_bar = tqdm.tqdm(batch, desc="Epoch", unit="ep", leave=False)
+                for i, epoch in enumerate(epoch_bar):
+                    epoch_bar.set_postfix(epoch=int(epoch))
                     # Pull params
                     epoch_params = stim_block.df_epochs.at[epoch, 'epoch_parameters']
                     d_meta = _build_spatial_noise_epoch_dict(
@@ -496,7 +498,6 @@ def compute_stas_for_chunk(
                             "Stimulus and spike array time dims don't match for epochs"
                             f"{batch} in {stim_block.exp_name} block {stim_block.block_id}."
                         )
-
 
                     epoch_stas = compute_stas_streaming(
                         stream=stream,
@@ -610,9 +611,11 @@ def compute_stas_streaming(
 
     n_splits = None
     prev_chunk = 0
+    n_chunks=0
 
     # While streaming, convert event_idx to slot idx using search sorted
     # And fill up preallocated frames array with the appropriate events
+    slot_bar = tqdm.tqdm(total=len(event_idx), desc="Slots", unit="slot", leave=False)
     while stream.cursor < stream.n_total_events:
         e_lo, e_hi, events = stream.next_chunk(max_events)
         current_chunk = e_hi-e_lo
@@ -654,7 +657,7 @@ def compute_stas_streaming(
         stim_offset = 128.0 if stim_data.dtype == torch.uint8 else 0.0
         
         lags = np.arange(depth)
-        for i in tqdm.tqdm(np.arange(n_splits), desc="STA compute chunk"):
+        for i in np.arange(n_splits):
             s_start = i * n_split_sz
             s_end = (i + 1) * n_split_sz
             if s_end > n_stim_dims:
@@ -690,7 +693,11 @@ def compute_stas_streaming(
             gc.collect()
 
         prev_chunk=max(prev_chunk, current_chunk)
+        n_chunks += 1
+        slot_bar.update(p_hi-p_lo)
+        slot_bar.set_postfix(chunks=n_chunks, splits=n_splits)
     
+    slot_bar.close()
     # Reshape back to full stim dims
     stas = stas.reshape(n_cells, depth, *stim_dims)
     stas = stas.numpy()
