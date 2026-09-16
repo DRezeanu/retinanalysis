@@ -2461,8 +2461,14 @@ class SpatialNoiseStimulusStream:
         gridValues = np.transpose(gridValues, (0, 2, 1))
 
         # Binarize to 0 and 1, then convert to contrast (-1 to 1)
-        gridValues = np.round(gridValues)
-        gridValues = (2 * gridValues - 1).astype(np.float32)
+        # 'out = gridValues' is slower but it makes this operation 
+        # in-place so we don't allocate another array in memory.
+        gridValues = np.round(gridValues, out=gridValues)
+
+        # Same concept here, don't allocate another array, do the
+        # multiplication and subtraction in place
+        gridValues *= 2
+        gridValues -= 1
 
         # Filter the stixels if indicated.
         if self.gaussianFilter:
@@ -2474,8 +2480,12 @@ class SpatialNoiseStimulusStream:
             gridValues[gridValues > 1.0] = 1.0
             gridValues[gridValues < -1.0] = -1.0
 
-        # Cast to unit8
-        gridValues = np.round(127.5 * gridValues + 127.5).astype(np.uint8)
+        # Cast to unit8, doing all operations in place to avoid allocating
+        # another array in memory.
+        gridValues *= 127.5
+        gridValues += 127.5
+        np.round(gridValues, out=gridValues)
+        gridValues = gridValues.astype(np.uint8)
 
         # frameValues is downscaled version of full canvas, containing the cropped fullGrid.
         frameValues = np.full((n_rows_to_draw, self.n_rows, self.n_cols), 128, dtype=np.uint8)

@@ -359,6 +359,7 @@ def compute_stas_for_chunk(
     
     # STA input gen and calc loop
     stas = None
+    accum = None
     total_sps = np.zeros(len(rg.cell_ids))
     n_epochs_total = 0
 
@@ -447,11 +448,32 @@ def compute_stas_for_chunk(
                 crop_window=crop_window,
 
             )
+
+        n_cells = len(rg.cell_ids)
+        if stream_setup is not None:
+            n_rows = stream_setup["rows"][1] - stream_setup["rows"][0] 
+            n_cols = stream_setup["cols"][1] - stream_setup["cols"][0] 
+
+            if stas is None:
+                stas = np.zeros(
+                    (n_cells, depth, n_rows, n_cols, 3), dtype=np.float32,
+                )
+            elif stas.shape[2:4] != (n_rows, n_cols):
+                raise ValueError(
+                    f'The STA container for {sg.exp_name} block {stim_block.block_id} '
+                    'has the wrong number of rows and columns.\n'
+                    f'    - Correct: {(n_rows, n_cols)}\n'
+                    f'    - Actual: {(stas.shape[2], stas.shape[3])}\n'
+                )
+            # rebuilt per block rather than carried, so it can never outlive its array
+            accum = stas.reshape(len(rg.cell_ids), depth, -1)
+            assert np.shares_memory(accum, stas)
+
         # Loop across epochs in batch
         for batch, resp_data in tqdm.tqdm(batches, desc="Epoch batch"):
 
-            batch_stas = None 
             if stream_setup is not None:
+                assert accum is not None
 
                 if method == 'conv':
                     raise ValueError(
@@ -499,7 +521,8 @@ def compute_stas_for_chunk(
                             f"{batch} in {stim_block.exp_name} block {stim_block.block_id}."
                         )
 
-                    epoch_stas = compute_stas_streaming(
+                    compute_stas_streaming(
+                        accum=accum,
                         stream=stream,
                         event_idx=event_idx,
                         max_events=max_events,
@@ -509,9 +532,8 @@ def compute_stas_for_chunk(
                         depth=depth,
                     )
 
-                    batch_stas = epoch_stas if batch_stas is None else batch_stas + epoch_stas
-
             else:
+                batch_stas = None
                 # Regen stim
                 stim_block.regenerate_stimulus(
                     ls_epochs=batch,
@@ -552,27 +574,34 @@ def compute_stas_for_chunk(
 
                 del stim_frames, stim_block.stim_data
 
-            if stas is None:
-                stas = batch_stas
-            else:
-                stas += batch_stas
+                assert stream_setup is None, (
+                    'Code is executing dense branch but stream setup exists.'
+                )
+                if stas is None:
+                    stas = batch_stas
+                else:
+                    stas += batch_stas
 
             n_epochs_total += n_epochs_in_batch
 
-            del resp_data 
             gc.collect()
 
     if stas is None:
         raise ValueError(
             f'Unable to compute STAs for {sg.exp_name} datafiles {sg.datafile_names}'
         )
+
     # Strictly not necessary because of the peak normalization that follows
     stas /= n_epochs_total
-    # Final normalize by abs max for each cell
-    peaks = np.abs(stas).max(axis=(1,2,3,4), keepdims=True)
-    # Avoid div by 0
-    peaks[peaks==0] = 1
-    stas = stas / peaks
+
+    # Normalize per cell. Building a peaks array and then dividing
+    # stas/peaks both create another full sized array in memory, trippling
+    # the memory footprint for a single action.
+    for k in range(stas.shape[0]):
+        p = np.abs(stas[k]).max()
+        # Leave a cell with all 0s alone
+        if p:
+            stas[k] /= p
 
     grid_size = sg.ls_blocks[0].df_epochs.at[0, "epoch_parameters"]["gridSize"]
 
@@ -587,6 +616,7 @@ def compute_stas_for_chunk(
 
 
 def compute_stas_streaming(
+    accum: np.ndarray,
     stream: SpatialNoiseStimulusStream,
     event_idx: np.ndarray,
     valid_slots: np.ndarray,
@@ -595,7 +625,7 @@ def compute_stas_streaming(
     stride: int = 2,
     depth: int = 61,
     verbose: bool = True,
-) -> np.ndarray:
+) -> None:
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -607,7 +637,12 @@ def compute_stas_streaming(
     n_cells, n_bins = response.shape
     stim_dims = stream.n_rows, stream.n_cols, 3
     n_stim_dims = int(np.prod(stim_dims))
-    stas = torch.zeros(n_cells, depth, n_stim_dims, dtype=torch.float32)
+    assert accum.shape == (n_cells, depth, n_stim_dims), (
+        'Accummulator is the wrong shape.\n'
+        f'    -Expected: {(n_cells, depth, n_stim_dims)}\n'
+        f'    -Got: {accum.shape}\n'
+    )
+    stas = torch.from_numpy(accum)
 
     n_splits = None
     prev_chunk = 0
@@ -698,16 +733,12 @@ def compute_stas_streaming(
         slot_bar.set_postfix(chunks=n_chunks, splits=n_splits)
     
     slot_bar.close()
-    # Reshape back to full stim dims
-    stas = stas.reshape(n_cells, depth, *stim_dims)
-    stas = stas.numpy()
     
     # Final clean up
     if device.type == "cuda":
         torch.cuda.empty_cache()
     gc.collect()
 
-    return stas
 
 
 
