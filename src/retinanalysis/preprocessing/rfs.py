@@ -404,6 +404,8 @@ def plot_spatial_dog_performance(
         col_coords = (
             model.parametrized_filter.col_coords[i_start:i_end].detach().cpu().numpy()
         )
+        valid_rows = np.isfinite(row_coords)
+        valid_cols = np.isfinite(col_coords)
         row_coords = row_coords.astype(int)
         col_coords = col_coords.astype(int)
 
@@ -412,10 +414,37 @@ def plot_spatial_dog_performance(
             # Crop around center pixel
             row = row_coords[i_cell]
             col = col_coords[i_cell]
-            if row >= true.shape[1] or col >= true.shape[2]:
+            row_valid = valid_rows[i_cell]
+            col_valid = valid_cols[i_cell]
+            if (
+                row >= true.shape[1]
+                or col >= true.shape[2]
+                or not row_valid
+                or not col_valid
+                or row < 0
+                or col < 0
+            ):
                 print(
-                    f"Cell {i_cell}: Center ({row}, {col}) out of bounds for STA shape {true.shape[1:3]}"
+                    f"Cell {i_cell} failed to fit."
                 )
+
+                if row >= true.shape[1] or col >= true.shape[2]:
+                    print(
+                        f'Center ({row}, {col}) out of bounds for STA shape {true.shape[1:3]}'
+                    )
+
+                if not row_valid or not col_valid:
+                    print(
+                        "Center out of bounds for STA shape, found infinite values."
+                    )
+
+                if row < 0 or col < 0:
+                    print(
+                        "Center out of bounds for STA shape, fit contains negative values:\n"
+                        f"    - Row: {row}"
+                        f"    - Col: {col}"
+                    )
+
                 continue
 
             ax = axs[i_cell, 0]
@@ -589,26 +618,48 @@ def rf_fitting_pipeline(
         str_output_dir (str, optional): Directory to save outputs and plots.
         n_baseline_frames (int, optional): Number of baseline frames to subtract mean from.
     """
+     
+    def _cell(stas, k, n_baseline_frames):
+        sk = np.asarray(stas[k], dtype=np.float32)
+        if n_baseline_frames > 0:
+            sk = sk - sk[:n_baseline_frames].mean(axis=0, keepdims=True)
 
-    if n_baseline_frames > 0:
-        # Subtract baseline mean from STA.
-        stas = stas - np.mean(stas[:, :n_baseline_frames], axis=1, keepdims=True)
+        return sk
 
-    # Get peak index of each cell's STA
+    # Preallocate peak index arrays for each cell's STA
     n_cells, n_depth, n_height, n_width, n_channels = stas.shape
-    peak_idxs = np.argmax(np.abs(stas).reshape(n_cells, -1), axis=1)
-    peak_ts, peak_hs, peak_ws, peak_cs = np.unravel_index(
-        peak_idxs, (n_depth, n_height, n_width, n_channels)
-    )
+    peak_ts = np.zeros((n_cells,), dtype=np.int64)
+    peak_hs = np.zeros((n_cells,), dtype=np.int64)
+    peak_ws = np.zeros((n_cells,), dtype=np.int64)
+    peak_cs = np.zeros((n_cells,), dtype=np.int64)
 
     # Collect center pixel timecourse for every channel for final output.
     # timecourses = stas[np.arange(n_cells), :, peak_hs, peak_ws, :]
 
-    # Get peak spatial frame [K, H, W].
-    spatial_stas = stas[np.arange(n_cells), peak_ts, :, :, peak_cs]
+    # Preallocate peak spatial frame array [K, H, W].
+    spatial_stas = np.zeros((n_cells, n_height, n_width), dtype=np.float32)
 
-    # Collect signs, will save later for On/Off auto classification.
-    signs = np.sign(stas[np.arange(n_cells), peak_ts, peak_hs, peak_ws, peak_cs])
+    # Preallocate signs array, will save later for On/Off auto classification.
+    signs = np.zeros((n_cells,), dtype=np.float32)
+
+
+    # Compute contiguous region around peak, and estimate row and col sigmas.
+    ls_row_sigmas = []
+    ls_col_sigmas = []
+    ls_tcs = []
+    lowsnr_idxs = []
+    for i in range(n_cells):
+        sk = _cell(stas, i, n_baseline_frames)
+        peak_idx = np.argmax(np.abs(sk))
+        peak_ts[i], peak_hs[i], peak_ws[i], peak_cs[i] = np.unravel_index(
+            peak_idx, (n_depth, n_height, n_width, n_channels)
+        )
+
+        # Pull peak spatial frame
+        spatial_stas[i] = sk[peak_ts[i], :, :, peak_cs[i]]
+
+        # Pull sign for on off allocation
+        signs[i] = np.sign(sk[peak_ts[i], peak_hs[i], peak_ws[i], peak_cs[i]])
 
     # Make them all "ON" i.e. positive peaks
     spatial_stas = spatial_stas * signs[:, np.newaxis, np.newaxis]
@@ -621,12 +672,9 @@ def rf_fitting_pipeline(
     # [K, H, W] masks
     masks = np.where(spatial_stas >= thresholds, 1, 0)
 
-    # Compute contiguous region around peak, and estimate row and col sigmas.
-    ls_row_sigmas = []
-    ls_col_sigmas = []
-    ls_tcs = []
-    lowsnr_idxs = []
     for i in range(n_cells):
+        sk = _cell(stas, i, n_baseline_frames)
+
         mask = masks[i]
         peak_h, peak_w = peak_hs[i], peak_ws[i]
 
@@ -636,7 +684,7 @@ def rf_fitting_pipeline(
         # Get timecourses from avg of contiguous region
         h_inds, w_inds = np.where(cnt_mask)
         # [D, C]
-        tc = np.mean(stas[i, :, h_inds, w_inds, :], axis=0)
+        tc = np.mean(sk[:, h_inds, w_inds, :], axis=1)
         ls_tcs.append(tc)
 
         # Get bounding box of contiguous region

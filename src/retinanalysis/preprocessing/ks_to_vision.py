@@ -1,4 +1,5 @@
 from __future__ import annotations
+import gc
 import xarray as xr
 import visionwriter as vw
 import numpy as np
@@ -97,6 +98,9 @@ def ks_chunk_to_vision(
     include_mua: bool = True,
     compute_datafile_stas: bool = False,
     overwrite_existing: bool = False,
+    sta_streaming: bool = False,
+    sta_chunk_size: float = 1,
+    sta_crop_fraction: float | None = None,
     verbose: bool = True,
 ):
     """Function for generating vision files from the kilosort sorter outputs for a sorting chunk.
@@ -193,6 +197,9 @@ def ks_chunk_to_vision(
             include_mua = include_mua,
             overwrite_existing=overwrite_existing,
             compute_sta = compute_datafile_stas,
+            sta_streaming = sta_streaming,
+            sta_chunk_size = sta_chunk_size,
+            sta_crop_fraction = sta_crop_fraction,
             verbose=verbose,
         )
 
@@ -291,16 +298,18 @@ def ks_chunk_to_vision(
                     ss_version=ks_version,
                 )
 
-                stas = sta_dict['stas']
-                rf_dict = rf_fitting_pipeline(stas, str(chunk_output_path))
-
-                sta_height, sta_width = stas.shape[2], stas.shape[3]
+                sta_height, sta_width = sta_dict['stas'].shape[2], sta_dict['stas'].shape[3]
 
                 write_sta_file(
                     d_stas=sta_dict,
                     save_dir=str(chunk_output_path),
                     ss_version=ks_version,
                 )
+
+                rf_dict = rf_fitting_pipeline(sta_dict['stas'], str(chunk_output_path))
+
+                del sta_dict
+                gc.collect()
 
                 # Save RF params with ISIs in .params file
                 write_params_file(
@@ -310,6 +319,9 @@ def ks_chunk_to_vision(
                     save_dir=str(chunk_output_path),
                     ss_version=ks_version,
                 )
+
+                del rf_dict
+                gc.collect()
 
                 # Save .globals file
                 d_display = d_data["sg"].ls_blocks[0].d_display
@@ -379,6 +391,9 @@ def ks_datafile_to_vision(
     include_mua: bool = True,
     overwrite_existing: bool = False,
     compute_sta: bool = False,
+    sta_streaming: bool = False,
+    sta_chunk_size: float = 1,
+    sta_crop_fraction: float | None = None,
     verbose: bool = True,
 ):
     """Function for generating vision files from the kilosort sorter outputs for an individual datafile.
@@ -461,6 +476,9 @@ def ks_datafile_to_vision(
 
         if verbose:
             print(f".neurons file written to {output_path}\n")
+
+        del spike_dict
+        gc.collect()
     else:
         if verbose:
             print(
@@ -563,18 +581,23 @@ def ks_datafile_to_vision(
                     sg = d_data['sg'],
                     rg=d_data['rg'],
                     ss_version=ks_version,
+                    streaming=sta_streaming,
+                    chunk_size=sta_chunk_size,
+                    crop_fraction=sta_crop_fraction,
                 )
 
-                stas = sta_dict['stas']
-                rf_dict = rf_fitting_pipeline(stas, str(output_path))
-
-                sta_height, sta_width = stas.shape[2], stas.shape[3]
+                sta_height, sta_width = sta_dict['stas'].shape[2], sta_dict['stas'].shape[3]
 
                 write_sta_file(
                     d_stas=sta_dict,
                     save_dir=str(output_path),
                     ss_version=ks_version,
                 )
+
+                rf_dict = rf_fitting_pipeline(sta_dict['stas'], str(output_path))
+
+                del sta_dict
+                gc.collect()
 
                 # Save RF params with ISIs in .params file
                 write_params_file(
@@ -584,6 +607,9 @@ def ks_datafile_to_vision(
                     save_dir=str(output_path),
                     ss_version=ks_version,
                 )
+
+                del rf_dict
+                gc.collect()
 
                 # Save .globals file
                 d_display = d_data["sg"].ls_blocks[0].d_display
@@ -651,49 +677,6 @@ def _is_noise_data(
     else:
         protocol_names = exp_summary.query('chunk_name == @data_folder')['protocol_name'].to_list()
         return any(p for p in protocol_names if p in NOISE_PROTOCOLS)
-
-def _bin_spikes_by_frame(
-    spike_dict: dict[int, np.ndarray],
-    raw_data: RawDataContainer,
-    mean_frame_rate: float = 59.941548817817917,
-) -> xr.DataArray:
-    n_epochs = len(list(spike_dict.values())[0])
-    epoch_starts = raw_data.epoch_starts
-    epoch_ends = raw_data.epoch_ends
-    epoch_length_ms = np.mean(epoch_ends - epoch_starts)/SAMPLES_PER_MS
-
-    spike_time_arr = [sts for _, sts in spike_dict.items()]
-    spike_time_arr = np.array(spike_time_arr, dtype=object)
-
-    dims = ["cell_id", "epoch"]
-
-    coords = {
-        "cell_id": sorted(list(spike_dict.keys())),
-        "epoch": np.arange(n_epochs),
-    }
-
-    spike_time_xarr = xr.DataArray(spike_time_arr, dims=dims, coords=coords)
-
-    ms_per_frame = 1/mean_frame_rate*1e3
-    bin_edges = np.arange(0, epoch_length_ms+ms_per_frame, ms_per_frame)
-    n_bins = len(bin_edges)-1
-
-    def apply_hist(arr, bin_edges):
-        output, _ = np.histogram(arr, bin_edges)
-        return output
-
-    psth_xarr = xr.apply_ufunc(
-        apply_hist,
-        spike_time_xarr,
-        kwargs={"bin_edges": bin_edges},
-        input_core_dims=[[]],
-        output_core_dims=[["bin"]],
-        vectorize=True,
-    )
-    psth_xarr = psth_xarr.assign_coords({"bin": np.arange(0, n_bins)})
-    psth_xarr = psth_xarr.assign_coords({"bin_edges": ("bin", bin_edges[:-1])})
-
-    return psth_xarr
 
 
 if __name__ == "__main__":

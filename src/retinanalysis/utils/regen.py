@@ -2135,12 +2135,21 @@ def _get_spatial_noise_pre_frames(
 
     Returns:
         list: number of pre frames per epoch, one for each epoch, accounting for
-            pattern mode interpolation. If all values are same, returns an int. 
+            pattern mode interpolation. If all values are same, returns an int.
 
         NOTE: for now returning a list is redundant... every epoch should have the
             same number of pre_frames. But it is possible to change the pre_time
             per epoch if one so chooses so this function is built with that potential
             future in mind.
+
+        The result is floored at 0. Both branches subtract a constant -- the
+        upsample_rate for the state.time route, 1 for the saved pre_frames route --
+        and a short enough preTime drives that negative. preTime = 0 is the clear
+        case: it gives -upsample_rate. A negative count is not a count, and nothing
+        downstream raises on one; it shifts generation_index the wrong way and
+        misaligns the stimulus against the spikes silently. The constants themselves
+        are NOT the problem and must stay -- they are trigger lag and the skipped
+        draw at frame = 0, validated against optometer readings.
     """
 
     mode = d_display['mode']
@@ -2173,10 +2182,10 @@ def _get_spatial_noise_pre_frames(
         # flips black to white at 60Hz regardless. 
         state_time_pre_frames = [np.ceil(pre_time[i]/nominal_fm_time).astype(int)-upsample_rate for i in df_epochs.index]
 
-        return [int(st)+dwell_term[idx] for idx, st in enumerate(state_time_pre_frames)]
+        return [max(int(st)+dwell_term[idx], 0) for idx, st in enumerate(state_time_pre_frames)]
 
     else:
-        return [int(pf)-1+dwell_term[idx] for idx, pf in enumerate(preset_pre_frames)]
+        return [max(int(pf)-1+dwell_term[idx], 0) for idx, pf in enumerate(preset_pre_frames)]
 
 
 def _get_spatial_noise_events(
