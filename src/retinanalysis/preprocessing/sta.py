@@ -650,7 +650,7 @@ def compute_stas_streaming(
 
     # While streaming, convert event_idx to slot idx using search sorted
     # And fill up preallocated frames array with the appropriate events
-    slot_bar = tqdm.tqdm(total=len(event_idx), desc="Frames", unit="frame", leave=False)
+    slot_bar = tqdm.tqdm(total=len(event_idx), desc="Frames", unit="frames", leave=False)
     while stream.cursor < stream.n_total_events:
         e_lo, e_hi, events = stream.next_chunk(max_events)
         current_chunk = e_hi-e_lo
