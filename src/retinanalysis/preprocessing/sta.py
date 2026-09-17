@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-import tqdm.auto as tqdm
+from tqdm.auto import tqdm
 import argparse
 from retinanalysis._database import schema
 from retinanalysis.classes import qc
@@ -110,7 +110,7 @@ def _get_n_splits_memory(
     n_splits = int(np.ceil(n_stim_dims/max_dims_per_split))
 
     if verbose:
-        tqdm.tqdm.write(
+        tqdm.write(
             'Memory splitting output:\n'
             f'    - Memory budget: {budget/1e9:.2f}Gb\n'
             f'    - Cost per dim: {cost_per_dim/1e6:.2f}Mb\n'
@@ -470,7 +470,7 @@ def compute_stas_for_chunk(
             assert np.shares_memory(accum, stas)
 
         # Loop across epochs in batch
-        for batch, resp_data in tqdm.tqdm(batches, desc="Epoch batch"):
+        for batch, resp_data in tqdm(batches, desc="Epoch batch"):
 
             if stream_setup is not None:
                 assert accum is not None
@@ -482,7 +482,7 @@ def compute_stas_for_chunk(
 
                 n_epochs_in_batch = resp_data.shape[0]
 
-                epoch_bar = tqdm.tqdm(batch, desc="Epoch", unit="ep", leave=False)
+                epoch_bar = tqdm(batch, desc="Epoch", unit="ep", leave=False)
                 for i, epoch in enumerate(epoch_bar):
                     epoch_bar.set_postfix(epoch=int(epoch))
                     # Pull params
@@ -650,7 +650,7 @@ def compute_stas_streaming(
 
     # While streaming, convert event_idx to slot idx using search sorted
     # And fill up preallocated frames array with the appropriate events
-    slot_bar = tqdm.tqdm(total=len(event_idx), desc="Frames", unit="frames", leave=False)
+    slot_bar = tqdm(total=len(event_idx), desc="Frames", unit="frames", leave=False)
     while stream.cursor < stream.n_total_events:
         e_lo, e_hi, events = stream.next_chunk(max_events)
         current_chunk = e_hi-e_lo
@@ -819,7 +819,7 @@ def compute_stas(
 
     if method == "matmul":
         lags = np.arange(depth)
-        for i in tqdm.tqdm(np.arange(n_splits), desc="STA compute chunk"):
+        for i in tqdm(np.arange(n_splits), desc="STA compute chunk"):
             s_start = i * n_split_sz
             s_end = (i + 1) * n_split_sz
             if s_end > n_stim_dims:
@@ -835,7 +835,7 @@ def compute_stas(
             e_stim_data -= stim_offset
 
             with torch.no_grad():
-                for lag in tqdm.tqdm(lags, desc="STA depth"):
+                for lag in tqdm(lags, desc="STA depth"):
                     br_lag = binned_responses[:, :, lag:]
                     sd_lag = e_stim_data[:, : n_bins - lag, :]
 
@@ -864,7 +864,7 @@ def compute_stas(
         br = binned_responses.unsqueeze(2).unsqueeze(2)
 
         batched_conv = torch.vmap(torch.nn.functional.conv2d)
-        for i in tqdm.tqdm(np.arange(n_splits), desc="STA compute chunk"):
+        for i in tqdm(np.arange(n_splits), desc="STA compute chunk"):
             s_start = i * n_split_sz
             s_end = (i + 1) * n_split_sz
             if s_end > n_stim_dims:

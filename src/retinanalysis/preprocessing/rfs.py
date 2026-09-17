@@ -5,10 +5,12 @@ import numpy as np
 from matplotlib.patches import Ellipse
 from typing import Optional
 from tqdm import trange
+from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import os
 from skimage.segmentation import flood
 
+SIGMA_FLOOR = 0.5 # stixels
 
 def matlab_style_gauss2D(
     sigma_r, sigma_c, c_row, c_col, theta=torch.tensor(0), shape=(5, 5), device="cpu"
@@ -226,6 +228,22 @@ class Spatial_DoG(torch.nn.Module):
                 self.parametrized_filter.s_amps, min=0.0
             )
 
+            self.parametrized_filter.c_row_sigmas.data = torch.clamp(
+                self.parametrized_filter.c_row_sigmas, min=SIGMA_FLOOR
+            )
+
+            self.parametrized_filter.c_col_sigmas.data = torch.clamp(
+                self.parametrized_filter.c_col_sigmas, min=SIGMA_FLOOR
+            )
+
+            self.parametrized_filter.s_row_sigmas.data = torch.clamp(
+                self.parametrized_filter.s_row_sigmas, min=SIGMA_FLOOR
+            )
+
+            self.parametrized_filter.s_col_sigmas.data = torch.clamp(
+                self.parametrized_filter.s_col_sigmas, min=SIGMA_FLOOR
+            )
+
 
 def fit_model_params(
     model: torch.nn.Module,
@@ -296,6 +314,9 @@ def fit_model_params(
             norm = np.sqrt(norm)
             ls_grad_norms.append(norm)
 
+            if not torch.isfinite(loss):
+                continue
+
             optimizer.step()
 
         ls_train_loss.append(e_loss / len(train_loader))
@@ -314,7 +335,7 @@ def fit_model_params(
             # Also print correlation between predictions and targets
             str_print += f"\nTrain R: {train_r:.4f}"
 
-            print(str_print)
+            tqdm.write(str_print)
 
         if (epoch + 1) % n_save_every == 0:
             # Need to copy the state_dict to CPU before saving
@@ -428,7 +449,7 @@ def plot_spatial_dog_performance(
                     f"Cell {i_cell} failed to fit."
                 )
 
-                if row >= true.shape[1] or col >= true.shape[2]:
+                if row >= true.shape[1] or col >= true.shape[2] or row < 0 or col < 0:
                     print(
                         f'Center ({row}, {col}) out of bounds for STA shape {true.shape[1:3]}'
                     )
@@ -436,13 +457,6 @@ def plot_spatial_dog_performance(
                 if not row_valid or not col_valid:
                     print(
                         "Center out of bounds for STA shape, found infinite values."
-                    )
-
-                if row < 0 or col < 0:
-                    print(
-                        "Center out of bounds for STA shape, fit contains negative values:\n"
-                        f"    - Row: {row}"
-                        f"    - Col: {col}"
                     )
 
                 continue
