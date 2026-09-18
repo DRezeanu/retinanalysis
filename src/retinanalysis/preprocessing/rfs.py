@@ -10,7 +10,10 @@ import matplotlib.pyplot as plt
 import os
 from skimage.segmentation import flood
 
-SIGMA_FLOOR = 0.5 # stixels
+# Can't have sigma be less than half a stixel.
+# Note that vision's params file writer actually makes the min 1 stixel,
+# but we're leaving this at 0.5 just in case of future work.
+SIGMA_FLOOR = 0.5 
 
 def matlab_style_gauss2D(
     sigma_r, sigma_c, c_row, c_col, theta=torch.tensor(0), shape=(5, 5), device="cpu"
