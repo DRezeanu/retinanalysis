@@ -79,7 +79,6 @@ from .classes.response import (ResponseBlock,
                                MEAResponseBlock,
                                SCResponseBlock,
                                MEAResponseGroup,
-                               check_frame_times,
                                create_mea_response_group)
 
 from .classes import qc

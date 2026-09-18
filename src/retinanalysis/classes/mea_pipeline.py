@@ -722,7 +722,6 @@ def create_mea_pipeline(
     ss_version: str = "kilosort2.5",
     ls_params: list | None = None,
     b_load_fd: bool = False,
-    b_LED: bool | None = None,
     verbose: bool = True,
 ):
     """
@@ -758,26 +757,30 @@ def create_mea_pipeline(
 
     if isinstance(datafile_name, list):
         s = create_mea_stim_group(
-            exp_name, datafile_name, b_LED=b_LED, ls_params=ls_params, verbose=verbose
+            exp_name=exp_name,
+            ls_datafile_names=datafile_name,
+            ls_params=ls_params,
+            verbose=verbose,
         )
         r = create_mea_response_group(
-            exp_name,
-            datafile_name,
+            exp_name=exp_name,
+            ls_datafile_names=datafile_name,
             ss_version=ss_version,
-            b_LED=b_LED,
             b_load_fd=b_load_fd,
             verbose=verbose,
         )
 
     elif isinstance(datafile_name, str):
         s = MEAStimBlock(
-            exp_name, datafile_name, b_LED=b_LED, ls_params=ls_params, verbose=verbose
+            exp_name=exp_name,
+            datafile_name=datafile_name,
+            ls_params=ls_params,
+            verbose=verbose,
         )
         r = MEAResponseBlock(
-            exp_name,
-            datafile_name,
-            ss_version,
-            b_LED=b_LED,
+            exp_name=exp_name,
+            datafile_name=datafile_name,
+            ss_version=ss_version,
             b_load_fd=b_load_fd,
             verbose=verbose,
         )

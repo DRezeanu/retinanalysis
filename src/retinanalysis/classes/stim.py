@@ -1,12 +1,12 @@
 from retinanalysis._database import schema
 import numpy as np
 from retinanalysis.utils.datajoint_utils import (
+    get_block_data,
     get_exp_summary,
     get_epoch_data_from_exp,
     get_block_id_from_datafile,
     get_noise_name_by_exp,
     get_display_params_for_block,
-    resolve_b_LED,
 )
 import pandas as pd
 from typing import List
@@ -41,7 +41,6 @@ class StimBlock:
         exp_name: str | None = None,
         block_id: int | None = None,
         ls_params: list | None = None,
-        b_LED: bool | None = None,
         verbose: bool = True,
         pkl_file: str | None = None,
     ):
@@ -51,11 +50,11 @@ class StimBlock:
                 raise ValueError(
                     "Either exp_name and block_id or pkl_file must be provided."
                 )
-            self.b_LED = resolve_b_LED(
-                block_id = block_id,
-                b_LED = b_LED,
-                exp_name = exp_name,
+            block_data = get_block_data(
+                exp_name=exp_name,
+                block_id=block_id,
             )
+            self.b_LED = block_data.mode == 'led'
 
             if verbose:
                 print(f"Initializing StimBlock for {exp_name} block {block_id}")
@@ -84,17 +83,11 @@ class StimBlock:
             if not hasattr(self, 'b_LED'):
                 # Pickle pre-dates the creation of the b_LED parameter, these objects
                 # are non-LED by default
-                self.b_LED = b_LED if b_LED is not None else False
-                if b_LED is None:
-                    warn(
-                        "Pickle predates b_LED, assuming false. "
-                        "Pass b_LED explicitly to overwrite."
-                    )
-            elif b_LED is not None and b_LED != self.b_LED:
                 warn(
-                    f"Pickle file has b_LED = {self.b_LED} but user provided {b_LED}\n"
-                    f"Using b_LED = {self.b_LED}"
+                    "Pickle predates b_LED, assuming false.\n"
+                    "Overwrite the parameter if this is wrong."
                 )
+                self.b_LED = False
 
             if verbose != self.verbose:
                 warn(
@@ -122,14 +115,15 @@ class StimBlock:
         self.d_epoch_block_params = epoch_block.fetch1("parameters")
 
         df_epochs = get_epoch_data_from_exp(
-            exp_name, block_id, b_LED=self.b_LED, ls_params=ls_params
+            block_data=block_data,
+            ls_params=ls_params,
         )
+
         self.df_epochs = df_epochs
         self.parameter_names = list(df_epochs.at[0, "epoch_parameters"].keys())
 
         self.d_display = get_display_params_for_block(
-            exp_name=self.exp_name,
-            block_id=self.block_id,
+            block_data=block_data,
             verbose=self.verbose,
         )
         self.stim_data: dict | None = None
@@ -152,7 +146,7 @@ class StimBlock:
             )
             f_regen = D_REGEN_FXNS[self.protocol_name]
             print(f"Using regeneration function: {f_regen.__name__}")
-            stim_data = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
+            stim_data = f_regen(self.df_epochs.loc[ls_epochs], self.d_display, **kwargs)
             self.stim_data = stim_data
             if isinstance(stim_data, dict):
                 print(f"Regenerated stimulus with keys: {list(stim_data.keys())}")
@@ -204,7 +198,6 @@ class MEAStimBlock(StimBlock):
         exp_name: str | None = None,
         datafile_name: str | None = None,
         ls_params: list | None = None,
-        b_LED: bool | None = None,
         verbose: bool = True,
         pkl_file: str | None = None,
     ):
@@ -223,7 +216,6 @@ class MEAStimBlock(StimBlock):
         super().__init__(
             exp_name=exp_name,
             block_id=block_id,
-            b_LED=b_LED,
             ls_params=ls_params,
             verbose=verbose,
             pkl_file=pkl_file,
@@ -246,6 +238,7 @@ class MEAStimBlock(StimBlock):
 
         # pull relevant information from datajoint
         experiment_summary = get_exp_summary(self.exp_name)
+        assert experiment_summary is not None
 
         # Keep only rows with same prep_label
         experiment_summary = experiment_summary.query("prep_label == @self.prep_label")
@@ -340,7 +333,7 @@ class MEAStimBlock(StimBlock):
         else:
             if self.verbose:
                 print(
-                    f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n"
+                    f"Nearest noise chunk for {self.datafile_name} is {nearest_noise_chunk} with distance {min_val:.0f} minutes.\n" #type: ignore
                 )
 
         return nearest_noise_chunk
@@ -420,6 +413,16 @@ class MEAStimGroup:
             columns={"epoch_index": "datafile_epoch_index"}
         )
         self.d_display = ls_blocks[0].d_display
+
+        for key in ls_blocks[0].d_display:
+            vals = [block.d_display[key] for block in ls_blocks]
+            if len(set(vals)) > 1:
+                warn(
+                    f'Not all stim blocks have the same display specs.\n'
+                    f'Multiple unique {key} values: {list(set(vals))}\n' 
+                    f'Using {vals[0]}\n'
+                )
+
         self.df_epochs.insert(0, "epoch_index", self.df_epochs.index.values)
         self.parameter_names = list(self.df_epochs.at[0, "epoch_parameters"].keys())
         self.noise_protocol_name = get_noise_name_by_exp(self.exp_name)
@@ -447,7 +450,7 @@ class MEAStimGroup:
             )
             f_regen = D_REGEN_FXNS[self.protocol_name]
             print(f"Using regeneration function: {f_regen.__name__}")
-            stim_data = f_regen(self.df_epochs.loc[ls_epochs], **kwargs)
+            stim_data = f_regen(self.df_epochs.loc[ls_epochs], self.d_display, **kwargs)
             self.stim_data = stim_data
             if isinstance(stim_data, dict):
                 print(f"Regenerated stimulus with keys: {list(stim_data.keys())}")
@@ -501,13 +504,12 @@ def create_mea_stim_group(
     exp_name,
     ls_datafile_names,
     ls_params: list | None = None,
-    b_LED: bool | None = None,
     verbose: bool = False,
 ):
 
     ls_blocks = [
         MEAStimBlock(
-            exp_name, datafile, b_LED=b_LED, ls_params=ls_params, verbose=verbose
+            exp_name, datafile, ls_params=ls_params, verbose=verbose
         )
         for datafile in ls_datafile_names
     ]
