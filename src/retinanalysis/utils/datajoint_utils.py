@@ -311,9 +311,9 @@ def get_corrected_frame_times(
         # Frames that are 1.5 expected frame periods away, for example.
         resid = np.abs(ratio - cycles)
 
-        if np.any(resid > 0.2):
+        if np.any(resid > 0.25):
             warn(
-                f'{np.sum(resid>0.2)} intervals are not near-integer '
+                f'{np.sum(resid>0.25)} intervals are not near-integer '
                 f'multiples of the nominal frame period.',
                 stacklevel=2,
             )
