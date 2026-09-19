@@ -719,7 +719,8 @@ def create_mea_pipeline(
     analysis_chunk_name: str | None = None,
     typing_file: str | None = None,
     corr_cutoff: float | None = None,
-    ss_version: str = "kilosort2.5",
+    ac_ss_version: str = "kilosort2.5",
+    rb_ss_version: str = "kilosort2.5",
     ls_params: list | None = None,
     b_load_fd: bool = False,
     b_load_sta: bool = False,
@@ -765,7 +766,7 @@ def create_mea_pipeline(
         r = create_mea_response_group(
             exp_name,
             datafile_name,
-            ss_version=ss_version,
+            ss_version=rb_ss_version,
             b_LED=b_LED,
             b_load_fd=b_load_fd,
             b_load_vcd = b_load_vcd,
@@ -779,7 +780,7 @@ def create_mea_pipeline(
         r = MEAResponseBlock(
             exp_name,
             datafile_name,
-            ss_version,
+            rb_ss_version,
             b_LED=b_LED,
             b_load_fd=b_load_fd,
             b_load_vcd = b_load_vcd,
@@ -798,7 +799,7 @@ def create_mea_pipeline(
         if verbose:
             print(f"Using {analysis_chunk_name} for AnalysisChunk\n")
 
-    ac = AnalysisChunk(exp_name, analysis_chunk_name, ss_version, include_sta = b_load_sta, verbose=verbose)
+    ac = AnalysisChunk(exp_name, analysis_chunk_name, ac_ss_version, include_sta = b_load_sta, verbose=verbose)
     pipeline = MEAPipeline(
         stim=s,
         resp=r,

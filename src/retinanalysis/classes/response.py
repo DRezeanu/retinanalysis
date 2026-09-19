@@ -451,7 +451,8 @@ class MEAResponseBlock(ResponseBlock):
 
                 # Interpolate by stride
                 n_frames = len(fts)
-                stride_idxs = np.linspace(0, n_frames, n_frames * stride)
+                # stride_idxs = np.linspace(0, n_frames, n_frames * stride)
+                stride_idxs = np.arange(0, n_frames -(1-1/stride), 1/stride)
                 bin_edges = np.interp(stride_idxs, np.arange(n_frames), fts)
 
                 bs = np.histogram(e_sts, bins=bin_edges)[0]
