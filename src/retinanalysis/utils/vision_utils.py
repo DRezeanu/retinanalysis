@@ -1,16 +1,19 @@
 from __future__ import annotations
 from typing import List, Dict, Tuple, Optional, TYPE_CHECKING
+from warnings import warn
 
 if TYPE_CHECKING:
     from retinanalysis.classes.analysis_chunk import AnalysisChunk
     from retinanalysis.classes.response import MEAResponseBlock, MEAResponseGroup
+    from retinanalysis.classes.stim import MEAStimBlock, MEAStimGroup
     from visionloader import VisionCellDataTable
 
-from retinanalysis.utils import get_exp_summary
+from retinanalysis.utils.datajoint_utils import get_exp_summary, get_mean_frame_rate
 from retinanalysis._config import config
 
 import os
 import numpy as np
+from tqdm.auto import tqdm
 
 # from retinanalysis.utils.datajoint_utils import get_exp_summary
 from visionloader import load_vision_data
@@ -642,6 +645,123 @@ def get_spike_dict(
         d_spike_times[ct] = d_times_and_ids
 
     return d_spike_times
+
+def bin_spike_times_by_frames(
+    frame_times: list | np.ndarray,
+    spike_times: list,
+    mean_frame_rate: float | None = None,
+    stride: int = 1,
+) -> list | np.ndarray:
+    """Function for binning spike times by frame times. Used inside MEAResponseBlock
+    to bin across all cells and epochs, but can be used here if a limited number of cells
+    and epochs need to be binned.
+
+    Args:
+        frame_times: list of lists or numpy array of frame time values in the shape
+            (n_epochs x n_frame_times)
+        
+        spike_times: list of lists of spike times, nested into the shape 
+            (n_cells x n_epochs x n_spike_times)
+
+        mean_frame_rate (optional): The mean frame rate to use for identifying
+            every monitor refresh, ignoring dropped frames. If None, one is computed
+            using ``retinanalysis.datajoint_utils.get_mean_frame_rate(frame_times)``
+            but if you're giving a subset of epochs for this calculation, it's better
+            to derive the mean from the whole response block. 
+
+        stride (optional): An integer step that can be used to interpolate and bin
+            at a multiple of the frame times.
+
+    Returns:
+        binned_spikes: a list of lists or numpy array of binned spike times in the shape
+            (n_cells, n_epochs, n_bins)
+
+    Raises:
+        ValueError: if the number of epochs in the frame_time array doesn't match the
+            number of epochs in each cell's spike_time array.
+    """
+
+    if mean_frame_rate is None:
+        mean_frame_rate = get_mean_frame_rate(frame_times)
+
+    if mean_frame_rate is None:
+        raise ValueError(
+            f'Unable to compute mean_frame_rate from the given frame times.'
+        )
+
+    nominal_ft_ms = 1/mean_frame_rate*1e3
+
+    if not all(len(c) == len(frame_times) for c in spike_times):
+        raise ValueError(
+            'Different number of epochs in spike_times and frame_times'
+        )
+
+    epoch_edges = []
+    for e_fts in frame_times:
+        # How close is each frame width to expected nominal frame time
+        ratio = np.diff(e_fts) / nominal_ft_ms
+        # Round that to nearest integer. Single frames = 1, one dropped frame = 2, etc.
+        cycles = np.round(ratio).astype(int)
+
+        # Check for frames that aren't 'near-integer multiples' of the expected frame period.
+        # Frames that are 1.5 expected frame periods away, for example.
+        resid = np.abs(ratio - cycles)
+
+        if np.any(resid > 0.2):
+            warn(
+                f'{np.sum(resid>0.2)} intervals are not near-integer '
+                f'multiples of the nominal frame period.',
+                stacklevel=2,
+            )
+
+        # Transform cycles into an index, prepending 0 and taking the cumulative sum.
+        # [0,1,2,3,4] = healthy epoch. [0,1,3,4,5] = dropped frames, frame 1 was repeated.
+        cycle_idx = np.concatenate([[0], np.cumsum(cycles)])
+        
+        # Number of total screen refreshes (including drops) = max val of cycle_idx + 1
+        n_refresh = cycle_idx[-1]+1
+
+        # Add synthetic frame boundary at end of cycle_idx
+        idx_tbl = np.append(cycle_idx, n_refresh)
+
+        # Add synthetic frame boundary at end of frame times array/list
+        fts_ext = np.append(e_fts, e_fts[-1] + nominal_ft_ms)
+
+        # Create interpolation grid using the max cycle index, moving at 1/stride.
+        # Avoids issues with using 1/stride as a floating point 'step' inside of
+        # np.arange. This way every stride-th value lands on an integer.
+        grid = np.arange(n_refresh*stride + 1) / stride
+
+        # Interpolate on that grid
+        epoch_edges.append(np.interp(grid, idx_tbl, fts_ext))
+
+
+    binned_times = []
+    # For each cell's spike times
+    for all_sts in tqdm(spike_times):
+        cell_times = []
+        # For each epoch of times for that cell
+        for e_idx, e_sts in enumerate(all_sts):
+            e_edges = epoch_edges[e_idx]
+            n_bins = len(e_edges)-1
+            slot = np.searchsorted(e_edges, e_sts, side='right')-1
+            # slot == -1 (before the first edge) would wrap around in numpy indexing
+            # so we throw it out.
+            valid = (slot>=0) & (slot < n_bins)
+            cell_times.append(np.bincount(slot[valid], minlength=n_bins).astype(np.int16))
+
+        binned_times.append(cell_times)
+
+    lengths = {len(e) for cell in binned_times for e in cell}
+    if len(lengths) == 1 and len({len(c) for c in binned_times}) == 1:
+        binned_times = np.array(binned_times)
+    else:
+        warn(
+            'Not all epochs have same number of frames. Returning list of lists.',
+            stacklevel=2,
+        )
+
+    return binned_times
 
 
 def classification_transfer(
