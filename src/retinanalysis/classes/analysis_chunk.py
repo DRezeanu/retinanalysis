@@ -1112,7 +1112,7 @@ class AnalysisChunk:
             # This indicates that the dictionary is organized by cell type
             available_types: List[str] = sorted(list(d_stas.keys()))
 
-            for ct_idx, ct in enumerate(available_types):
+            for ct in available_types:
                 cell_ids = list(d_stas[ct].keys())
 
                 rows = np.ceil(len(cell_ids) / cols).astype(int)

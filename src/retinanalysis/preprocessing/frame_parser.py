@@ -2,37 +2,37 @@ import numpy as np
 from scipy.signal import filtfilt, butter
 
 def detect_flips(
-    trace,
-    sample_rate,
-    expected_frame_rate=59.94,
-    hysteresis=0.4,
-    min_dwell=0.5,
-    f_cutoff=120.0,
+    trace: np.ndarray | list,
+    sample_rate: float | int,
+    expected_frame_rate: float = 59.94,
+    hysteresis: float = 0.4,
+    min_dwell: float = 0.5,
+    f_cutoff: float =120.0,
 ):
     """Hysteresis (Schmitt) trigger for finding frame monitor transitions.
 
-    The frame monitor stripe alternates black/white once per frame, so every
-    transition marks a frame boundary and consecutive transitions are one
-    frame apart.
+    The frame monitor stripe alternates between black and white once per frame, so every
+    transition marks a frame boundary and consecutive transitions are one frame apart.
 
     Args:
         trace: Raw frame monitor samples for one epoch.
-        sample_rate: sample rate in Hz. Enters only as a conversion factor. Every
-            tolerance below is expressed in frame periods or in fractions of the
-            measured signal swing, so 1 kHz and 10 kHz recordings behave the same.
-        expected_frame_rate: Expected frame rate in Hz. Used to size the
-            glitch-rejection window; the actual frame period is fit by `fit_frame_times`.
-        hysteresis: Width of the deadband between the two thresholds, as a fraction of
-            the measured swing.
+        sample_rate: sample rate in Hz. This is used as a conversion factor. The entire
+            function works in frame periods or in fractions of the measured square wave
+            so that 1kHz and 10kHz recordings are parsed equally well.
+        expected_frame_rate: Expected frame rate in Hz. Used to size the glitch-rejection
+            window; the actual frame period is fit by the `fit_frame_times()` function.
+        hysteresis: Width of the deadband between the two thresholds (what makes it a Schmitt
+            trigger) as a fraction of the measured swing.
         min_dwell: Minimum spacing between accepted transitions, in frame periods.
         f_cutoff: Low-pass cutoff in Hz applied before thresholding. `filtfilt` is
             zero-phase, so this adds no timing bias. None disables filtering.
-            120.0 is default that gives best results with noisy FM trace.
+            120.0 is default that gives best results with a noisy FM trace, as tested
+            by me (Dragos) in August 2026 using samples from Rig C, Rig E, and Rig H.
 
     Returns:
         flip_times: Transition times in ms, with sub-sample precision.
-        frame_idx: Frame number of each transition, counting from 0.
-            Dropped frames advance this value by more than 1.
+        frame_idx: Frame number of each transition, counting from 0. (Dropped frames advance
+            this value by more than 1).
         rising: True where the transition is dark -> light.
     """
     x = np.asarray(trace, dtype=float)
@@ -101,16 +101,19 @@ def detect_flips(
     return flip_samples / sample_rate * 1e3, frame_idx, rising
 
 
-def fit_frame_times(flip_times, frame_idx, rising=None):
+def fit_frame_times(
+    flip_times: np.ndarray | list,
+    frame_idx: np.ndarray | list,
+    rising: np.ndarray | list | None = None
+):
     """Fit a uniform frame grid to the measured transitions.
 
     Regressing flip time on integer frame index uses every transition in the
     epoch and is unaffected by dropped frames, since those are already
-    carried by `frame_idx`. With ~10^4 measurements constraining two
-    parameters, the fitted grid is better determined than any single
-    measured edge -- provided the residuals are flat (no clock drift) and
-    the frame index is right. Both of these things appear to be true at least
-    across three experiments I checked directly.
+    carried by `frame_idx`. Because of the number of samples, the fitted grid is
+    usually better determined than any single measured edge, provided there's no
+    clock drift and the frame index is right. Both of these things appear to be true
+    at least across three experiments I checked directly, but it bears testing further.
 
     Args:
         flip_times: detected flip times using the detect_flips() function
@@ -141,3 +144,15 @@ def fit_frame_times(flip_times, frame_idx, rising=None):
         outliers=np.abs(resid - band) > 0.25 * period,
         drops=int((np.diff(frame_idx) != 1).sum()),
     )
+
+def interpolate_pattern_rate(
+    flip_times: np.ndarray | list,
+    upsample_factor: int,
+):
+    """Placeholder. Function will interpolate between measured frame flips using
+    an upsample factor calculated using np.round(monitorRefreshRate/lightCrafterPatternRate).
+
+    Whether it's best to do this as part of the parser or return the pure flip times and
+    upsample factor separately is still an open question. 
+    """
+    pass

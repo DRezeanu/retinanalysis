@@ -1,14 +1,19 @@
 from retinanalysis.utils.datajoint_utils import (
+    get_block_data,
     get_epochblock_amp_data,
     get_epochblock_frame_data,
     get_epochblock_timing,
     get_block_id_from_datafile,
+    get_display_params_for_block,
     get_exp_summary,
-    resolve_b_LED,
 )
 
 from retinanalysis._config import config
-from retinanalysis.utils.vision_utils import get_protocol_vcd, cluster_match
+from retinanalysis.utils.vision_utils import (
+    get_protocol_vcd,
+    cluster_match,
+    bin_spike_times_by_frames as _bin_spike_times_by_frames,
+)
 
 from retinanalysis.utils.spike_detector import detector
 import numpy as np
@@ -18,7 +23,6 @@ import pickle
 from typing import Optional, List
 import matplotlib.pyplot as plt
 import os
-
 from warnings import warn
 
 SAMPLE_RATE = 20000  # MEA DAQ sample rate in Hz
@@ -44,10 +48,6 @@ class ResponseBlock:
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data.
 
-        b_LED (bool | None): Whether the stimulus was delivered by an LED. Inferred from the
-        epoch block; pass a value only to assert it, which raises on disagreement.
-        LED blocks force b_load_fd to False.
-
         verbose (bool): Boolean value, if True will print status messages to console. Default True.
     """
 
@@ -58,7 +58,6 @@ class ResponseBlock:
         h5_file: str | None = None,
         pkl_file: str | dict  | None = None,
         b_load_fd: bool = True,
-        b_LED: bool | None  = None,
         verbose: bool = True,
     ):
 
@@ -69,11 +68,13 @@ class ResponseBlock:
                 raise ValueError(
                     "Either exp_name and block_id or pkl_file must be provided."
                 )
-            self.b_LED = resolve_b_LED(
-                block_id = block_id,
-                b_LED = b_LED,
+
+            block_data = get_block_data(
                 exp_name = exp_name,
+                block_id = block_id,
             )
+
+            self.b_LED = block_data.mode == 'led'
 
             if self.verbose:
                 print(f"Initializing ResponseBlock for {exp_name} block {block_id}")
@@ -98,18 +99,11 @@ class ResponseBlock:
             if not hasattr(self, 'b_LED'):
                 # Pickle pre-dates the creation of the b_LED parameter, these objects
                 # are non-LED by default
-                self.b_LED = b_LED if b_LED is not None else False
-                if b_LED is None:
-                    warn(
-                        "Pickle predates b_LED, assuming false. "
-                        "Pass b_LED explicitly to overwrite."
-                    )
-
-            elif b_LED is not None and b_LED != self.b_LED:
                 warn(
-                    f"Pickle file has b_LED = {self.b_LED} but user provided {b_LED}\n"
-                    f"Using b_LED = {self.b_LED}"
+                    "Pickle predates b_LED, assuming false.\n"
+                    "Overwrite the parameter if this is wrong."
                 )
+                self.b_LED = False
 
             if verbose != self.verbose:
                 warn(
@@ -131,12 +125,21 @@ class ResponseBlock:
             b_load_fd = False
 
         self.d_timing = get_epochblock_timing(
-            self.exp_name, self.block_id, b_LED=self.b_LED
+            block_data=block_data,
         )
+
+        self.d_display = get_display_params_for_block(
+            block_data=block_data,
+            verbose=False,
+        )
+        
+        self.mean_frame_rate = self.d_display['mean_frame_rate']
 
         if b_load_fd:
             frame_data, frame_sample_rate = get_epochblock_frame_data(
-                self.exp_name, self.block_id, str_h5=self.h5_file, verbose=self.verbose
+                block_data=block_data,
+                str_h5=self.h5_file,
+                verbose=self.verbose,
             )
         else:
             frame_data = np.array([])
@@ -207,10 +210,6 @@ class SCResponseBlock(ResponseBlock):
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data.
 
-        b_LED (bool | None): Whether the stimulus was delivered by an LED. Inferred from the
-        epoch block; pass a value only to assert it, which raises on disagreement.
-        LED blocks force b_load_fd to False.
-
         verbose (bool): Boolean value, if True will print status messages to console. Default True.
 
         **detector_kwargs: kwargs to be given to the detector method in get_spike_times()
@@ -224,7 +223,6 @@ class SCResponseBlock(ResponseBlock):
         pkl_file: str | None = None,
         b_spiking: bool = False,
         b_load_fd: bool = True,
-        b_LED: bool | None = None,
         verbose: bool = True,
         **detector_kwargs,
     ):
@@ -233,7 +231,6 @@ class SCResponseBlock(ResponseBlock):
             exp_name=exp_name,
             block_id=block_id,
             h5_file=h5_file,
-            b_LED=b_LED,
             pkl_file=pkl_file,
             b_load_fd=b_load_fd,
             verbose=verbose,
@@ -242,10 +239,18 @@ class SCResponseBlock(ResponseBlock):
         if pkl_file is not None:
             return
 
+        block_data = get_block_data(
+            exp_name=self.exp_name,
+            block_id=self.block_id,
+        )
+
         self.b_spiking = b_spiking
         amp_data, sample_rate = get_epochblock_amp_data(
-            self.exp_name, self.block_id, str_h5=self.h5_file, verbose=self.verbose
+            block_data=block_data,
+            str_h5=self.h5_file,
+            verbose=self.verbose,
         )
+
         self.amp_data = amp_data
         self.amp_sample_rate = sample_rate
         if b_spiking:
@@ -291,10 +296,6 @@ class MEAResponseBlock(ResponseBlock):
 
         b_load_fd (bool): Boolean value, if True will load frame monitor data. Default is False.
 
-        b_LED (bool | None): Whether the stimulus was delivered by an LED rather than a
-        microdisplay or lightcrafter. Inferred from the epoch block; pass a value only to
-        assert it, which raises on disagreement. LED blocks force b_load_fd to False.
-
         verbose (bool): Boolean value, if True all status messages will be printed to the console as
         the response block is created. Default is True.
     """
@@ -308,7 +309,6 @@ class MEAResponseBlock(ResponseBlock):
         h5_file: str | None = None,
         include_ei: bool = True,
         b_load_fd: bool = False,
-        b_LED: bool | None = None,
         b_load_vcd: bool = True,
         verbose: bool = True,
     ):
@@ -335,12 +335,15 @@ class MEAResponseBlock(ResponseBlock):
             block_id=block_id,
             pkl_file=pkl_file,
             h5_file=h5_file,
-            b_LED=b_LED,
             b_load_fd=b_load_fd,
             verbose=verbose,
         )
 
         self.amp_sample_rate = SAMPLE_RATE  # MEA DAQ sample rate in Hz, analogous variable in SCResponseBlock
+
+        # A pickle may already carry binned_spikes; don't clobber a restored value.
+        if not hasattr(self, "binned_spikes"):
+            self.binned_spikes: list | np.ndarray | None = None
 
         if b_load_vcd:
             self.vcd = get_protocol_vcd(
@@ -422,61 +425,47 @@ class MEAResponseBlock(ResponseBlock):
         n_max_bins = int(np.max(ls_bins))
         return n_max_bins
 
+
     def bin_spike_times_by_frames(self, stride: int = 1):
-        if self.b_LED:
-            raise ValueError(
-                "Cannot bin spike times by frames for LED blocks, no frame data."
-            )
+        """Class method for binning the spike times by frame times. Updated on 
+        2026-09-04 to a more accurate method that lives primarily in vision_utils.py
 
-        frame_times_ms = self.d_timing["frameTimesMs"]
-        if int(self.exp_name[:8]) < 20230926:
-            marginal_frame_rate = 60.31807657  # Upper bound on the frame rate to make sure that we don't miss any frames.
-        else:
-            marginal_frame_rate = 59.941548817817917  # Upper bound on the frame rate to make sure that we don't miss any frames.
-        bin_rate = marginal_frame_rate * stride  # in Hz
+        Args:
+            stride (optional): An integer step that can be used to interpolate and bin
+                at a multiple of the frame times.
 
-        n_max_bins = self.get_max_bins_for_rate(bin_rate)
-        n_cells = len(self.cell_ids)
+        Returns:
+            None:
+                - sets self.binned_spikes to an (N_Cells x N_Epochs x N_frames) numpy array
+                or a list of lists of lists if N_frames is not the same length for every epoch.
+                - sets self.bin_rate to mean_frame_rate*stride
+                - sets time_bins_ms to a list of time bin values. Usually this uniform list is
+                correct, but if epochs are a different length, we use the longest epoch to set
+                this range.
 
-        binned_spikes = np.zeros((n_cells, self.n_epochs, n_max_bins))
-        ls_diff_frames = []
-        for i_cell in tqdm(self.df_spike_times.index, desc="Binning spikes for cells"):
-            sts = self.df_spike_times.at[i_cell, "spike_times"]
-            for j_epoch in range(self.n_epochs):
-                e_sts = sts[j_epoch]
-
-                fts = frame_times_ms[j_epoch]
-                fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
-                ls_diff_frames.append(np.diff(fts))
-
-                # Interpolate by stride
-                n_frames = len(fts)
-                stride_idxs = np.linspace(0, n_frames, n_frames * stride)
-                bin_edges = np.interp(stride_idxs, np.arange(n_frames), fts)
-
-                bs = np.histogram(e_sts, bins=bin_edges)[0]
-                if len(bs) > n_max_bins:
-                    bs = bs[:n_max_bins]
-                binned_spikes[i_cell, j_epoch, : len(bs)] = bs
-        self.df_spike_times["binned_spikes"] = [
-            binned_spikes[i_cell, :, :] for i_cell in range(n_cells)
-        ]
-
-        self.binned_spikes = binned_spikes
-
-        # Taken from SD. Compute the mean frame rate.
-        ls_diff_frames = np.concatenate(ls_diff_frames)
-        ls_diff_frames = ls_diff_frames[ls_diff_frames < 20.0]
-        mean_frame_rate = 1000.0 / np.mean(ls_diff_frames)
-        print(f"Mean frame rate: {mean_frame_rate:.2f} Hz\n")
-        self.mean_frame_rate = mean_frame_rate
-        self.bin_rate = bin_rate
-        self.time_bins_ms = np.arange(0, n_max_bins) / self.bin_rate * 1000  # in ms
+        Raises:
+            ValueError: if response block was captured by an LED stimulus, there are no frame times
+                so we raise a value error.
+        """
+        _bin_by_frames(
+            self,
+            mean_frame_rate=self.mean_frame_rate,
+            stride=stride,
+        )
 
     def bin_spike_times_at_rate(self, bin_rate: float, b_count: bool = True):
+
+        if self.b_LED:
+            raise ValueError(
+                "Cannot bin spike times for LED blocks."
+            )
+
         n_bins = self.get_max_bins_for_rate(bin_rate)
         time_bins = np.arange(n_bins + 1) / bin_rate * 1000  # in ms
-        n_cells = len(self.cell_ids)
+
+        # Don't pull this from cell_ids, because we kick out ids with no spike times
+        # from the df_spike_times.
+        n_cells = len(self.df_spike_times)
 
         binned_spikes = np.zeros((n_cells, self.n_epochs, n_bins))
         for i_cell in tqdm(self.df_spike_times.index, desc="Binning spikes for cells"):
@@ -746,7 +735,6 @@ class MEAResponseGroup:
                         for block in ls_blocks
                         for times in block.d_timing["frameTimesMs"]
                     ],
-                    "stage_frame_rate": ls_blocks[0].d_timing["stage_frame_rate"],
                     "actual_onset_times_ms": [
                         onsets
                         for block in ls_blocks
@@ -760,6 +748,19 @@ class MEAResponseGroup:
                 }
             )
 
+        for key in ls_blocks[0].d_display:
+            vals = [block.d_display[key] for block in ls_blocks]
+            if len(set(vals)) > 1:
+                warn(
+                    f'Not all response blocks have the same display specs.\n'
+                    f'Multiple unique {key} values: {list(set(vals))}\n' 
+                    f'Using {vals[0]}\n'
+                )
+
+        self.d_display = ls_blocks[0].d_display
+        self.mean_frame_rate = self.d_display['mean_frame_rate']
+
+        self.binned_spikes: list | np.ndarray | None = None
         self.ls_blocks = ls_blocks
         self.block_ids = [block.block_id for block in ls_blocks]
         self.exp_name = ls_blocks[0].exp_name
@@ -783,7 +784,11 @@ class MEAResponseGroup:
                 if ls_blocks[0].frame_sample_rate is None:
                     frame_monitor_data = [
                         get_epochblock_frame_data(
-                            block.exp_name, block.block_id, str_h5=block.h5_file
+                            block_data=get_block_data(
+                                block.exp_name,
+                                block_id=block.block_id,
+                            ),
+                            str_h5=block.h5_file
                         )
                         for block in ls_blocks
                     ]
@@ -1007,60 +1012,46 @@ class MEAResponseGroup:
         return n_max_bins
 
     def bin_spike_times_by_frames(self, stride: int = 1):
-        if self.b_LED:
-            raise ValueError(
-                "Cannot bin spike times by frames for LED blocks, no frame data."
-            )
+        """Class method for binning the spike times by frame times. Updated on 
+        2026-09-04 to a more accurate method that lives primarily in vision_utils.py
 
-        frame_times_ms = self.d_timing["frameTimesMs"]
-        if int(self.exp_name[:8]) < 20230926:
-            marginal_frame_rate = 60.31807657  # Upper bound on the frame rate to make sure that we don't miss any frames.
-        else:
-            marginal_frame_rate = 59.941548817817917  # Upper bound on the frame rate to make sure that we don't miss any frames.
-        bin_rate = marginal_frame_rate * stride  # in Hz
+        Args:
+            stride (optional): An integer step that can be used to interpolate and bin
+                at a multiple of the frame times.
 
-        n_max_bins = self.get_max_bins_for_rate(bin_rate)
-        n_cells = len(self.cell_ids)
+        Returns:
+            None:
+                - sets self.binned_spikes to an (N_Cells x N_Epochs x N_frames) numpy array
+                or a list of lists of lists if N_frames is not the same length for every epoch.
+                - sets self.bin_rate to mean_frame_rate*stride
+                - sets time_bins_ms to a list of time bin values. Usually this uniform list is
+                correct, but if epochs are a different length, we use the longest epoch to set
+                this range.
 
-        binned_spikes = np.zeros((n_cells, self.n_epochs, n_max_bins))
-        ls_diff_frames = []
-        for i_cell in tqdm(self.df_spike_times.index, desc="Binning spikes for cells"):
-            sts = self.df_spike_times.at[i_cell, "spike_times"]
-            for j_epoch in range(self.n_epochs):
-                e_sts = sts[j_epoch]
+        Raises:
+            ValueError: if response block was captured by an LED stimulus, there are no frame times
+                so we raise a value error.
+        """
 
-                fts = frame_times_ms[j_epoch]
-                fts, _ = check_frame_times(fts, frame_rate=marginal_frame_rate)
-                ls_diff_frames.append(np.diff(fts))
-
-                # Interpolate by stride
-                n_frames = len(fts)
-                stride_idxs = np.linspace(0, n_frames, n_frames * stride)
-                bin_edges = np.interp(stride_idxs, np.arange(n_frames), fts)
-
-                bs = np.histogram(e_sts, bins=bin_edges)[0]
-                if len(bs) > n_max_bins:
-                    bs = bs[:n_max_bins]
-                binned_spikes[i_cell, j_epoch, : len(bs)] = bs
-        self.df_spike_times["binned_spikes"] = [
-            binned_spikes[i_cell, :, :] for i_cell in range(n_cells)
-        ]
-
-        self.binned_spikes = binned_spikes
-
-        # Taken from SD. Compute the mean frame rate.
-        ls_diff_frames = np.concatenate(ls_diff_frames)
-        ls_diff_frames = ls_diff_frames[ls_diff_frames < 20.0]
-        mean_frame_rate = 1000.0 / np.mean(ls_diff_frames)
-        print(f"Mean frame rate: {mean_frame_rate:.2f} Hz\n")
-        self.mean_frame_rate = mean_frame_rate
-        self.bin_rate = bin_rate
-        self.time_bins_ms = np.arange(0, n_max_bins) / self.bin_rate * 1000  # in ms
+        _bin_by_frames(
+            self,
+            mean_frame_rate = self.mean_frame_rate,
+            stride=stride,
+        )
 
     def bin_spike_times_at_rate(self, bin_rate: float, b_count: bool = True):
+
+        if self.b_LED:
+            raise ValueError(
+                "Cannot bin spike times for LED blocks."
+            )
+
         n_bins = self.get_max_bins_for_rate(bin_rate)
         time_bins = np.arange(n_bins + 1) / bin_rate * 1000  # in ms
-        n_cells = len(self.cell_ids)
+
+        # Don't pull this from cell_ids, because we kick out ids with no spike times
+        # from the df_spike_times.
+        n_cells = len(self.df_spike_times)
 
         binned_spikes = np.zeros((n_cells, self.n_epochs, n_bins))
         for i_cell in tqdm(self.df_spike_times.index, desc="Binning spikes for cells"):
@@ -1111,7 +1102,6 @@ def create_mea_response_group(
     ls_datafile_names: List[str],
     ss_version: str = "kilosort2.5",
     b_load_fd: bool = False,
-    b_LED: bool | None = None,
     b_load_vcd: bool = True,
     verbose: bool = False,
 ):
@@ -1129,10 +1119,6 @@ def create_mea_response_group(
 
         b_load_fd (bool): Boolean value, if True will load and included frame monitor data. Default False.
 
-        b_LED (bool | None): Whether the stimuli for these datafiles were delivered by an LED.
-        Inferred from the epoch block; pass a value only to assert it, which raises on
-        disagreement. LED blocks force b_load_fd to False.
-
         b_load_vcd (bool): Boolean value, if True will load the vision data table.
             Mainly for debugging purposes to skip load time.
 
@@ -1149,7 +1135,6 @@ def create_mea_response_group(
             exp_name,
             datafile_name,
             ss_version=ss_version,
-            b_LED=b_LED,
             b_load_fd=b_load_fd,
             verbose=verbose,
             b_load_vcd=b_load_vcd,
@@ -1161,56 +1146,44 @@ def create_mea_response_group(
         ls_blocks=response_blocks, b_load_fd=b_load_fd, verbose=verbose
     )
 
+def _bin_by_frames(
+    obj: MEAResponseBlock | MEAResponseGroup,
+    *,
+    mean_frame_rate: float | None = None,
+    stride: int = 1,
+):
 
-def check_frame_times(frame_times: np.ndarray | list, frame_rate: float = 60.0):
-    """
-    Check the frame times for dropped frames.
+    if obj.b_LED:
+        raise ValueError(
+            "Cannot bin spike times by frames for LED blocks, no frame data."
+        )
 
-    Parameters:
-        frame_times (ndarray): 1D array of frame times.
+    frame_times = obj.d_timing['frameTimesMs']
+    spike_times = obj.df_spike_times['spike_times'].to_list()
 
-        frame_rate (float): frame rate of the stimulus in Hz. Default is 60.
+    binned_spikes = _bin_spike_times_by_frames(
+        frame_times=frame_times,
+        spike_times = spike_times,
+        mean_frame_rate=mean_frame_rate,
+        stride = stride,
+    )
 
-    Returns:
-        frame_times (ndarray): 1D array of frame times with dropped frames fixed.
-    """
-    # check that frame_times is an array not a list. Conver to array if not.
-    if not isinstance(frame_times, np.ndarray):
-        frame_times = np.array(frame_times)
+    # Don't pull this from cell_ids, because we kick out ids with no spike times
+    # from the df_spike_times.
+    n_cells = len(obj.df_spike_times)
 
-    # Get the frame durations in milliseconds.
-    frame_interval = 1000 / frame_rate
-    d_frames = np.diff(frame_times)
-    # Get the number of frames between transitions/check for drops.
-    transition_frames = np.round(d_frames / frame_interval).astype(
-        np.int32
-    )  # this was backwards... frame_interval/d_frames
-    # prints 1 wherever there is a missing frame and
-    # a zero everywhere else...
-
-    # Check for frame drops.
-    if np.amax(transition_frames) > 1:
-        n_frames = np.sum(transition_frames) + 1
-        # print(f'Number of frames: {n_frames}')
-        # print(list(transition_frames))
-
-        f_times = np.zeros((n_frames,), dtype=np.float64)
-        frame_count = 0
-        for idx in range(len(frame_times) - 1):
-            if transition_frames[idx] > 1:
-                this_frame = frame_times[idx]
-                next_frame = frame_times[idx + 1]
-                new_times = np.linspace(
-                    this_frame, next_frame, transition_frames[idx], endpoint=False
-                )
-                for new_t in new_times:
-                    f_times[frame_count] = new_t
-                    frame_count += 1
-            else:
-                f_times[frame_count] = frame_times[idx]
-                frame_count += 1
-            # Add in the last frame time.
-            f_times[-1] = frame_times[-1]
-        return f_times, transition_frames
+    if isinstance(binned_spikes, np.ndarray):
+        obj.df_spike_times["binned_spikes"] = [
+            binned_spikes[i_cell, :, :] for i_cell in range(n_cells)
+        ]
     else:
-        return frame_times, transition_frames
+        obj.df_spike_times["binned_spikes"] = [
+            binned_spikes[i_cell] for i_cell in range(n_cells)
+        ]
+    n_max_bins = (max(len(e) for cell in binned_spikes for e in cell))
+    obj.binned_spikes = binned_spikes
+
+
+    assert obj.mean_frame_rate is not None, 'Mean frame rate for is none, cannot compute bin_rate'
+    obj.bin_rate = obj.mean_frame_rate*stride
+    obj.time_bins_ms = np.arange(n_max_bins) / obj.bin_rate * 1000
