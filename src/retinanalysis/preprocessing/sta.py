@@ -185,7 +185,7 @@ def get_stim_response_groups(
 
     sg = create_mea_stim_group(exp_name, datafile_name, verbose=verbose)
     rg = create_mea_response_group(
-        exp_name, datafile_name, ss_version, b_load_fd=True, verbose=verbose
+        exp_name, datafile_name, ss_version, verbose=verbose
     )
     return sg, rg
 

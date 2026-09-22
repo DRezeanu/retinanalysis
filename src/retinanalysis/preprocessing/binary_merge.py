@@ -19,10 +19,10 @@ def merge_binary(
     verbose: bool = True,
 ):
     """
-        Function for merging binary data from a list of datafiles into a concatenated\
-        bin file named chunk_name.bin. The output file will be saved in the directory\
-        output_dir/exp_name/chunk_name/ss_version/ along with a chunk_name.csv file\
-        that contains the start index, stop index, and total number of points for\
+        Function for merging binary data from a list of datafiles into a concatenated
+        bin file named chunk_name.bin. The output file will be saved in the directory
+        output_dir/exp_name/chunk_name/ss_version/ along with a chunk_name.csv file
+        that contains the start index, stop index, and total number of points for
         each included datafile.
 
         Args:
@@ -30,24 +30,24 @@ def merge_binary(
             
             chunk_name (str): The name of the output chunk (e.g. chunk1)
 
-            datafiles (List[str]): List of datafiles to concatenate (e.g. ['data000',\
+            datafiles (List[str]): List of datafiles to concatenate (e.g. ['data000',
             'data001']
 
             raw_dir (str) Optional: Path to raw directory. Default is retinanalysis RAW_DIR
 
-            output_dir (str) Optional: Path to output_directory. Default is retinanalysis \
+            output_dir (str) Optional: Path to output_directory. Default is retinanalysis 
             DATA_DIR
 
             ss_version (str) Optional: Spike sorter used. Default is kilosort2.5
 
-            overwrite (bool) Optional: If true, will overwrite the 'chunk_name.bin' binary \
+            overwrite (bool) Optional: If true, will overwrite the 'chunk_name.bin' binary 
             file if one already exists in the output directory. Default is False.
 
-            verbose (bool) Optional: If true, will print status messages to console. \
+            verbose (bool) Optional: If true, will print status messages to console. 
             Default is True.
 
         Returns:
-            None: This function does not return anything. It will write a chunk_name.bin \
+            None: This function does not return anything. It will write a chunk_name.bin 
             and chunk_name.csv file to the given output_directory as described above.
     """
     if output_dir is None:
@@ -135,7 +135,6 @@ def merge_binary(
             partial_path.unlink(missing_ok=True)
 
     os.replace(partial_path, output_binary)
-
 
     headers = ["Datafile", "Start Idx", "Stop Idx", "Num Points"]
 

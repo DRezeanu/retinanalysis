@@ -380,6 +380,12 @@ class MEAStimGroup:
         ):
             raise ValueError("All StimBlocks must have the same chunk_name")
 
+        if not all(
+            block.d_display['mode'] == ls_blocks[0].d_display['mode']
+            for block in ls_blocks
+        ):
+            raise ValueError('All StimBlocks must use the same display mode.')
+
         datafile_names = [block.datafile_name for block in ls_blocks]
         if len(set(datafile_names)) != len(datafile_names):
             raise ValueError(
@@ -396,9 +402,16 @@ class MEAStimGroup:
         # block to block.
         self.d_epoch_block_params = dict()
         for key in ls_blocks[0].d_epoch_block_params.keys():
-            concatenated_values = np.array(
-                [block.d_epoch_block_params[key] for block in ls_blocks]
-            )
+            vals = []
+            for block in ls_blocks:
+                val = block.d_epoch_block_params[key]
+                if isinstance(val, list) or isinstance(val, np.ndarray):
+                    vals.extend(val)
+                else:
+                    vals.append(val)
+
+            concatenated_values = np.array(vals)
+
             if np.all(concatenated_values == concatenated_values[0]):
                 concatenated_values = concatenated_values[0]
             self.d_epoch_block_params[key] = concatenated_values
@@ -415,13 +428,22 @@ class MEAStimGroup:
         self.d_display = ls_blocks[0].d_display
 
         for key in ls_blocks[0].d_display:
-            vals = [block.d_display[key] for block in ls_blocks]
-            if len(set(vals)) > 1:
-                warn(
-                    f'Not all stim blocks have the same display specs.\n'
-                    f'Multiple unique {key} values: {list(set(vals))}\n' 
-                    f'Using {vals[0]}\n'
-                )
+            if key == 'mean_frame_rate':
+                vals = np.array([block.d_display[key] for block in ls_blocks])
+                if not np.allclose(vals, vals[0]):
+                    warn(
+                        f'Not all stim blocks have the same display specs.\n'
+                        f'Multiple unique {key} values: {list(set(vals))}\n' 
+                        f'Using {vals[0]}\n'
+                    )
+            else:
+                vals = [block.d_display[key] for block in ls_blocks]
+                if len(set(vals)) > 1:
+                    warn(
+                        f'Not all stim blocks have the same display specs.\n'
+                        f'Multiple unique {key} values: {list(set(vals))}\n' 
+                        f'Using {vals[0]}\n'
+                    )
 
         self.df_epochs.insert(0, "epoch_index", self.df_epochs.index.values)
         self.parameter_names = list(self.df_epochs.at[0, "epoch_parameters"].keys())

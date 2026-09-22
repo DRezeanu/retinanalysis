@@ -1,6 +1,5 @@
 from __future__ import annotations
 import gc
-import xarray as xr
 import visionwriter as vw
 import numpy as np
 import argparse
@@ -15,7 +14,6 @@ from subprocess import run as sp_run
 from multiprocessing import cpu_count
 import pandas as pd
 from pathlib import Path
-from .raw_data_loader import RawDataContainer
 from .sta import (
     get_data_for_chunk,
     compute_stas_for_chunk,
@@ -33,7 +31,7 @@ NOISE_PROTOCOLS = [
 NUM_SAMPLES = 20000
 SAMPLES_PER_MS = NUM_SAMPLES / 1e3
 
-def load_ks_data(ks_location: str, include_mua: bool = True):
+def load_ks_data(ks_location: str, include_mua: bool = False):
     """
     Helper function that loads kilosort spike times and associates them with their cluster IDs.
     For now filters out all IDs listed as 'MUA' by Kilosort's 'cluster_group.tsv' output.
@@ -95,12 +93,13 @@ def ks_chunk_to_vision(
     raw_data_dir: str | None = None,
     ks_data_dir: str | None = None,
     ks_version: str = 'kilosort2.5',
-    include_mua: bool = True,
+    include_mua: bool = False,
     compute_datafile_stas: bool = False,
     overwrite_existing: bool = False,
     sta_streaming: bool = False,
     sta_chunk_size: float = 1,
     sta_crop_fraction: float | None = None,
+    sta_epochs_per_batch: int = 4,
     verbose: bool = True,
 ):
     """Function for generating vision files from the kilosort sorter outputs for a sorting chunk.
@@ -183,7 +182,7 @@ def ks_chunk_to_vision(
         if verbose:
             print(
                 '\n---------------------------------------------------------\n'
-                f'***Creating Vision Files for {exp_name} {datafile}...***'
+                f'***Creating Vision Files for {exp_name} {datafile}...***\n'
                 '---------------------------------------------------------\n'
             )
         ks_datafile_to_vision(
@@ -200,6 +199,7 @@ def ks_chunk_to_vision(
             sta_streaming = sta_streaming,
             sta_chunk_size = sta_chunk_size,
             sta_crop_fraction = sta_crop_fraction,
+            sta_epochs_per_batch = sta_epochs_per_batch,
             verbose=verbose,
         )
 
@@ -296,6 +296,10 @@ def ks_chunk_to_vision(
                     sg = d_data['sg'],
                     rg=d_data['rg'],
                     ss_version=ks_version,
+                    streaming=sta_streaming,
+                    chunk_size=sta_chunk_size,
+                    crop_fraction=sta_crop_fraction,
+                    max_epochs_per_batch=sta_epochs_per_batch,
                 )
 
                 sta_height, sta_width = sta_dict['stas'].shape[2], sta_dict['stas'].shape[3]
@@ -388,12 +392,13 @@ def ks_datafile_to_vision(
     raw_data_dir: str | None = None,
     ks_data_dir: str | None = None,
     ks_version: str = 'kilosort2.5',
-    include_mua: bool = True,
+    include_mua: bool = False,
     overwrite_existing: bool = False,
     compute_sta: bool = False,
     sta_streaming: bool = False,
     sta_chunk_size: float = 1,
     sta_crop_fraction: float | None = None,
+    sta_epochs_per_batch: int = 4,
     verbose: bool = True,
 ):
     """Function for generating vision files from the kilosort sorter outputs for an individual datafile.
@@ -584,6 +589,7 @@ def ks_datafile_to_vision(
                     streaming=sta_streaming,
                     chunk_size=sta_chunk_size,
                     crop_fraction=sta_crop_fraction,
+                    max_epochs_per_batch=sta_epochs_per_batch,
                 )
 
                 sta_height, sta_width = sta_dict['stas'].shape[2], sta_dict['stas'].shape[3]

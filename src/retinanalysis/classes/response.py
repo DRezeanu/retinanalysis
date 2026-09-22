@@ -749,13 +749,22 @@ class MEAResponseGroup:
             )
 
         for key in ls_blocks[0].d_display:
-            vals = [block.d_display[key] for block in ls_blocks]
-            if len(set(vals)) > 1:
-                warn(
-                    f'Not all response blocks have the same display specs.\n'
-                    f'Multiple unique {key} values: {list(set(vals))}\n' 
-                    f'Using {vals[0]}\n'
-                )
+            if key == 'mean_frame_rate':
+                vals = np.array([block.d_display[key] for block in ls_blocks])
+                if not np.allclose(vals, vals[0]):
+                    warn(
+                        f'Not all response blocks have the same display specs.\n'
+                        f'Multiple unique {key} values: {list(set(vals))}\n' 
+                        f'Using {vals[0]}\n'
+                    )
+            else:
+                vals = [block.d_display[key] for block in ls_blocks]
+                if len(set(vals)) > 1:
+                    warn(
+                        f'Not all response blocks have the same display specs.\n'
+                        f'Multiple unique {key} values: {list(set(vals))}\n' 
+                        f'Using {vals[0]}\n'
+                    )
 
         self.d_display = ls_blocks[0].d_display
         self.mean_frame_rate = self.d_display['mean_frame_rate']
@@ -1106,7 +1115,7 @@ def create_mea_response_group(
     ss_version: str = "kilosort2.5",
     b_load_fd: bool = False,
     b_load_vcd: bool = True,
-    verbose: bool = False,
+    verbose: bool = True,
 ):
     """
     Helper function for creating an MEA Response Group from a list of datafiles. The function creates all of the
