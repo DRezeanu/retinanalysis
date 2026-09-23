@@ -1121,6 +1121,12 @@ def make_bars_and_gain(
     numChecksYs = matlab.double(
         [df_epochs["epoch_parameters"][i]["numChecksY"] for i in df_epochs.index]
     )
+    # noiseType option added on 2026-09-23, before it's gaussian
+    if exp_date  < 20260923:
+        noiseType = 'gaussian'
+    else:
+        noiseType = df_epochs.loc[0, 'noiseType']
+    
     # if exp_date < 20250806:
     if b_lines_only:
         _, line_mat = eng.util.regenerateVariableMeanBars(
@@ -1134,6 +1140,7 @@ def make_bars_and_gain(
             backgroundIntensity,
             frameDwell,
             binaryNoise,
+            noiseType,
             noiseStdv,
             low_means,
             high_means,
@@ -1157,6 +1164,7 @@ def make_bars_and_gain(
             backgroundIntensity,
             frameDwell,
             binaryNoise,
+            noiseType,
             noiseStdv,
             low_means,
             high_means,
