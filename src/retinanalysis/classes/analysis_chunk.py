@@ -195,16 +195,20 @@ class AnalysisChunk:
             "protocol_id": self.protocol_id,
         }
         epoch_block_ids = epoch_blocks.to_arrays("id")
-        epochs = [
-            schema.Epoch() & {"experiment_id": self.exp_id, "parent_id": block_id}
+        epoch_dfs = [
+            (schema.Epoch() & {"experiment_id" : self.exp_id, "parent_id" : block_id})
+            .to_pandas()
+            .reset_index()
             for block_id in epoch_block_ids
         ]
+        epochs = pd.concat(epoch_dfs).reset_index(drop=True)
 
         numXChecks = np.array(
-            [epoch.to_arrays("parameters")[0]["numXChecks"] for epoch in epochs]
+            [epochs.at[epoch, 'parameters']['numXChecks'] for epoch in epochs.index]
         )
+
         numYChecks = np.array(
-            [epoch.to_arrays("parameters")[0]["numYChecks"] for epoch in epochs]
+            [epochs.at[epoch, 'parameters']['numYChecks'] for epoch in epochs.index]
         )
 
         if not all(element == numXChecks[0] for element in numXChecks) and not all(
@@ -215,22 +219,57 @@ class AnalysisChunk:
             )
 
             vision_micronsPerStixel = self.vcd.runtimemovie_params.micronsPerStixelX
+
             gridSizes = np.array(
-                [epoch.to_arrays("parameters")[0]["gridSize"] for epoch in epochs]
+                [epochs.at[epoch, 'parameters']['gridSize'] for epoch in epochs.index]
             )
 
-            self.numXChecks = int(numXChecks[gridSizes == vision_micronsPerStixel])
-            self.numYChecks = int(numYChecks[gridSizes == vision_micronsPerStixel])
+            numXChecks = numXChecks[gridSizes == vision_micronsPerStixel]
+            numYChecks = numYChecks[gridSizes == vision_micronsPerStixel]
 
-        else:
-            self.numXChecks = int(numXChecks[0])
-            self.numYChecks = int(numYChecks[0])
+            assert all(element == numXChecks[0] for element in numXChecks), (
+                'Different number of X checks for epochs with the same grid size, '
+                'something went wrong.'
+            )
+            assert all(element == numYChecks[0] for element in numYChecks), (
+                'Different number of Y checks for epochs with the same grid size, '
+                'something went wrong.'
+            )
+
+        self.numXChecks = int(numXChecks[0])
+        self.numYChecks = int(numYChecks[0])
 
         self.deltaXChecks = int((self.numXChecks - self.staXChecks) / 2)
         self.deltaYChecks = int((self.numYChecks - self.staYChecks) / 2)
 
-        self.microns_per_pixel = epochs[0].to_arrays("parameters")[0]["micronsPerPixel"]
-        self.canvas_size = epochs[0].to_arrays("parameters")[0]["canvasSize"]
+        self.microns_per_pixel = epochs.at[0,"parameters"]["micronsPerPixel"]
+        self.canvas_size = [int(dim) for dim in epochs.at[0, "parameters"]["canvasSize"]]
+        self.grid_size_um = epochs.at[0, "parameters"]["gridSize"]
+
+        stixel_size = np.unique([epochs.at[epoch, "parameters"]['stixelSize'] for epoch in epochs.index])
+        steps_per_stixel = np.unique([epochs.at[epoch, "parameters"]["stepsPerStixel"] for epoch in epochs.index])
+        numXStixels = np.unique([epochs.at[epoch, "parameters"]["numXStixels"] for epoch in epochs.index])
+        numYStixels = np.unique([epochs.at[epoch, "parameters"]["numYStixels"] for epoch in epochs.index])
+
+        if all(element == stixel_size[0] for element in stixel_size):
+            self.stixel_size = stixel_size[0]
+        else:
+            self.stixel_size = stixel_size
+
+        if all(element == steps_per_stixel[0] for element in steps_per_stixel):
+            self.steps_per_stixel = int(steps_per_stixel[0])
+        else:
+            self.steps_per_stixel = [int(sps) for sps in steps_per_stixel]
+
+        if all(element == numXStixels[0] for element in numXStixels):
+            self.numXStixels = int(numXStixels[0])
+        else:
+            self.numXStixels = [int(nxs) for nxs in numXStixels]
+
+        if all(element == numYStixels[0] for element in numYStixels):
+            self.numYStixels = int(numYStixels[0])
+        else:
+            self.numYStixels = [int(nys) for nys in numYStixels]
 
         # Pull noise data file names
         noise_data_dirs = epoch_blocks.to_arrays("data_dir")
@@ -1239,11 +1278,16 @@ class AnalysisChunk:
             f"  d_ISIs dictionary containing ISIs for {len(self.cell_ids)} cell IDs\n"
         )
         str_self += f"  d_timecourses dictionary containing dictionary with 'red' 'green' and 'blue' timecourses for {len(self.cell_ids)} cell IDs\n"
+        str_self += f"  canvas_size: {self.canvas_size}\n"
+        str_self += f"  stixel_size: {self.stixel_size}\n"
+        str_self += f"  grid_size_um: {self.grid_size_um}\n"
+        str_self += f"  steps_per_stixel: {self.steps_per_stixel}\n"
         str_self += f"  numXChecks: {self.numXChecks}\n"
         str_self += f"  numYChecks: {self.numYChecks}\n"
         str_self += f"  staXChecks: {self.staXChecks}\n"
         str_self += f"  staYChecks: {self.staYChecks}\n"
-        str_self += f"  canvas_size: {self.canvas_size}\n"
+        str_self += f"  numXStixels: {self.numXStixels}\n"
+        str_self += f"  numYStixels: {self.numYStixels}\n"
         str_self += f"  microns_per_pixel: {self.microns_per_pixel}\n"
         str_self += f"  cell_ids of length: {len(self.cell_ids)}\n"
         str_self += f"  rf_params with fields: {list(self.rf_params[self.cell_ids[0]].keys())}\n"
