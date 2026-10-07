@@ -425,7 +425,7 @@ def get_ells(
     d_cells_by_type: Dict[str, List[int]],
     std_scaling: float = 1.6,
     units: str = "pixels",
-) -> Tuple[Dict[str, dict], int]:
+) -> Tuple[Dict[str, dict], float]:
 
     if "microns" in units.lower():
         scale_factor = analysis_chunk.microns_per_stixel
