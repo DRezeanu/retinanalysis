@@ -430,7 +430,7 @@ class MEAStimGroup:
         for key in ls_blocks[0].d_display:
             if key == 'mean_frame_rate':
                 vals = np.array([block.d_display[key] for block in ls_blocks])
-                if not np.allclose(vals, vals[0]):
+                if not np.allclose(vals, vals[0], atol=0.005):
                     warn(
                         f'Not all stim blocks have the same display specs.\n'
                         f'Multiple unique {key} values: {list(set(vals))}\n' 

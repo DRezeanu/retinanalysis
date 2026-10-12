@@ -268,7 +268,7 @@ def make_spatial_noise(
 
     # Iterate over epochs
     ls_steps = []
-    for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index))):
+    for i, e_idx in tqdm.tqdm(list(enumerate(df_epochs.index)), desc = f"Regenerating {n_epochs} epochs: ", leave = False):
         d_e_params = df_epochs.at[e_idx, "epoch_parameters"]
 
         d_meta = _build_spatial_noise_epoch_dict(

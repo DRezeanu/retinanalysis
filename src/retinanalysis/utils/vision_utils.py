@@ -737,7 +737,7 @@ def bin_spike_times_by_frames(
 
     binned_times = []
     # For each cell's spike times
-    for all_sts in tqdm(spike_times):
+    for all_sts in tqdm(spike_times, desc="Binning spike times: ", leave=False):
         cell_times = []
         # For each epoch of times for that cell
         for e_idx, e_sts in enumerate(all_sts):
