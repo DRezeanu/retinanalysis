@@ -380,11 +380,21 @@ class MEAStimGroup:
         ):
             raise ValueError("All StimBlocks must have the same chunk_name")
 
+        # TODO: Decide if it's okay to make stim groups from a combination of
+        # pattern and video mode blocks. This is a problem for sorting chunks where
+        # video mode and pattern mode noise are combined, but basically nowhere else.
+        # For now we're just throwing a warning.
         if not all(
             block.d_display['mode'] == ls_blocks[0].d_display['mode']
             for block in ls_blocks
         ):
-            raise ValueError('All StimBlocks must use the same display mode.')
+            # raise ValueError('All StimBlocks must use the same display mode.')
+            warn(
+                'Not all StimBlocks used the same display mode. This can break '
+                'some analyses.\n'
+                '    - Modes by block: '
+                f'{[(idx, block.d_display["mode"]) for idx, block in enumerate(ls_blocks)]}'
+            )
 
         datafile_names = [block.datafile_name for block in ls_blocks]
         if len(set(datafile_names)) != len(datafile_names):
