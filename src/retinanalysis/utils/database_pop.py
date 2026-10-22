@@ -779,8 +779,9 @@ def append_data(
         # not in database, add to database
         with open(meta, "r") as f:
             meta_dict = json.load(f)
-        with open(tags, "r") as f:
-            tags_dict = json.load(f)
+        tags_dict = {}
+        # with open(tags, "r") as f:
+        #     tags_dict = json.load(f)
         append_experiment(meta, data, tags, meta_dict, user, tags_dict)
         records_added += 1
         ls_new_exp.append(exp_name)
