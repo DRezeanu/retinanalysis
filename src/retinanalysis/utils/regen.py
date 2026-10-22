@@ -1125,8 +1125,8 @@ def make_bars_and_gain(
     if exp_date  < 20260923:
         noiseType = 'gaussian'
     else:
-        noiseType = df_epochs.loc[0, 'noiseType']
-    
+        noiseType = df_epochs["epoch_parameters"][0]['noiseType']
+    print(f'Regenerating with detected noiseType: {noiseType}')    
     # if exp_date < 20250806:
     if b_lines_only:
         _, line_mat = eng.util.regenerateVariableMeanBars(
