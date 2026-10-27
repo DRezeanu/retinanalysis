@@ -561,7 +561,7 @@ def get_spike_xarr(
 
     for ct in cell_types:
         if len(filtered_df.query("cell_type == @ct").values) < minimum_n:
-            print(
+            tqdm.write(
                 f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})..."
             )
             indices = filtered_df.query("cell_type == @ct").index
@@ -623,7 +623,7 @@ def get_spike_dict(
 
     for ct in cell_types:
         if len(filtered_df.query("cell_type == @ct").values) < minimum_n:
-            print(
+            tqdm.write(
                 f"Removing {ct} from spike time array, too few cells (n = {len(filtered_df.query('cell_type==@ct').values)})..."
             )
             indices = filtered_df.query("cell_type == @ct").index
