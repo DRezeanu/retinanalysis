@@ -1072,6 +1072,16 @@ def make_bars_and_gain(
 ):
 
     exp_date = int(exp_name[:8])
+    # noiseType option added on 2026-09-23, before it's gaussian
+    if exp_date  < 20260923:
+        noiseType = 'gaussian'
+    else:
+        noiseType = df_epochs["epoch_parameters"][0]['noiseType']
+    print(f'Regenerating with detected noiseType: {noiseType}')    
+    # Before 20260929, uniform dist seed was not recoverable
+    if noiseType == 'uniform' and exp_date < 20260929:
+        raise ValueError(f'For {exp_date} uniform noise seed is not recoverable! Unless you can somehow uncover the seed sequence on Rig C...')
+
     import matlab.engine  # type: ignore
 
     print("Starting matlab engine for stim regen.")
@@ -1121,13 +1131,7 @@ def make_bars_and_gain(
     numChecksYs = matlab.double(
         [df_epochs["epoch_parameters"][i]["numChecksY"] for i in df_epochs.index]
     )
-    # noiseType option added on 2026-09-23, before it's gaussian
-    if exp_date  < 20260923:
-        noiseType = 'gaussian'
-    else:
-        noiseType = df_epochs["epoch_parameters"][0]['noiseType']
-    print(f'Regenerating with detected noiseType: {noiseType}')    
-    # if exp_date < 20250806:
+
     if b_lines_only:
         _, line_mat = eng.util.regenerateVariableMeanBars(
             b_lines_only,
