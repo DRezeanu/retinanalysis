@@ -218,9 +218,11 @@ class AnalysisChunk:
             gridSizes = np.array(
                 [epoch.to_arrays("parameters")[0]["gridSize"] for epoch in epochs]
             )
-
-            self.numXChecks = int(numXChecks[gridSizes == vision_micronsPerStixel])
-            self.numYChecks = int(numYChecks[gridSizes == vision_micronsPerStixel])
+            
+            i_vision_gridSize = np.where(gridSizes == vision_micronsPerStixel)[0][0]
+            print(numXChecks, gridSizes, vision_micronsPerStixel, i_vision_gridSize)
+            self.numXChecks = int(numXChecks[i_vision_gridSize])
+            self.numYChecks = int(numYChecks[i_vision_gridSize])
 
         else:
             self.numXChecks = int(numXChecks[0])
